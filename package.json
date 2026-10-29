@@ -30,6 +30,7 @@
     "mcp:import": "tsx scripts/mcp-import.ts",
     "graph:export": "tsx scripts/export-vault.ts",
     "graph:sync": "tsx scripts/graph-sync.ts",
+    "graph:direction": "tsx scripts/graph-direction.ts",
     "graph:mine": "tsx scripts/graph-mine.ts",
     "graph:reset": "tsx scripts/graph-reset.ts",
     "knowledge:reindex": "tsx scripts/knowledge-reindex.ts",

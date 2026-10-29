@@ -28,7 +28,11 @@ import { errorForObservation, hashForObservation, memoryObservability } from './
 import { cutCJK } from './fts-tokenizer.js';
 // The graph layer owns "is this string a name or a phrase"; reusing it keeps the
 // write path and the projection from disagreeing about what may be an endpoint.
-import { isTokenAlignedMention, isVouchableEntityName } from '../graph/entity-mining.js';
+import {
+  directionOf,
+  isTokenAlignedMention,
+  isVouchableEntityName,
+} from '../graph/entity-mining.js';
 
 import surnames from './data/chinese-surnames.json' with { type: 'json' };
 import stopWords from './data/entity-stop-words.json' with { type: 'json' };
@@ -386,6 +390,9 @@ const LLM_TRIPLE_PROMPT = [
   '- evidence is the shortest span of the text that states this relation, copied',
   '  character for character, and it must contain BOTH subject and object',
   '- a pair the text merely mentions is NOT a relation — omit it',
+  '- subject is the actor or the owner: write "X uses Y", never "Y uses X". A',
+  '  passive sentence ("Y 被 X 使用", "Y was built by X") states the same relation',
+  '  in that order, so invert it to the active form instead of copying the order',
   '- no relation stated anywhere -> output []',
   '- no prose, no markdown fences',
 ].join('\n');
@@ -517,6 +524,19 @@ function readTriple(value: unknown, text: string): EntityTriple | null {
     // span it quoted contains excel-mcp but not "Excel 相关操作".
     if (!quoted.includes(subjectKey) || !quoted.includes(objectKey)) return null;
   }
+
+  // Word order. Every gate above proves the two names and the predicate are in
+  // the memory; none of them notices which way round the model wrote them, and
+  // `Power Query —USES→ excel-mcp` is then an edge that closes the true one.
+  // The quoted span is the narrowest statement available, so it is judged first;
+  // when it cannot answer (it may drop the verb) the whole memory is asked
+  // instead. Only a provable reversal refuses — an unmeasurable direction is not
+  // a disproven one, and this is the one gate whose `unknown` stays admissible.
+  const quotedDirection =
+    evidence === undefined ? 'unknown' : directionOf(evidence, relation, subject, object);
+  const direction =
+    quotedDirection === 'unknown' ? directionOf(text, relation, subject, object) : quotedDirection;
+  if (direction === 'reversed') return null;
 
   const confidence =
     typeof obj.confidence === 'number' && Number.isFinite(obj.confidence)

@@ -81,6 +81,79 @@ describe('graph-prune: evicting what the current rules refuse', () => {
     expect(count('entity_edges')).toBe(1);
   });
 
+  it('deletes an edge its memory states the other way round', () => {
+    // Word order is the gate that was missing: everything else about this row is
+    // sound — both names are real, the predicate is between them — and the model
+    // simply wrote the triple backwards. Keeping it would close the true edge.
+    seedMemory('m11', '通过 Power Query 使用 excel-mcp 读取表格。');
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'Power Query', entityType: 'concept' });
+    repo.linkEntities({
+      sourceId: a.id,
+      targetId: b.id,
+      relationType: 'USES',
+      confidence: 0.9,
+      sourceMemoryId: 'm11',
+    });
+
+    const summary = selfHealGraph(db);
+
+    expect(summary.edgesPruned).toBe(1);
+    expect(count('entity_edges')).toBe(0);
+  });
+
+  it('keeps the same edge when the memory states it the right way round', () => {
+    seedMemory('m12', '通过 excel-mcp 使用 Power Query 读取表格。');
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'Power Query', entityType: 'concept' });
+    repo.linkEntities({
+      sourceId: a.id,
+      targetId: b.id,
+      relationType: 'USES',
+      confidence: 0.9,
+      sourceMemoryId: 'm12',
+    });
+
+    expect(selfHealGraph(db).edgesPruned).toBe(0);
+    expect(count('entity_edges')).toBe(1);
+  });
+
+  it('keeps an edge whose direction the memory does not state', () => {
+    // The predicate is there but before both names (`使用 A 和 B`), so the order
+    // is unmeasurable. Refusing that would be treating "cannot tell" as "wrong",
+    // which is the fail-open rule the other gates already follow.
+    seedMemory('m13', '使用 excel-mcp 和 Power Query 一起处理表格。');
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'Power Query', entityType: 'concept' });
+    repo.linkEntities({
+      sourceId: a.id,
+      targetId: b.id,
+      relationType: 'USES',
+      confidence: 0.9,
+      sourceMemoryId: 'm13',
+    });
+
+    expect(selfHealGraph(db).edgesPruned).toBe(0);
+    expect(count('entity_edges')).toBe(1);
+  });
+
+  it('deletes an edge whose source memory is gone, unchanged by the direction check', () => {
+    // No text means no order: the direction gate must not add a second reason to
+    // delete, and the existing "no memory attests this" rule still decides.
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'Power Query', entityType: 'concept' });
+    db.prepare(
+      `INSERT INTO entity_edges (id, source_entity_id, target_entity_id, relation_type,
+                                 confidence, valid_from, source_memory_id)
+       VALUES ('e-missing', ?, ?, 'USES', 0.9, ?, 'no-such-memory')`,
+    ).run(a.id, b.id, T);
+
+    // The join is LEFT JOIN memories, so a missing source produces no content and
+    // `attestsRelation` fails open on empty text — the row survives this pass.
+    selfHealGraph(db);
+    expect(count('entity_edges')).toBe(1);
+  });
+
   it('leaves closed edges alone — a retracted fact is still history', () => {
     seedMemory('m3', '代理已创建 file_info.xlsx，和 Power Query 无关，但那句话里有 Excel。');
     const excel = repo.upsertEntity({ name: 'Excel', entityType: 'concept' });

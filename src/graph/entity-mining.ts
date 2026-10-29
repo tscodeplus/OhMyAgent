@@ -242,6 +242,9 @@ export function isVouchableEntityName(name: string | null | undefined): boolean 
  * disproven, and rejecting it would forbid an LLM from ever using its own
  * vocabulary (and would silently drop `LIKES`, which the projector's own
  * contradiction tests rely on).
+ *
+ * Admissibility only — word order is {@link directionOf}'s business, and it is
+ * checked separately because this function's distance measure is symmetric.
  */
 export const RELATION_EVIDENCE_WINDOW = 60;
 
@@ -260,6 +263,185 @@ const RELATION_EVIDENCE: Record<string, RegExp> = {
     /属于|一部分|组件|子集|内置|自带|包含在|part of|component of|subset of|included in|built into/i,
   EXTENDS: /扩展|基于.{0,8}(开发|实现|构建)|继承|二次开发|fork|forks|extends?|built on top of/i,
 };
+
+/**
+ * Which way round the text states `(subject, relation, target)`.
+ *
+ * `attestsRelation` measures distance, which is symmetric: `A —USES→ B` and
+ * `B —USES→ A` score identically, and `readTriple` only checks that both names
+ * occur in the evidence. So none of the gates read word order, and a reversed
+ * row is not merely noise — `closeContradictedEdges` closes the other open edges
+ * of the same `(subject, relation)`, so one reversed edge retracts a true one
+ * from "current".
+ *
+ *   forward  — subject, keyword, target appear in that order;
+ *   reversed — target, keyword, subject appear in that order and no passive
+ *              marker governs the predicate (a passive sentence states the same
+ *              relation in that surface order, so what the producer asserted is
+ *              the logical direction);
+ *   unknown  — everything else: no keyword pattern for the relation, an endpoint
+ *              absent from the text, no keyword strictly between the endpoints,
+ *              or evidence for both orders (two mentions or two clauses, one
+ *              each way).
+ *
+ * `unknown` is the default and never `reversed`. That asymmetry is the rule: a
+ * direction the text does not state is unverifiable, not disproven, exactly like
+ * a relation whose keyword is 220 characters away — and `A 和 B 都依赖 C` is not a
+ * pair of relations however it is read. Only a provable reversal is refused, by
+ * `readTriple` at write time and by `edgeIsRefused` at projection/prune time.
+ */
+export type EdgeDirection = 'forward' | 'reversed' | 'unknown';
+
+/**
+ * How far from the predicate a passive marker can sit and still govern it.
+ *
+ * A window rather than a sentence: `是使用 Power Query 的` puts 的 thirteen
+ * characters after the verb, while a marker in the previous sentence is not
+ * governing anything (§9.4 of the review: the whitelist exists so a true passive
+ * edge is never called reversed).
+ */
+const DIRECTION_PASSIVE_WINDOW = 16;
+
+/**
+ * Passive markers, kept beside `RELATION_EVIDENCE` because they are part of the
+ * same grammar and must not become a config key (AGENTS.md: relation vocabulary
+ * is code, only thresholds are knobs).
+ *
+ * Missing one is the expensive error — it deletes a true edge — so the list is
+ * generous: 被/由/受/给 near the predicate, 为…所 around an agent, and the copula
+ * of a 是…的 nominalisation. An over-eager marker only leaves a reversed edge in
+ * place, which is where the graph already is.
+ */
+const PASSIVE_MARKER_RE = /被|由|受|给|为[^。；！？，,;!?\n]{0,8}所/;
+
+/**
+ * English passive: the marker is inside the keyword (`employed by`) or immediately
+ * after it (`used by`, which the USES pattern matches as `use` first).
+ */
+const PASSIVE_BY_RE = /\bby$/i;
+const PASSIVE_BY_AFTER_RE = /\bby\b/i;
+
+/** Characters that end the clause a predicate governs. */
+const CLAUSE_BOUNDARY_RE = /[。；！？，,;!?\n]/;
+
+export function directionOf(
+  text: string,
+  relationType: string,
+  subject: string | null | undefined,
+  target: string | null | undefined,
+): EdgeDirection {
+  const normalized = relationType.trim().toUpperCase();
+  if (normalized === MENTION_RELATION_TYPE) return 'unknown';
+  const pattern = RELATION_EVIDENCE[normalized];
+  // No keyword pattern means no predicate to place: `MENTIONED` and a model's own
+  // relation vocabulary are unverifiable here.
+  if (!pattern) return 'unknown';
+  if (!text) return 'unknown';
+
+  const haystack = normalizeForDirection(text);
+  const subjectSpans = spansOf(haystack, normalizeForDirection(subject ?? ''));
+  const targetSpans = spansOf(haystack, normalizeForDirection(target ?? ''));
+  // An endpoint the text does not spell out may be a canonicalisation (`PQ` for
+  // `Power Query`): nothing to order, so unverifiable rather than reversed.
+  if (subjectSpans.length === 0 || targetSpans.length === 0) return 'unknown';
+
+  const global = new RegExp(
+    pattern.source,
+    pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
+  );
+  const forward: Span[] = [];
+  const reversed: Array<Span & { keyword: string }> = [];
+  for (const match of haystack.matchAll(global)) {
+    const start = match.index ?? -1;
+    if (start < 0) continue;
+    const end = start + match[0].length;
+    // A keyword inside an endpoint's own characters orders nothing: 穿衣建议
+    // contains 建议, and this function exists to be trusted on word order.
+    if (insideAny(start, end, subjectSpans) || insideAny(start, end, targetSpans)) continue;
+    // Every mention of an endpoint counts, not just the first: a memory that
+    // states the pair twice has two chances to state an order, and only one of
+    // them needs to disagree for the pair to be unverifiable.
+    if (subjectSpans.some((s) => start >= s.end) && targetSpans.some((t) => end <= t.start)) {
+      forward.push({ start, end });
+    } else if (
+      targetSpans.some((t) => start >= t.end) &&
+      subjectSpans.some((s) => end <= s.start)
+    ) {
+      reversed.push({ start, end, keyword: match[0] });
+    }
+  }
+
+  // Both orders stated: `Power Query 使用 excel-mcp，excel-mcp 使用 Power Query`
+  // is two claims, or one claim and its contradiction. Picking either would be a
+  // guess, so the pair is unverifiable rather than reversed.
+  if (forward.length > 0) return reversed.length > 0 ? 'unknown' : 'forward';
+  if (reversed.length === 0) return 'unknown';
+
+  const passive = reversed.every((hit) =>
+    isPassivePredicate(haystack, hit.start, hit.end, hit.keyword),
+  );
+  return passive ? 'forward' : 'reversed';
+}
+
+/**
+ * Case-folded copy of `text` carrying the same length and the same indices.
+ *
+ * Only 1:1 rewrites belong here: the keyword positions found in the copy are used
+ * against the original text by the caller's reasoning about spans, so a
+ * normalisation that changed a length would point at the wrong characters. ASCII
+ * case folding is what endpoint matching needs (`Excel` in a text that writes
+ * `EXCEL`); the keyword patterns already carry the `i` flag.
+ */
+function normalizeForDirection(text: string): string {
+  return text.replace(/[A-Z]/g, (char) => char.toLowerCase());
+}
+
+/**
+ * Does a passive marker govern the predicate at `start`..`end` of `text`?
+ *
+ * Chinese puts the marker before the predicate (由 X 建议) or around the agent
+ * (为 X 所使用); English puts it inside the keyword (`used by`). So the keyword
+ * itself is checked first, then the clause around the predicate, limited to
+ * {@link DIRECTION_PASSIVE_WINDOW} on each side so a marker in a neighbouring
+ * clause cannot speak for this one.
+ *
+ * `是…的` is the nominalisation: the copula before the verb and 的 after it make
+ * the clause a modifier (`Excel 是使用 Power Query 的`), which is the same
+ * inversion without 被.
+ *
+ * Deliberately loose. Every branch here can only turn a `reversed` verdict into
+ * `forward`, so an over-eager marker keeps an edge the text does not support —
+ * the state the graph is already in — while a missing one deletes a true edge.
+ */
+function isPassivePredicate(text: string, start: number, end: number, keyword: string): boolean {
+  if (PASSIVE_BY_RE.test(keyword.trim())) return true;
+  const before = text.slice(
+    Math.max(clauseStart(text, start), start - DIRECTION_PASSIVE_WINDOW),
+    start,
+  );
+  const after = text.slice(end, Math.min(clauseEnd(text, end), end + DIRECTION_PASSIVE_WINDOW));
+  // Concatenated, so 为…所 still matches when 所 follows the predicate
+  // (`为建议所及`).
+  if (PASSIVE_MARKER_RE.test(`${before}${after}`)) return true;
+  if (PASSIVE_BY_AFTER_RE.test(after)) return true;
+  return before.includes('是') && after.includes('的');
+}
+
+/** Offset just after the clause boundary before `position` (0 when there is none). */
+function clauseStart(text: string, position: number): number {
+  for (let index = position - 1; index >= 0; index--) {
+    if (CLAUSE_BOUNDARY_RE.test(text[index])) return index + 1;
+  }
+  return 0;
+}
+
+/** Offset of the clause boundary at or after `position` (end of text when there is none). */
+function clauseEnd(text: string, position: number): number {
+  for (let index = position; index < text.length; index++) {
+    if (CLAUSE_BOUNDARY_RE.test(text[index])) return index;
+  }
+  return text.length;
+}
 
 export function attestsRelation(
   text: string,
@@ -355,6 +537,25 @@ function spanOf(text: string, name: string | null | undefined): Span | null {
   const start = text.indexOf(trimmed);
   if (start < 0) return null;
   return { start, end: start + trimmed.length };
+}
+
+/** Every occurrence of `name` in `text`, in order; empty when it does not occur. */
+function spansOf(text: string, name: string): Span[] {
+  const trimmed = name.trim();
+  if (trimmed === '') return [];
+  const spans: Span[] = [];
+  let from = 0;
+  for (;;) {
+    const start = text.indexOf(trimmed, from);
+    if (start < 0) return spans;
+    spans.push({ start, end: start + trimmed.length });
+    from = start + trimmed.length;
+  }
+}
+
+/** Does the range `start`..`end` overlap any of `spans`? */
+function insideAny(start: number, end: number, spans: Span[]): boolean {
+  return spans.some((span) => overlaps(start, end, span));
 }
 
 function overlaps(start: number, end: number, span: Span): boolean {

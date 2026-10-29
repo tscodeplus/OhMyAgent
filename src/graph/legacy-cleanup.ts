@@ -55,9 +55,6 @@ import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import { EntityRepository } from '../memory/repositories/entity-repository.js';
 import {
-  attestsRelation,
-  isTokenAlignedMention,
-  isVouchableEntityName,
   mineMemoryLinkSubjects,
   MENTION_RELATION_TYPE,
   type MemoryLinkMiningSummary,
@@ -315,8 +312,13 @@ function orphanMemoryPlan(db: Database.Database): DeletePlan {
  * `穿衣建议 —ADVISES→ 周五` (the keyword was inside the entity's own name) and
  * `LTS —ADVISES→ 常规` (220 characters away, another clause) as false
  * statements with a provenance stamp. This step removes them, using the same
- * three predicates the projector now applies: both endpoints vouchable and
- * token-aligned, and the relation attested by the memory text.
+ * predicates the projector now applies: both endpoints vouchable and
+ * token-aligned, the relation attested by the memory text, and the direction the
+ * text states not provably reversed.
+ *
+ * The predicates are `edgeIsRefused`/`refusedEdgePlan` from `graph-prune.ts` —
+ * imported, never re-derived, so the CLI, the migration and the scheduled heal
+ * cannot disagree about which edges are refused.
  *
  * Runs as part of `cleanupLegacyGraph`, i.e. the CLI and the migration share it.
  */

@@ -30,7 +30,12 @@
  */
 
 import type Database from 'better-sqlite3';
-import { attestsRelation, isTokenAlignedMention, isVouchableEntityName } from './entity-mining.js';
+import {
+  attestsRelation,
+  directionOf,
+  isTokenAlignedMention,
+  isVouchableEntityName,
+} from './entity-mining.js';
 
 /** Batch size for the duplicate merge; matches the legacy cleanup's own batch. */
 export const GRAPH_PRUNE_BATCH_SIZE = 500;
@@ -50,6 +55,14 @@ export interface EdgeAttestationRow {
  *
  * The single definition of "refused", shared by the scheduled self-heal, the
  * migration cleanup and `graph:reset`.
+ *
+ * The last two checks look at the same text for different things: `attestsRelation`
+ * asks whether the predicate is there at all (distance), `directionOf` asks which
+ * way round it runs (word order). The second one is why a reversed edge is
+ * refused rather than merely reported — it closes the true edge with the same
+ * `(subject, relation)` when the projector writes it. A direction the text does
+ * not state is `unknown` and stays admissible, which is the same trade the gates
+ * above make.
  */
 export function edgeIsRefused(row: EdgeAttestationRow): boolean {
   const text = row.content ?? '';
@@ -57,6 +70,7 @@ export function edgeIsRefused(row: EdgeAttestationRow): boolean {
   if (!isVouchableEntityName(row.target)) return true;
   if (!isTokenAlignedMention(text, row.subject)) return true;
   if (!isTokenAlignedMention(text, row.target)) return true;
+  if (directionOf(text, row.relation, row.subject, row.target) === 'reversed') return true;
   return !attestsRelation(text, row.relation, row.subject, row.target);
 }
 

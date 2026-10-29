@@ -97,6 +97,71 @@ describe('extractTriplesLLM', () => {
     expect(await extract(text)).toEqual([]);
   });
 
+  it('refuses a triple the memory states the other way round', async () => {
+    // The measured failure this gate exists for: `attestsRelation` measures
+    // distance, so both orders pass it, and the wrong one then closes the true
+    // edge with the same `(subject, relation)`. The text says Power Query uses
+    // excel-mcp, not the opposite.
+    const text = '通过 Power Query 使用 excel-mcp 读取表格。';
+    modelReturns([
+      {
+        subject: 'excel-mcp',
+        relation: 'USES',
+        object: 'Power Query',
+        evidence: '通过 Power Query 使用 excel-mcp',
+        confidence: 0.9,
+      },
+    ]);
+
+    expect(await extract(text)).toEqual([]);
+  });
+
+  it('reads the direction from the whole memory when the quote cannot order it', async () => {
+    // The quoted span omits the verb, so it is `unknown` on its own; the memory
+    // it was cut from is not, and that is the text the triple will be projected
+    // against.
+    const text = '通过 Power Query 使用 excel-mcp 读取表格。';
+    modelReturns([
+      {
+        subject: 'excel-mcp',
+        relation: 'USES',
+        object: 'Power Query',
+        evidence: 'Power Query 和 excel-mcp',
+        confidence: 0.9,
+      },
+    ]);
+
+    expect(await extract(text)).toEqual([]);
+  });
+
+  it('keeps a triple whose direction the text does not state', async () => {
+    // Unverifiable is not disproven, and this is the one gate that fails open on
+    // what it cannot measure: both names, the predicate nowhere between them.
+    const text = '使用 excel-mcp 和 Power Query 一起处理表格。';
+    modelReturns([
+      { subject: 'excel-mcp', relation: 'USES', object: 'Power Query', confidence: 0.9 },
+    ]);
+
+    expect(await extract(text)).toHaveLength(1);
+  });
+
+  it('keeps a triple the memory states in the passive voice', async () => {
+    // `used by` inverts the surface order and keeps the logical one: refusing it
+    // would delete every true edge a passive sentence produced.
+    const text = 'Power Query is used by excel-mcp for the monthly report';
+    modelReturns([
+      {
+        subject: 'excel-mcp',
+        relation: 'USES',
+        object: 'Power Query',
+        evidence: 'Power Query is used by excel-mcp',
+        confidence: 0.9,
+      },
+    ]);
+
+    expect(await extract(text)).toHaveLength(1);
+  });
+
   it('refuses a relation outside the vocabulary', async () => {
     const text = '通过 excel-mcp 使用 Power Query 读取文件';
     modelReturns([

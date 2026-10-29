@@ -29,7 +29,7 @@ They have different evidence, different admission rules, and different consumers
 6. `status = 'active'` is a hard read filter in the knowledge layer; a `pending` page is invisible to search, injection and link resolution.
 7. A column-adding migration must be registered **before** `applySchema()`; new-table migrations run after it. Every migration replays on every open.
 
-**Not yet an invariant — direction.** None of the three gates reads word order: `attestsRelation()` measures distance symmetrically, so `A —USES→ B` and `B —USES→ A` pass identically, and `readTriple()` checks that `evidence` _contains_ both endpoints without checking their order. A reversed edge is not merely noise: `closeContradictedEdges` closes other open edges for the same `(subject, relation)`, so one reversed row retracts a true one from "current". Until an order-aware check ships, treat any direction the text does not state as unverified.
+8. **Direction is a gate, not an assumption.** `attestsRelation()` measures distance, and distance is symmetric, so `directionOf()` places the predicate between the two endpoint spans and returns `forward` / `reversed` / `unknown`. Only `reversed` is refused — at write time by `readTriple()` (quoted evidence first, the memory second) and at projection/prune time by `edgeIsRefused()`; `unknown` stays admissible, because a direction the text does not state is unprovable, not disproven. A passive marker (被/由/受/为…所/给/是…的, `used by`) keeps a sentence forward: it states the same relation in surface order, so calling it reversed would delete a true edge. The reason this is a gate and not a nicety: `closeContradictedEdges` closes the other open edges of the same `(subject, relation)`, so a reversed row retracts a true one from "current", and "closed, not deleted" does not help a reader who queries `valid_to IS NULL`. `pnpm graph:direction` reports the three counts read-only; the rule is code, and the passive list lives beside `RELATION_EVIDENCE`, never in config.
 
 ---
 
@@ -115,7 +115,6 @@ These are gaps in the design, not rules: each is verified against the code as of
 - pages have no scope isolation;
 - the model can receive hints but cannot query the graph (no depth / relation / asOf parameters);
 - no graph eval, and graph hints are not covered by the injection reference probe;
-- edge direction is unverified (see the note under §2) — no gate reads word order, so `A —USES→ B` and `B —USES→ A` both pass; the cheapest fix is an order-aware verdict that refuses only provably reversed pairs, with a passive-voice whitelist.
 
 This file should not grow into a backlog. When a gap closes, delete it here and record the rule it produced in §2.
 
