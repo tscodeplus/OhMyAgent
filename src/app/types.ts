@@ -290,6 +290,15 @@ export interface AppConfig {
       mine_mentions: boolean;
       /** Upper bound on entities mined from one memory. */
       max_mentions_per_memory: number;
+      /** Mine entity nodes from mentions that carry no edge (project_mention_nodes). */
+      project_mention_nodes?: boolean;
+      /** Upper bound on mention-derived nodes per run. */
+      max_mention_nodes?: number;
+      /**
+       * Days in which an edge's confidence halves, measured from its own
+       * `valid_from` at read time (src/graph/decay.ts). `0`/absent = off.
+       */
+      decay_half_life_days?: number;
     };
     maintenance?: {
       enabled: boolean;

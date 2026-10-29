@@ -574,6 +574,10 @@ const configSchema = z.object({
         // A node says "this corpus talks about X", which a mention proves.
         project_mention_nodes: z.boolean().default(true),
         max_mention_nodes: z.coerce.number().int().positive().default(2000),
+        // Read-time edge decay (src/graph/decay.ts): days in which an edge's
+        // confidence halves, measured from its own valid_from. 0 = off, which is
+        // the default so an existing install's ranking does not move on upgrade.
+        decay_half_life_days: z.coerce.number().min(0).default(0),
       })
       .default({}),
     maintenance: z
@@ -1252,6 +1256,10 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         max_mentions_per_memory: env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY,
         project_mention_nodes: envBool(env.MEMORY_GRAPH_PROJECT_MENTION_NODES, true),
         max_mention_nodes: env.MEMORY_GRAPH_MAX_MENTION_NODES,
+        // config.yaml only: `memory.graph.decay_half_life_days`. Not an env
+        // var, because 0 (off) has to be the default for every existing install
+        // and an env probe would make the ranking depend on the launch script.
+        decay_half_life_days: 0,
       },
     },
     cron: {

@@ -255,6 +255,7 @@ export async function registerWebUIRoutes(
     db: cfg.db,
     memoryRetriever: cfg.services.memoryRetriever,
     getFooterConfig: () => cfg.getConfig().footer,
+    decayHalfLifeDays: cfg.getConfig().memory.graph?.decay_half_life_days ?? 0,
   });
 
   // Knowledge-page API (plan §6 K2 and §12 item 4). Pages live in SQLite, so the

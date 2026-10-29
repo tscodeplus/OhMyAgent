@@ -42,8 +42,8 @@ describe('entity_query tool', () => {
     db.close();
   });
 
-  async function run(args: Record<string, unknown>) {
-    const tool = createEntityQueryToolDefinition({ db });
+  async function run(args: Record<string, unknown>, decayHalfLifeDays?: number) {
+    const tool = createEntityQueryToolDefinition({ db, decayHalfLifeDays });
     return tool.execute(args as never, {} as never);
   }
 
@@ -123,6 +123,32 @@ describe('entity_query tool', () => {
     // are different answers, and reporting the first as the second reads as a
     // confirmed absence.
     expect(payload).not.toHaveProperty('pages');
+  });
+
+  it('reports decayed confidence only when a half-life is configured', async () => {
+    // The stored number is what the producer asserted; the decayed one is what
+    // it is worth now. Reporting only the second would hide the assertion, and
+    // reporting it when decay is off would imply ageing nobody asked for.
+    const DAY = 86_400_000;
+    db.prepare(`UPDATE entity_edges SET valid_from = ? WHERE relation_type = 'works_at'`).run(
+      Date.now() - 90 * DAY,
+    );
+
+    const plain = payloadOf(await run({ name: 'Alice' }));
+    expect(
+      plain.edges.every((edge: Record<string, unknown>) => !('effective_confidence' in edge)),
+    ).toBe(true);
+
+    const decayed = payloadOf(await run({ name: 'Alice' }, 30));
+    const worksAt = decayed.edges.find(
+      (edge: { relation: string }) => edge.relation === 'works_at',
+    ) as { confidence: number; effective_confidence: number };
+    // 90 days at a 30-day half-life is three halvings: 0.9 → 0.1125.
+    expect(worksAt.confidence).toBeCloseTo(0.9, 6);
+    // The tool rounds to three decimals so the JSON stays compact.
+    expect(worksAt.effective_confidence).toBeCloseTo(0.112, 3);
+    // ...and the stored confidence is still there beside it.
+    expect(worksAt.confidence).toBeGreaterThan(worksAt.effective_confidence);
   });
 
   it('reports the cap instead of silently returning a short answer', async () => {

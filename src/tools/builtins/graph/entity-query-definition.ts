@@ -133,6 +133,9 @@ function toPayload(
       valid_from: edge.valid_from ?? null,
       valid_to: edge.valid_to ?? null,
       confidence: edge.confidence,
+      ...(edge.effective_confidence === undefined
+        ? {}
+        : { effective_confidence: Number(edge.effective_confidence.toFixed(3)) }),
     })),
     ...(includeMentions ? { mentions: query.mentions } : {}),
     ...(pages === null
@@ -150,6 +153,8 @@ function toPayload(
 
 export function createEntityQueryToolDefinition(options: {
   db: Database.Database;
+  /** Days in which an edge's confidence halves; 0/absent leaves ranking alone. */
+  decayHalfLifeDays?: number;
 }): ToolDefinition<EntityQueryArgs> {
   return {
     name: 'entity_query',
@@ -175,6 +180,7 @@ export function createEntityQueryToolDefinition(options: {
         relationTypes: parsed.data.relationTypes,
         limit: parsed.data.limit,
         includeMentions,
+        decayHalfLifeDays: options.decayHalfLifeDays,
       });
 
       if (!query) {

@@ -143,6 +143,12 @@ export interface SearchResponse {
 export interface GraphRouteConfig {
   db: Database.Database;
   /**
+   * Days in which an edge's confidence halves (`memory.graph.decay_half_life_days`),
+   * 0/absent = no decay. Same value the tool gets, so the drawing and the
+   * model's answer rank identically.
+   */
+  decayHalfLifeDays?: number;
+  /**
    * The same retriever chat recall uses. `retrieve({ textOnly: true })` runs
    * its existing FTS → LIKE ladder, so memory hits here are ranked exactly like
    * the memory tab instead of by a second, divergent ranker. Optional so the
@@ -385,6 +391,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         asOf: filter.asOf,
         relationTypes: filter.relationTypes,
         limit,
+        decayHalfLifeDays: cfg.decayHalfLifeDays,
       });
       if (!neighbourhood) return reply.status(404).send({ error: 'Entity not found' });
 

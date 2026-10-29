@@ -316,7 +316,13 @@ export function registerV4ToolDefinitions(input: {
   // the background sync, and while they are empty the tool answers "no such
   // entity" — an honest answer, not a schema the model cannot use. Reads the
   // shared db handle rather than opening a connection.
-  toolPlatformRegistry.registerDefinition(createEntityQueryToolDefinition({ db: memory.database }));
+  toolPlatformRegistry.registerDefinition(
+    createEntityQueryToolDefinition({
+      db: memory.database,
+      // Read-time decay is opt-in per install (memory.graph.decay_half_life_days).
+      decayHalfLifeDays: config.memory.graph?.decay_half_life_days ?? 0,
+    }),
+  );
 
   if (computerUseHost) {
     toolPlatformRegistry.registerDefinition(

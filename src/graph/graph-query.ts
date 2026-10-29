@@ -28,6 +28,7 @@
 import type Database from 'better-sqlite3';
 import { EntityRepository, type Entity } from '../memory/repositories/entity-repository.js';
 import { MENTION_RELATION_TYPE } from './entity-mining.js';
+import { decayedConfidence } from './decay.js';
 import { parseEpochMs } from '../shared/timestamp.js';
 
 /**
@@ -63,6 +64,12 @@ export interface GraphQueryEdge {
   confidence: number;
   valid_from?: number;
   valid_to?: number;
+  /**
+   * `confidence` decayed to the instant being asked about, present only when
+   * `decayHalfLifeDays` is configured. The stored number is never overwritten —
+   * a reader can still see what the producer asserted.
+   */
+  effective_confidence?: number;
 }
 
 /**
@@ -94,6 +101,12 @@ export interface EntityGraphQueryOptions {
   limit?: number;
   /** Add co-mentioned names to `mentions`; they never enter `edges`. */
   includeMentions?: boolean;
+  /**
+   * Days in which an edge's confidence halves, measured from its own
+   * `valid_from` to the instant being asked about. `0`/absent disables decay,
+   * and `effective_confidence` is then omitted rather than echoing `confidence`.
+   */
+  decayHalfLifeDays?: number;
 }
 
 export interface EntityGraphQuery {
@@ -334,10 +347,16 @@ export function queryEntityGraph(
 
   const depth = Math.min(Math.max(1, Math.floor(options.depth ?? 1)), MAX_QUERY_DEPTH);
   const limit = Math.max(1, Math.floor(options.limit ?? DEFAULT_GRAPH_QUERY_LIMIT));
+  const halfLifeDays = options.decayHalfLifeDays ?? 0;
+  const decaying = Number.isFinite(halfLifeDays) && halfLifeDays > 0;
+  // Decay changes which edges deserve the cap, and the cap is applied by SQL on
+  // the stored confidence, so a decaying query reads a wider window and ranks it
+  // here. Four times the limit is a bound on that work, and `truncated` still
+  // reports the cut because `candidates` is measured, not inferred.
   const filter: GraphEdgeFilter = {
     asOf: options.asOf,
     relationTypes: options.relationTypes ?? [],
-    limit,
+    limit: decaying ? Math.min(limit * 4, 400) : limit,
   };
 
   const origin = loadGraphNodes(db, [entity.id])[0];
@@ -360,11 +379,33 @@ export function queryEntityGraph(
     db,
     neighbors.map((neighbor) => neighbor.entity.id),
   );
-  const { edges, truncated: edgesTruncated } = loadEdgesBetween(
+  const { edges: loadedEdges, truncated: edgesTruncated } = loadEdgesBetween(
     db,
     [origin.id, ...nodes.map((node) => node.id)],
     filter,
   );
+  // Decay is applied to what the caller asked *about*: an `asOf` in the past
+  // measures age from each edge's own `valid_from` to that instant, so "what did
+  // this look like in June" answers June rather than today.
+  const decayNow = filter.asOf ?? Date.now();
+  const rankedEdges = decaying
+    ? loadedEdges
+        .map((edge) => ({
+          ...edge,
+          effective_confidence: decayedConfidence(
+            edge.confidence,
+            edge.valid_from ?? null,
+            decayNow,
+            halfLifeDays,
+          ),
+        }))
+        .sort(
+          (a, b) =>
+            (b.effective_confidence ?? 0) - (a.effective_confidence ?? 0) ||
+            (b.valid_from ?? 0) - (a.valid_from ?? 0),
+        )
+    : loadedEdges;
+  const edges = decaying ? rankedEdges.slice(0, limit) : rankedEdges;
   const { mentions, truncated: mentionsTruncated } = options.includeMentions
     ? readMentionNeighbours(db, entity, limit)
     : { mentions: [], truncated: false };
@@ -376,6 +417,10 @@ export function queryEntityGraph(
     mentions,
     // `neighbors` caps its own SQL at `limit`; hitting the cap means the walk
     // may have more, so say so rather than silently dropping nodes.
-    truncated: walked.length >= limit || edgesTruncated || mentionsTruncated,
+    truncated:
+      walked.length >= limit ||
+      edgesTruncated ||
+      mentionsTruncated ||
+      (decaying && rankedEdges.length > limit),
   };
 }
