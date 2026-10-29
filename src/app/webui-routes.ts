@@ -256,6 +256,11 @@ export async function registerWebUIRoutes(
     memoryRetriever: cfg.services.memoryRetriever,
     getFooterConfig: () => cfg.getConfig().footer,
     decayHalfLifeDays: cfg.getConfig().memory.graph?.decay_half_life_days ?? 0,
+    // The knowledge lane of `/api/search`. Without it the fused search silently
+    // loses its page leg — and with it the page-wins dedupe — while every test
+    // still passes, because the tests register the service themselves.
+    ...(knowledgeService ? { knowledge: knowledgeService } : {}),
+    graphEnabled: () => cfg.getConfig().memory.graph?.enabled ?? true,
   });
 
   // Knowledge-page API (plan §6 K2 and §12 item 4). Pages live in SQLite, so the

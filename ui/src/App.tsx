@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { useProject } from './contexts/ProjectContext';
 import AppShell from './components/app-shell/AppShell';
@@ -10,8 +10,7 @@ import SkillsView from './components/skills/SkillsView';
 import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
-import GraphView from './components/graph/GraphView';
-import KnowledgeView from './components/knowledge/KnowledgeView';
+import KnowledgeHubView from './components/knowledge/KnowledgeHubView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest, fetchProjectSessions } from './utils/api';
@@ -131,8 +130,15 @@ export default function App() {
         <Route path="/files" element={<FilesView />} />
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/memory" element={<MemoryView />} />
-        <Route path="/knowledge" element={<KnowledgeView />} />
-        <Route path="/graph" element={<GraphView />} />
+        <Route path="/knowledge" element={<Navigate to="/knowledge/pages" replace />} />
+        <Route path="/knowledge/pages" element={<KnowledgeHubView tab="pages" />} />
+        <Route path="/knowledge/pages/:pageId" element={<KnowledgeHubView tab="pages" />} />
+        <Route path="/knowledge/review" element={<KnowledgeHubView tab="review" />} />
+        <Route path="/knowledge/graph" element={<KnowledgeHubView tab="graph" />} />
+        <Route path="/knowledge/graph/:entityId" element={<KnowledgeHubView tab="graph" />} />
+        {/* The graph used to be its own nav entry; bookmarks and old links keep
+            working by landing on the tab it became. */}
+        <Route path="/graph" element={<Navigate to="/knowledge/graph" replace />} />
         <Route path="/cron" element={<CronView />} />
         <Route path="/inbox/:sessionId" element={<InboxView />} />
       </Route>

@@ -9,8 +9,7 @@
     "files": "Files",
     "panels": "Panels",
     "main": "Navigation",
-    "graph": "Knowledge Graph",
-    "knowledge": "Knowledge Pages"
+    "knowledge": "Knowledge Base"
   },
   "tabs": {
     "chat": "Chat",
@@ -20,8 +19,7 @@
     "skills": "Skills",
     "marketplace": "Marketplace",
     "files": "Files",
-    "graph": "Knowledge Graph",
-    "knowledge": "Knowledge Pages"
+    "knowledge": "Knowledge Base"
   },
   "sidebar": {
     "projects": "Chat",
@@ -199,7 +197,7 @@
       "harness": "Auto Evolution",
       "models": "AI Models",
       "memory": "Memory",
-      "knowledge": "Knowledge",
+      "knowledge": "Knowledge & Retrieval",
       "toolsPolicy": "Tools & Policy",
       "channels": "Channels",
       "websearch": "Web Search",
@@ -1572,9 +1570,6 @@
     "reasonSeparator": ", "
   },
   "graph": {
-    "title": "Knowledge Graph",
-    "subtitle": "Search entities, relations and memories in one place",
-    "searchPlaceholder": "Search entities, memories or messages…",
     "searchNoResults": "No matching results",
     "searchError": "Search failed. Please try again.",
     "kinds": {
@@ -1605,6 +1600,10 @@
     "nodeAria": "Entity {{name}}",
     "aliases": "Aliases",
     "noAliases": "No aliases",
+    "relatedPages": "Related pages",
+    "noRelatedPages": "No related pages",
+    "disabledTitle": "The knowledge graph is switched off",
+    "disabledHint": "With memory.graph.enabled: false nothing is projected. Turn it on and entities and relations accumulate from your conversations.",
     "outgoing": "Outgoing relations",
     "incoming": "Incoming relations",
     "noRelations": "No relations",
@@ -1625,16 +1624,23 @@
   },
   "knowledge": {
     "title": "Knowledge Pages",
-    "subtitle": "Pages curated by the agent and written by you — browse, search and edit them, and review shadow-mode drafts",
+    "subtitle": "Pages distilled from your conversations, plus the entity graph derived from memory — browse, edit and review the pages, and see what connects to what",
     "statsTotal": "{{count}} pages",
     "statsPending": "{{count}} pending",
     "statsArchived": "{{count}} archived",
     "indexWarning": "The search index and the page table disagree ({{pages}} pages, {{indexed}} indexed) — run pnpm knowledge:reindex",
     "tabPages": "Pages",
     "tabReview": "Review queue",
-    "selectPrompt": "Pick a page from the list to read or edit it",
-    "searchPlaceholder": "Search page titles and content…",
-    "searchActiveOnlyHint": "Search covers active pages only",
+    "tabGraph": "Graph",
+    "hubSearchPlaceholder": "Search pages, entities, memories and conversations…",
+    "clearSearch": "Clear search",
+    "searchGroupPages": "Knowledge pages",
+    "searchOpenPage": "Open",
+    "searchDeduped": "{{count}} more memories are already answered by the pages above and are not listed again",
+    "pageLayerOff": "The knowledge layer is off (knowledge.enabled: false) — pages cannot be read or written, the graph is still browsable",
+    "pageFilterLabel": "Filter this list",
+    "pageFilterPlaceholder": "Filter the list below (title and content)…",
+    "pageFilterHint": "Narrows the list below to active pages. To search pages, entities, memories and conversations, use the search box above.",
     "searchNoResults": "No page matches this search",
     "searchError": "Search failed. Please try again.",
     "searchCapped": "Showing the first {{count}} matches",
@@ -1668,6 +1674,7 @@
     "confidence": "Confidence {{value}}%",
     "editor": {
       "back": "Back to list",
+      "openInGraph": "Open in graph",
       "archivedNotice": "This page is archived and read-only. It is kept for history and is no longer offered to search or to the agent.",
       "missing": "This page no longer exists",
       "loadError": "Failed to load this page",

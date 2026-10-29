@@ -10,8 +10,7 @@ import {
   Folder,
   BarChart3,
   Database,
-  Network,
-  BookOpen,
+  Library,
   Clock,
   ChevronDown,
 } from 'lucide-react';
@@ -50,8 +49,10 @@ const TOOL_TABS: Tab[] = [
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
   { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
-  { id: 'knowledge', path: '/knowledge', labelKey: 'tabs.knowledge', icon: BookOpen },
-  { id: 'graph', path: '/graph', labelKey: 'tabs.graph', icon: Network },
+  // Pages and the entity graph are one surface with three tabs — see
+  // `KnowledgeHubView`. Two sidebar entries for the same corpus meant two search
+  // boxes ranking it differently.
+  { id: 'knowledge', path: '/knowledge', labelKey: 'tabs.knowledge', icon: Library },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
   { id: 'dashboard', path: '/dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
 ];
@@ -359,15 +360,13 @@ export default function AppShell() {
           ? t('nav.memory')
           : location.pathname.startsWith('/knowledge')
             ? t('nav.knowledge')
-            : location.pathname.startsWith('/graph')
-              ? t('nav.graph')
-              : location.pathname.startsWith('/cron')
-                ? t('nav.cron')
-                : location.pathname.startsWith('/inbox')
-                  ? t('inbox.title')
-                  : isChatArea
-                    ? t('tabs.chat')
-                    : 'OhMyAgent';
+            : location.pathname.startsWith('/cron')
+              ? t('nav.cron')
+              : location.pathname.startsWith('/inbox')
+                ? t('inbox.title')
+                : isChatArea
+                  ? t('tabs.chat')
+                  : 'OhMyAgent';
   // In the chat area the caption shows the current session's full title
   // (the opaque project id is useless there); other pages keep id / page.
   const captionText = isChatArea

@@ -144,20 +144,33 @@ export default function KnowledgePageList({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 space-y-2 border-b border-neutral-200 p-3 dark:border-neutral-800">
+        {/* A filter over this list, NOT a second search. The merged page has one
+            search box (the hub header) that fuses four lanes; this one only
+            narrows the rows below, so it says so before the placeholder does. */}
+        <label
+          htmlFor="knowledge-page-filter"
+          className="block text-[11px] font-medium text-neutral-500 dark:text-neutral-400"
+        >
+          {t('knowledge.pageFilterLabel')}
+        </label>
         <div className="relative">
           <Search
             size={14}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
           />
           <input
+            id="knowledge-page-filter"
             type="text"
             value={query}
             onChange={(event) => changeQuery(event.target.value)}
-            placeholder={t('knowledge.searchPlaceholder')}
-            aria-label={t('knowledge.searchPlaceholder')}
+            placeholder={t('knowledge.pageFilterPlaceholder')}
+            aria-label={t('knowledge.pageFilterLabel')}
             className="w-full rounded-lg border border-neutral-300 bg-white py-2 pl-9 pr-3 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary focus:outline-none dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-100"
           />
         </div>
+        <p className="text-[10.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+          {t('knowledge.pageFilterHint')}
+        </p>
         <div className="flex items-center gap-2">
           {/* Search is active-only server-side, so the status filter is not a
               filter in that mode — offering it would imply it did something. */}
@@ -213,9 +226,6 @@ export default function KnowledgePageList({
             </p>
           ) : (
             <>
-              <p className="px-3 pt-2 text-[11px] text-neutral-500 dark:text-neutral-400">
-                {t('knowledge.searchActiveOnlyHint')}
-              </p>
               <ul className="p-2">
                 {result.hits.hits.map((hit) => (
                   <li key={hit.id}>

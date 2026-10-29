@@ -73,6 +73,13 @@ export interface GraphPayload {
   edges: GraphEdge[];
   /** True when a cap (limit) cut the payload — the UI says "showing first N". */
   truncated: boolean;
+  /**
+   * `memory.graph.enabled`. Empty and switched-off look identical in `nodes`, and
+   * they are different answers for a reader ("nothing has accumulated yet" vs
+   * "this install does not project a graph"), so the switch travels with the
+   * payload instead of being guessed from an empty array.
+   */
+  enabled: boolean;
 }
 
 export type SearchResultKind = 'entity' | 'memory' | 'message';
@@ -166,6 +173,11 @@ export interface GraphRouteConfig {
   knowledge?: Pick<KnowledgeService, 'search' | 'get'>;
   /** Footer defaults for messages saved before the footer snapshot existed. */
   getFooterConfig?: () => FooterConfig;
+  /**
+   * `memory.graph.enabled`, read per request. Optional so the tests (and any
+   * caller that does not care) can omit it — absent means "on".
+   */
+  graphEnabled?: () => boolean;
 }
 
 /**
@@ -240,7 +252,12 @@ function plainText(value: string, maxChars: number): string {
  * alphabet and hide exactly the names the corpus talks about most. Mentions are
  * the natural second key: it is the same evidence that admitted the node.
  */
-function loadOverview(db: Database.Database, limit: number, filter: GraphEdgeFilter): GraphPayload {
+function loadOverview(
+  db: Database.Database,
+  limit: number,
+  filter: GraphEdgeFilter,
+  enabled: boolean,
+): GraphPayload {
   const rows = db
     .prepare(
       `SELECT e.id
@@ -264,7 +281,7 @@ function loadOverview(db: Database.Database, limit: number, filter: GraphEdgeFil
     nodes.map((node) => node.id),
     filter,
   );
-  return { nodes, edges, truncated: truncated || edgesTruncated };
+  return { nodes, edges, truncated: truncated || edgesTruncated, enabled };
 }
 
 /**
@@ -364,6 +381,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
 
     const limit = clampInt(query.limit, DEFAULT_GRAPH_QUERY_LIMIT, 1, MAX_GRAPH_LIMIT);
     const depth = clampInt(query.depth, 1, 1, MAX_QUERY_DEPTH);
+    const enabled = cfg.graphEnabled ? cfg.graphEnabled() : true;
     const filter: GraphEdgeFilter = {
       asOf: parseGraphAsOf(query.asOf),
       relationTypes: parseGraphRelationTypes(query.types),
@@ -375,12 +393,17 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         // Pre-v10 database: nothing has ever been written, so the honest answer
         // is an empty graph — not a 500 the UI has to special-case.
         if (query.entity) return reply.status(404).send({ error: 'Entity not found' });
-        return reply.send({ nodes: [], edges: [], truncated: false } satisfies GraphPayload);
+        return reply.send({
+          nodes: [],
+          edges: [],
+          truncated: false,
+          enabled,
+        } satisfies GraphPayload);
       }
 
       const entityRef = query.entity?.trim();
       if (!entityRef) {
-        return reply.send(loadOverview(cfg.db, limit, filter));
+        return reply.send(loadOverview(cfg.db, limit, filter, enabled));
       }
 
       // `entity` is whatever the user clicked or typed: an id, a canonical name
@@ -400,6 +423,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         nodes: [neighbourhood.origin, ...neighbourhood.nodes],
         edges: neighbourhood.edges,
         truncated: neighbourhood.truncated,
+        enabled,
       } satisfies GraphPayload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -409,7 +433,15 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
 
   /**
    * One entity with its aliases — the detail header the graph payload does not
-   * carry (nodes describe the drawing, not the record).
+   * carry (nodes describe the drawing, not the record) — plus the curated pages
+   * that point at it.
+   *
+   * `knowledge_pages.entity_id` (migration-v21) is a lookup, never an insert: a
+   * page records the node its canonicalised title folds to, and the graph is
+   * what makes those pages reachable from an entity. The console could not see
+   * that relation at all before this field existed. Gated on `cfg.knowledge`,
+   * so a console running without the page layer reports no pages instead of
+   * half-rendering a section whose routes 404.
    */
   app.get<{ Params: { id: string } }>('/api/memory/entity/:id', async (request, reply) => {
     try {
@@ -423,7 +455,24 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
           .prepare('SELECT alias FROM entity_aliases WHERE entity_id = ? ORDER BY alias')
           .all(entity.id) as Array<{ alias: string }>
       ).map((row) => row.alias);
-      return reply.send({ entity, aliases });
+      const pages =
+        cfg.knowledge && tableExists(cfg.db, 'knowledge_pages')
+          ? (cfg.db
+              .prepare(
+                `SELECT id, title, slug, page_type AS pageType
+                   FROM knowledge_pages
+                  WHERE entity_id = ? AND status = 'active'
+                  ORDER BY updated_at DESC
+                  LIMIT 20`,
+              )
+              .all(entity.id) as Array<{
+              id: string;
+              title: string;
+              slug: string;
+              pageType: string;
+            }>)
+          : [];
+      return reply.send({ entity, aliases, pages });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

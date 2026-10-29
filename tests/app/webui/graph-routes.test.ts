@@ -145,7 +145,23 @@ describe('knowledge-graph routes', () => {
       const response = await app.inject({ method: 'GET', url: '/api/memory/graph' });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ nodes: [], edges: [], truncated: false });
+      expect(response.json()).toEqual({ nodes: [], edges: [], truncated: false, enabled: true });
+    });
+
+    it('reports the projection switch instead of leaving empty to mean both things', async () => {
+      db.exec('DELETE FROM entity_edges; DELETE FROM entity_aliases; DELETE FROM entities');
+      const off = Fastify({ logger: false });
+      registerGraphRoutes(off, { db, graphEnabled: () => false });
+      await off.ready();
+
+      try {
+        const payload = (await off.inject({ method: 'GET', url: '/api/memory/graph' })).json();
+        // Same empty arrays as the case above, different answer: the UI has to
+        // be able to say "switched off" rather than "nothing accumulated yet".
+        expect(payload).toEqual({ nodes: [], edges: [], truncated: false, enabled: false });
+      } finally {
+        await off.close();
+      }
     });
 
     it('overviews the busiest entities first and only the edges between them', async () => {
@@ -301,6 +317,7 @@ describe('knowledge-graph routes', () => {
           nodes: [],
           edges: [],
           truncated: false,
+          enabled: true,
         });
         const missing = await bareApp.inject({
           method: 'GET',
@@ -340,6 +357,51 @@ describe('knowledge-graph routes', () => {
       expect(payload.entity.id).toBe(ids.alice);
       expect(payload.entity.entity_type).toBe('person');
       expect(payload.aliases).toEqual(['艾丽丝']);
+      // The page layer is off for `app`, so the section is served empty rather
+      // than half-rendered against routes that do not exist.
+      expect(payload.pages).toEqual([]);
+    });
+
+    it('lists the active pages whose title folds to this entity', async () => {
+      new MemoryRepository(db).create({
+        id: 'mem-alice',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'fact',
+        content: 'Alice likes tea',
+      });
+      const knowledge = createKnowledgeService({ db });
+      const created = knowledge.create(
+        {
+          pageType: 'entity',
+          slug: 'alice',
+          title: 'Alice',
+          content: 'Alice 喜欢茶。',
+          sources: [{ kind: 'memory', id: 'mem-alice' }],
+        },
+        { actor: 'agent' },
+      );
+      expect(created.ok).toBe(true);
+
+      const wired = Fastify({ logger: false });
+      registerGraphRoutes(wired, { db, knowledge });
+      await wired.ready();
+
+      try {
+        const payload = (
+          await wired.inject({ method: 'GET', url: `/api/memory/entity/${ids.alice}` })
+        ).json();
+        expect(payload.pages).toHaveLength(1);
+        expect(payload.pages[0]).toMatchObject({ title: 'Alice', slug: 'alice' });
+
+        // Nothing on Bob: a page belongs to the node its title folded to.
+        const bob = (
+          await wired.inject({ method: 'GET', url: `/api/memory/entity/${ids.bob}` })
+        ).json();
+        expect(bob.pages).toEqual([]);
+      } finally {
+        await wired.close();
+      }
     });
 
     it('404s for an unknown entity id', async () => {

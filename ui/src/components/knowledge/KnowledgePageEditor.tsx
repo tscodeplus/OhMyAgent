@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, RotateCcw, Save } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Network, RotateCcw, Save } from 'lucide-react';
 import { formatRelativeTime } from '../../lib/utils';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -106,6 +106,8 @@ interface KnowledgePageEditorProps {
    * switching pages unmounts this component and would drop the draft silently.
    */
   onDirtyChange: (dirty: boolean) => void;
+  /** Opens the entity node this page folds to (`knowledge_pages.entity_id`). */
+  onOpenEntity: (entityId: string) => void;
 }
 
 /**
@@ -126,6 +128,7 @@ export default function KnowledgePageEditor({
   onClose,
   onSaved,
   onDirtyChange,
+  onOpenEntity,
 }: KnowledgePageEditorProps) {
   const { t } = useTranslation('common');
   const { showToast } = useToast();
@@ -286,7 +289,7 @@ export default function KnowledgePageEditor({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-3 p-3 sm:p-4">
+      <div className="w-full max-w-3xl space-y-3 p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -316,6 +319,17 @@ export default function KnowledgePageEditor({
             {t('knowledge.editor.back')}
           </Button>
         </div>
+
+        {/* The page node and the graph node are the same thing; without this
+            link the `entity_id` column is data nobody can reach. */}
+        {page.entityId && (
+          <div>
+            <Button variant="secondary" size="sm" onClick={() => onOpenEntity(page.entityId!)}>
+              <Network size={14} strokeWidth={1.75} />
+              {t('knowledge.editor.openInGraph')}
+            </Button>
+          </div>
+        )}
 
         {readOnly && (
           <p className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 text-[11.5px] leading-relaxed text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">

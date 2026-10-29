@@ -1,14 +1,18 @@
 import { useTranslation } from 'react-i18next';
-import type { GraphEdge, GraphNode } from '../../types/graph';
+import type { EntityPageRef, GraphEdge, GraphNode } from '../../types/graph';
 
 interface EntityDetailProps {
   node: GraphNode;
   aliases: string[];
+  /** Active curated pages pointing at this entity (`knowledge_pages.entity_id`). */
+  pages: EntityPageRef[];
   /** Full edge list of the current graph payload; incident edges are the relations. */
   edges: GraphEdge[];
   nodesById: Map<string, GraphNode>;
   aliasesLoading: boolean;
   onSelect: (entityId: string) => void;
+  /** Opens a page in the pages tab — the other half of the merge. */
+  onOpenPage: (pageId: string) => void;
 }
 
 /** Validity is shown as a date, not a timestamp — the day is what people recall. */
@@ -71,10 +75,12 @@ function RelationRow({
 export default function EntityDetail({
   node,
   aliases,
+  pages,
   edges,
   nodesById,
   aliasesLoading,
   onSelect,
+  onOpenPage,
 }: EntityDetailProps) {
   const { t } = useTranslation('common');
 
@@ -120,6 +126,36 @@ export default function EntityDetail({
               </span>
             ))}
           </div>
+        )}
+      </div>
+
+      <div>
+        <h4 className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+          {t('graph.relatedPages')}
+        </h4>
+        {pages.length === 0 ? (
+          <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+            {t('graph.noRelatedPages')}
+          </p>
+        ) : (
+          <ul className="mt-1 space-y-0.5">
+            {pages.map((page) => (
+              <li key={page.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenPage(page.id)}
+                  className="flex w-full items-baseline gap-2 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <span className="min-w-0 flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
+                    {page.title}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+                    {page.slug}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

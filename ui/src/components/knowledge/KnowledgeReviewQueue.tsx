@@ -114,7 +114,7 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl p-3 sm:p-4">
+      <div className="w-full p-3 sm:px-6 sm:py-4">
         <header className="mb-3">
           <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
             {t('knowledge.review.title')}

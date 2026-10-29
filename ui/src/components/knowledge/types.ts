@@ -44,6 +44,12 @@ export interface KnowledgePagePayload {
    * `compactScopeLabel` — the raw value is an address, not a label.
    */
   scope: string;
+  /**
+   * The entity node this page folds to (`knowledge_pages.entity_id`), or null
+   * when no memory has attested that name. It is the link into the graph tab:
+   * pages and entities are one surface, not two.
+   */
+  entityId: string | null;
   /** Epoch milliseconds, not an ISO string — format with `formatRelativeTime`. */
   createdAt: number | null;
   updatedAt: number | null;

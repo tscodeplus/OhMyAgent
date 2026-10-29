@@ -111,6 +111,12 @@ interface KnowledgePagePayload {
    * see that a page is shared rather than chat-local.
    */
   scope: string;
+  /**
+   * The entity node this page folds to (`knowledge_pages.entity_id`, v21), or
+   * null when no memory has attested that name. The console uses it for the one
+   * link that makes pages and the graph the same surface.
+   */
+  entityId: string | null;
   createdAt: number | null;
   updatedAt: number | null;
   updatedBy: string | null;
@@ -165,6 +171,7 @@ function toPagePayload(page: KnowledgePage): KnowledgePagePayload {
     version: page.version,
     status: page.status,
     scope: page.scope,
+    entityId: page.entity_id,
     createdAt: page.created_at,
     updatedAt: page.updated_at,
     updatedBy: page.updated_by,
