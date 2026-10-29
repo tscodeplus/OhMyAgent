@@ -97,6 +97,12 @@ export type KnowledgeWriteResult =
 export interface KnowledgeSearchOptions {
   pageType?: PageType;
   tag?: string;
+  /**
+   * Asked scope (migration-v22): this chat's pages plus `'global'` ones.
+   * Omitted means every scope, which only the console (search box, eval) wants;
+   * a chat turn must pass {@link scopeFromContext}.
+   */
+  scope?: string;
   /** Default 6, clamped to 20. */
   limit?: number;
 }
@@ -105,6 +111,8 @@ export interface KnowledgeListOptions {
   /** Default `'active'`. Pass `'pending'` only from the review-queue UI. */
   status?: KnowledgePageStatus;
   pageType?: PageType;
+  /** Asked scope; omitted means every scope (console browse, export). */
+  scope?: string;
   limit?: number;
   offset?: number;
 }
@@ -133,13 +141,26 @@ export interface KnowledgeWriteOptions {
    * message could not pass rule 3 at all.
    */
   explicitRequest?: boolean;
+  /**
+   * The scope this write lands in (migration-v22).
+   *
+   * Defaults to `'global'`: a console edit or an unpinned background write is
+   * addressed to the whole install. Channel turns pass
+   * `scopeFromContext({ channel, chatId, sessionId })` so a curation stays in the
+   * chat that produced it. An update reads and writes within the same scope —
+   * the scope is the address, so a write cannot reach a page in another chat.
+   */
+  scope?: string;
 }
 
 export interface KnowledgeService {
   /** Full-text search over active pages only. */
   search(query: string, options?: KnowledgeSearchOptions): KnowledgeSearchHit[];
   /** Fetch by slug (within an optional page type) or by id. */
-  get(ref: { slug: string; pageType?: PageType } | { id: string }): KnowledgePageDetail | null;
+  get(
+    ref: { slug: string; pageType?: PageType } | { id: string },
+    options?: { scope?: string },
+  ): KnowledgePageDetail | null;
   /** Browse, newest-updated first. */
   list(options?: KnowledgeListOptions): KnowledgePage[];
   /** The review queue for `curate.shadow`. */

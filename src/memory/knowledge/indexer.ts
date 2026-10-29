@@ -29,6 +29,7 @@
 import type Database from 'better-sqlite3';
 import { buildFtsQuery, tokenizeForIndex } from '../fts-tokenizer.js';
 import type { KnowledgePageStatus, PageType } from './types.js';
+import { scopeSql } from './scope.js';
 
 /** Columns written per page. `content` and `title` are indexed, both segmented. */
 export interface KnowledgeIndexablePage {
@@ -69,6 +70,14 @@ export interface KnowledgeIndexSearchOptions {
   pageType?: PageType;
   /** Exact tag match against the page's JSON `tags` array. */
   tag?: string;
+  /**
+   * Asked scope: the page's own scope **or** `'global'` (migration-v22).
+   *
+   * Filtered in SQL rather than after the fact for the same reason as `status`:
+   * a `LIMIT` applied before the filter would quietly shrink the result set
+   * instead of returning the right number of in-scope hits.
+   */
+  scope?: string;
   limit: number;
 }
 
@@ -111,6 +120,11 @@ export function searchKnowledgeIndex(
     JOIN knowledge_pages p ON p.id = f.page_id
     WHERE knowledge_fts_jieba MATCH ?
       AND p.status = ?`;
+  if (options.scope !== undefined) {
+    const filter = scopeSql('p.scope', options.scope);
+    sql += ` AND ${filter.sql}`;
+    params.push(...filter.params);
+  }
   if (options.pageType) {
     sql += ` AND p.page_type = ?`;
     params.push(options.pageType);

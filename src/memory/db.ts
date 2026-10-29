@@ -20,6 +20,7 @@ import { migrateV18 } from './migration-v18.js';
 import { migrateV19 } from './migration-v19.js';
 import { migrateV20 } from './migration-v20.js';
 import { migrateV21 } from './migration-v21.js';
+import { migrateV22 } from './migration-v22.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -296,6 +297,20 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.info(
       `[V21] Knowledge migration: linked ${v21Result.pagesLinked} page(s) to entities, ` +
         `typed ${v21Result.linksTyped} page link(s)`,
+    );
+  }
+
+  // V22 scopes a page to the conversation that wrote it: `knowledge_pages.scope`
+  // defaults to 'global' (today's behaviour for every existing row) and the slug
+  // uniqueness widens from (page_type, slug) to (page_type, scope, slug) so two
+  // chats can hold the same subject. After applySchema like v20/v21, because the
+  // table is v14's. Idempotent by PRAGMA inspection, so a migrated database pays
+  // two cheap reads per open.
+  const v22Result = migrateV22(db);
+  if (v22Result.added.length > 0 || v22Result.created.length > 0) {
+    logger.info(
+      `[V22] Knowledge migration: added ${v22Result.added.join(', ') || 'nothing'}, ` +
+        `rebuilt ${v22Result.created.join(', ') || 'no index'}`,
     );
   }
 

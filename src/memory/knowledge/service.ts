@@ -52,6 +52,7 @@ import {
 import { buildSnippet, searchKnowledgeIndex } from './indexer.js';
 import { parseWikilinks } from './links.js';
 import { slugify } from './slug.js';
+import { normalizeScope } from './scope.js';
 
 /** Defaults mirror the `knowledge:` block in the plan (§9.1). */
 export const DEFAULT_KNOWLEDGE_RUNTIME_CONFIG: KnowledgeRuntimeConfig = {
@@ -225,6 +226,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
       status: 'active' as KnowledgePageStatus,
       pageType: options?.pageType,
       tag: options?.tag,
+      scope: options?.scope,
       limit,
     };
 
@@ -277,14 +279,15 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
       .map((entry) => entry.hit);
   }
 
-  function findPage(ref: KnowledgePageRef): KnowledgePage | undefined {
+  function findPage(ref: KnowledgePageRef, scope?: string): KnowledgePage | undefined {
     return 'id' in ref
-      ? repository.findById(ref.id)
-      : repository.findBySlug(ref.slug, ref.pageType);
+      ? repository.findById(ref.id, scope)
+      : repository.findBySlug(ref.slug, ref.pageType, scope);
   }
 
-  function get(ref: KnowledgePageRef): KnowledgePageDetail | null {
-    const page = findPage(ref);
+  function get(ref: KnowledgePageRef, options?: { scope?: string }): KnowledgePageDetail | null {
+    const scope = options?.scope;
+    const page = findPage(ref, scope);
     // Active-only: the signature has no status option, so a pending page is not
     // readable here at all. The review queue reads bodies via `listPending`.
     if (!page || page.status !== 'active') return null;
@@ -294,8 +297,8 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     // relations that exist, never the citations that point nowhere.
     const links = parseWikilinks(page.content).flatMap((link) => {
       const target = link.pageType
-        ? repository.findBySlug(link.slug, link.pageType)
-        : repository.findBySlug(link.slug);
+        ? repository.findBySlug(link.slug, link.pageType, scope)
+        : repository.findBySlug(link.slug, undefined, scope);
       // A page mentioning itself is prose, not a relation.
       if (target?.id === page.id) return [];
       return [
@@ -314,6 +317,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     return repository.list({
       status: options?.status ?? 'active',
       pageType: options?.pageType,
+      scope: options?.scope,
       limit: clamp(options?.limit ?? DEFAULT_LIST_LIMIT, 1, MAX_LIST_LIMIT),
       offset: Math.max(0, Math.floor(options?.offset ?? 0)),
     });
@@ -377,12 +381,14 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     const status: KnowledgePageStatus =
       input.status ?? (config.shadow && isCuration ? 'pending' : 'active');
 
+    const scope = normalizeScope(options.scope);
     const result = repository.insertPage(
       {
         ...input,
         slug,
         sources,
         status,
+        scope,
         updatedBy: input.updatedBy ?? options.actor,
       },
       options.actor,
@@ -405,7 +411,9 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
       patch.sources = sources;
     }
 
-    return toWriteResult(repository.updatePage(ref, patch, options.actor));
+    return toWriteResult(
+      repository.updatePage(ref, patch, options.actor, normalizeScope(options.scope)),
+    );
   }
 
   function setStatus(id: string, status: KnowledgePageStatus, actor: KnowledgeActor): boolean {

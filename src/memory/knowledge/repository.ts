@@ -38,6 +38,7 @@ import type {
   UpdateKnowledgePageInput,
 } from './types.js';
 import { relationForPageType } from './types.js';
+import { normalizeScope, scopeSql } from './scope.js';
 import { slugify } from './slug.js';
 import { canonicalizeEntityName } from '../repositories/entity-repository.js';
 import { resolveWikilinks } from './links.js';
@@ -49,6 +50,8 @@ export type KnowledgePageRef = { slug: string; pageType?: PageType } | { id: str
 export interface KnowledgePageListQuery {
   status: KnowledgePageStatus;
   pageType?: PageType;
+  /** Asked scope; pages in this scope **or** `'global'` are returned. */
+  scope?: string;
   limit?: number;
   offset?: number;
 }
@@ -95,9 +98,20 @@ export class KnowledgeRepository {
 
   // ── reads ────────────────────────────────────────────────────────────────
 
-  findById(id: string): KnowledgePage | undefined {
-    return this.db.prepare('SELECT * FROM knowledge_pages WHERE id = ?').get(id) as
-      KnowledgePage | undefined;
+  /**
+   * `scope` is optional only for internal reads that already filtered (the index
+   * lane re-reads a row it just matched); every caller-facing lookup passes the
+   * asked scope, so a page from another chat cannot be addressed by id.
+   */
+  findById(id: string, scope?: string): KnowledgePage | undefined {
+    if (scope === undefined) {
+      return this.db.prepare('SELECT * FROM knowledge_pages WHERE id = ?').get(id) as
+        KnowledgePage | undefined;
+    }
+    const filter = scopeSql('scope', scope);
+    return this.db
+      .prepare(`SELECT * FROM knowledge_pages WHERE id = ? AND ${filter.sql}`)
+      .get(id, ...filter.params) as KnowledgePage | undefined;
   }
 
   /**
@@ -107,26 +121,41 @@ export class KnowledgeRepository {
    * `project/x`), so an active page wins and the newest updated_at breaks the
    * remaining tie — a caller that needs determinism should pass the type.
    */
-  findBySlug(slug: string, pageType?: PageType): KnowledgePage | undefined {
+  findBySlug(slug: string, pageType?: PageType, scope?: string): KnowledgePage | undefined {
     const normalised = slugify(slug);
     if (!normalised) return undefined;
+    // Rows local to the asked scope sort above global ones: a chat that wrote its
+    // own `deploy-process` must read its own page, not the console's earlier one.
+    const filter = scope === undefined ? null : scopeSql('scope', scope);
+    const scopeClause = filter ? ` AND ${filter.sql}` : '';
+    const scopeParams = filter ? filter.params : [];
     if (pageType) {
       return this.db
-        .prepare('SELECT * FROM knowledge_pages WHERE page_type = ? AND slug = ?')
-        .get(pageType, normalised) as KnowledgePage | undefined;
+        .prepare(
+          `SELECT * FROM knowledge_pages WHERE page_type = ? AND slug = ?${scopeClause}
+           ORDER BY (scope != 'global') DESC, (status = 'active') DESC, updated_at DESC, id ASC
+           LIMIT 1`,
+        )
+        .get(pageType, normalised, ...scopeParams) as KnowledgePage | undefined;
     }
     return this.db
       .prepare(
-        `SELECT * FROM knowledge_pages WHERE slug = ?
-         ORDER BY (status = 'active') DESC, updated_at DESC, id ASC LIMIT 1`,
+        `SELECT * FROM knowledge_pages WHERE slug = ?${scopeClause}
+         ORDER BY (scope != 'global') DESC, (status = 'active') DESC, updated_at DESC, id ASC
+         LIMIT 1`,
       )
-      .get(normalised) as KnowledgePage | undefined;
+      .get(normalised, ...scopeParams) as KnowledgePage | undefined;
   }
 
   /** Browse one status, newest-updated first. */
   list(query: KnowledgePageListQuery): KnowledgePage[] {
     const params: unknown[] = [query.status];
     let sql = 'SELECT * FROM knowledge_pages WHERE status = ?';
+    if (query.scope !== undefined) {
+      const filter = scopeSql('scope', query.scope);
+      sql += ` AND ${filter.sql}`;
+      params.push(...filter.params);
+    }
     if (query.pageType) {
       sql += ' AND page_type = ?';
       params.push(query.pageType);
@@ -157,7 +186,13 @@ export class KnowledgeRepository {
    */
   findByTitleOrAlias(
     text: string,
-    options: { status: KnowledgePageStatus; pageType?: PageType; tag?: string; limit: number },
+    options: {
+      status: KnowledgePageStatus;
+      pageType?: PageType;
+      tag?: string;
+      scope?: string;
+      limit: number;
+    },
   ): KnowledgePage[] {
     const trimmed = text.trim();
     if (!trimmed) return [];
@@ -176,6 +211,11 @@ export class KnowledgeRepository {
           OR p.slug = ?
           OR EXISTS (SELECT 1 FROM json_each(p.aliases) WHERE lower(json_each.value) = lower(?))
         )`;
+    if (options.scope !== undefined) {
+      const filter = scopeSql('p.scope', options.scope);
+      sql += ` AND ${filter.sql}`;
+      params.push(...filter.params);
+    }
     if (options.pageType) {
       sql += ` AND p.page_type = ?`;
       params.push(options.pageType);
@@ -266,11 +306,19 @@ export class KnowledgeRepository {
    * the review queue) and is otherwise the caller's decision.
    */
   insertPage(
-    input: CreateKnowledgePageInput & { status: KnowledgePageStatus; updatedBy: string },
+    input: CreateKnowledgePageInput & {
+      status: KnowledgePageStatus;
+      updatedBy: string;
+      scope?: string;
+    },
     actor: KnowledgeLogActor,
   ): KnowledgePageWriteResult {
     const run = this.db.transaction((): KnowledgePageWriteResult => {
-      const existing = this.findBySlug(input.slug, input.pageType);
+      // Same-scope only: a page with this slug in another chat is a different
+      // page, not a conflict. Globals still collide here, because promoting to
+      // global is how a chat's page becomes one page for everybody.
+      const scope = normalizeScope(input.scope);
+      const existing = this.findBySlug(input.slug, input.pageType, scope);
       if (existing) {
         return {
           ok: false,
@@ -287,8 +335,8 @@ export class KnowledgeRepository {
         .prepare(
           `INSERT INTO knowledge_pages
              (id, page_type, slug, title, content, aliases, tags, confidence,
-              version, status, entity_id, created_at, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+              version, status, entity_id, scope, created_at, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -301,6 +349,7 @@ export class KnowledgeRepository {
           input.confidence ?? null,
           input.status,
           this.resolveEntityId(input.title),
+          scope,
           now,
           now,
           input.updatedBy,
@@ -313,7 +362,7 @@ export class KnowledgeRepository {
         pageType: input.pageType,
         content: input.content,
       });
-      const danglingLinks = this.writeLinks(id, input.content);
+      const danglingLinks = this.writeLinks(id, input.content, scope);
 
       const page = this.findById(id)!;
       this.appendLog({
@@ -351,9 +400,10 @@ export class KnowledgeRepository {
     ref: KnowledgePageRef,
     input: UpdateKnowledgePageInput,
     actor: KnowledgeLogActor,
+    scope?: string,
   ): KnowledgePageWriteResult {
     const run = this.db.transaction((): KnowledgePageWriteResult => {
-      const current = this.resolveRef(ref);
+      const current = this.resolveRef(ref, scope);
       if (!current) return { ok: false, code: 'not_found', slug: refSlug(ref) };
 
       if (input.expectedVersion === undefined) {
@@ -419,8 +469,13 @@ export class KnowledgeRepository {
         });
       }
 
-      // Links are a parse of the body: only a body change can change them.
-      const danglingLinks = input.content !== undefined ? this.writeLinks(current.id, content) : [];
+      // Links are a parse of the body: only a body change can change them. The
+      // writer's scope decides what a `[[wikilink]]` may resolve to, exactly as
+      // on insert — an update must not silently relink against another chat.
+      const danglingLinks =
+        input.content !== undefined
+          ? this.writeLinks(current.id, content, normalizeScope(scope ?? current.scope))
+          : [];
 
       this.appendLog({
         pageId: current.id,
@@ -476,8 +531,10 @@ export class KnowledgeRepository {
 
   // ── internals ────────────────────────────────────────────────────────────
 
-  private resolveRef(ref: KnowledgePageRef): KnowledgePage | undefined {
-    return 'id' in ref ? this.findById(ref.id) : this.findBySlug(ref.slug, ref.pageType);
+  private resolveRef(ref: KnowledgePageRef, scope?: string): KnowledgePage | undefined {
+    return 'id' in ref
+      ? this.findById(ref.id, scope)
+      : this.findBySlug(ref.slug, ref.pageType, scope);
   }
 
   private replaceSources(pageId: string, sources: KnowledgeSourceInput[], now: number): void {
@@ -497,10 +554,10 @@ export class KnowledgeRepository {
    *
    * @returns the targets that resolved to nothing (dangling).
    */
-  private writeLinks(pageId: string, content: string): string[] {
+  private writeLinks(pageId: string, content: string, scope: string): string[] {
     const { links, dangling } = resolveWikilinks(
       content,
-      (link) => this.resolveActivePageId(link.pageType, link.slug)?.id ?? null,
+      (link) => this.resolveActivePageId(link.pageType, link.slug, scope)?.id ?? null,
       { selfPageId: pageId },
     );
 
@@ -531,23 +588,37 @@ export class KnowledgeRepository {
    * silently satisfying another page's citation is exactly the leak the status
    * filter exists to prevent.
    */
+  /**
+   * The page a wikilink points at, from the writer's own point of view.
+   *
+   * Scoped, because a link written in chat A that resolved to chat B's page would
+   * publish B's existence as a backlink. The link stays in the body either way
+   * (Obsidian resolves it); it is reported as dangling instead of stored.
+   */
   private resolveActivePageId(
     pageType: PageType | null,
     slug: string,
+    scope?: string,
   ): { id: string; pageType: PageType } | null {
-    const row = pageType
-      ? (this.db
-          .prepare(
-            `SELECT id, page_type FROM knowledge_pages
-              WHERE page_type = ? AND slug = ? AND status = 'active'`,
-          )
-          .get(pageType, slug) as { id: string; page_type: PageType } | undefined)
-      : (this.db
-          .prepare(
-            `SELECT id, page_type FROM knowledge_pages WHERE slug = ? AND status = 'active'
-             ORDER BY updated_at DESC, id ASC LIMIT 1`,
-          )
-          .get(slug) as { id: string; page_type: PageType } | undefined);
+    const filter = scope === undefined ? null : scopeSql('scope', scope);
+    const scopeClause = filter ? ` AND ${filter.sql}` : '';
+    const scopeParams = filter ? filter.params : [];
+    if (pageType) {
+      const row = this.db
+        .prepare(
+          `SELECT id, page_type FROM knowledge_pages
+            WHERE page_type = ? AND slug = ? AND status = 'active'${scopeClause}
+            ORDER BY (scope != 'global') DESC, updated_at DESC, id ASC LIMIT 1`,
+        )
+        .get(pageType, slug, ...scopeParams) as { id: string; page_type: PageType } | undefined;
+      return row ? { id: row.id, pageType: row.page_type } : null;
+    }
+    const row = this.db
+      .prepare(
+        `SELECT id, page_type FROM knowledge_pages WHERE slug = ? AND status = 'active'${scopeClause}
+         ORDER BY (scope != 'global') DESC, updated_at DESC, id ASC LIMIT 1`,
+      )
+      .get(slug, ...scopeParams) as { id: string; page_type: PageType } | undefined;
     return row ? { id: row.id, pageType: row.page_type } : null;
   }
 

@@ -81,6 +81,15 @@ export interface KnowledgePage {
    * graph (migration-v21 backfills it, the repository resolves it on write).
    */
   entity_id: string | null;
+  /**
+   * The conversation this page belongs to (migration-v22).
+   *
+   * `'global'` is visible everywhere; `channel:<chatId>` only in that chat. See
+   * `./scope.ts` for the model and `isVisibleInScope` for the one read rule.
+   * Defaults to `'global'` so every page that predates the column behaves
+   * exactly as it did before.
+   */
+  scope: string;
 }
 
 /** A `knowledge_sources` row: one citation from a page to a memory/message/session. */
