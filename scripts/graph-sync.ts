@@ -149,10 +149,11 @@ function main(): void {
     // 6-hourly job would disagree about what the graph contains, which is the
     // drift that made "run graph:reset" a documented step in the first place.
     const healed = selfHealGraph(db, { dryRun: options.dryRun });
-    if (healed.edgesPruned > 0 || healed.nodesMerged > 0) {
+    if (healed.edgesPruned > 0 || healed.nodesMerged > 0 || healed.nodesPruned > 0) {
       console.log(
         `[graph:sync] pruned ${healed.edgesPruned} edge(s) the current rules refuse, ` +
-          `merged ${healed.nodesMerged} duplicate node(s)`,
+          `merged ${healed.nodesMerged} duplicate node(s), ` +
+          `dropped ${healed.nodesPruned} isolated node(s) with a refused name`,
       );
     }
 

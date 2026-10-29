@@ -189,6 +189,15 @@ export function duplicateNodePlan(db: Database.Database): GraphDeletePlan {
 export interface GraphSelfHealSummary {
   edgesPruned: number;
   nodesMerged: number;
+  /**
+   * Isolated nodes whose name the current rules refuse (a filename, a fragment).
+   *
+   * Nodes were only ever removed by the duplicate merge, so a name rule that got
+   * stricter (the file-like rule) left `package.json` sitting in the graph
+   * forever. Only isolated nodes are dropped — one with edges is either history
+   * or the edge plan's business.
+   */
+  nodesPruned: number;
 }
 
 /**
@@ -197,11 +206,20 @@ export interface GraphSelfHealSummary {
  * `dryRun` runs the identical work and rolls it back, so the counts are what a
  * real run would do rather than a separate estimation path that can disagree.
  */
+const ISOLATED_NODE_NAMES_SQL = `
+  SELECT e.id AS id, e.name AS name
+  FROM entities e
+  WHERE NOT EXISTS (
+    SELECT 1 FROM entity_edges x
+    WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id
+  )
+`;
+
 export function selfHealGraph(
   db: Database.Database,
   options: { dryRun?: boolean; log?: (message: string) => void } = {},
 ): GraphSelfHealSummary {
-  const summary: GraphSelfHealSummary = { edgesPruned: 0, nodesMerged: 0 };
+  const summary: GraphSelfHealSummary = { edgesPruned: 0, nodesMerged: 0, nodesPruned: 0 };
   if (!hasGraphTables(db)) return summary;
 
   const run = db.transaction(() => {
@@ -213,6 +231,22 @@ export function selfHealGraph(
       if (ids.length === 0) break;
       summary.nodesMerged += nodes.deleteBatch(ids);
     }
+    // Isolated nodes the current name rules refuse. Only *isolated* ones: a node
+    // that still carries edges is either history (a closed edge) or evidence the
+    // edge plan already refused, and deleting it would cascade the edge away
+    // before its own rule had a say.
+    const refused: string[] = [];
+    for (const row of db.prepare(ISOLATED_NODE_NAMES_SQL).iterate() as Iterable<{
+      id: string;
+      name: string;
+    }>) {
+      if (!isVouchableEntityName(row.name)) refused.push(row.id);
+    }
+    const dropNode = db.prepare('DELETE FROM entities WHERE id = ?');
+    for (const id of refused) {
+      if (dropNode.run(id).changes > 0) summary.nodesPruned++;
+    }
+
     if (options.dryRun === true) throw DRY_RUN_ROLLBACK;
   });
 
@@ -222,7 +256,9 @@ export function selfHealGraph(
     if (err !== DRY_RUN_ROLLBACK) throw err;
   }
   options.log?.(
-    `[graph-prune] edges pruned: ${String(summary.edgesPruned)}, nodes merged: ${String(summary.nodesMerged)}`,
+    `[graph-prune] edges pruned: ${String(summary.edgesPruned)}, nodes merged: ${String(
+      summary.nodesMerged,
+    )}, isolated nodes pruned: ${String(summary.nodesPruned)}`,
   );
   return summary;
 }

@@ -128,6 +128,59 @@ describe('graph-prune: evicting what the current rules refuse', () => {
     expect(keeper.entity_type).toBe('person');
   });
 
+  it('drops an isolated node whose name the rules now refuse', () => {
+    // Measured: `package.json` became a node before the file-like rule existed,
+    // and nothing removes a node except the duplicate merge.
+    repo.upsertEntity({ name: 'package.json', entityType: 'concept' });
+    repo.upsertEntity({ name: 'Termux', entityType: 'product' });
+
+    expect(selfHealGraph(db).nodesPruned).toBe(1);
+    const names = (db.prepare('SELECT name FROM entities').all() as Array<{ name: string }>).map(
+      (row) => row.name,
+    );
+    expect(names).toEqual(['Termux']);
+  });
+
+  it('keeps a node that still carries a closed edge', () => {
+    // History: the edge was retracted, so the node is not isolated garbage and its
+    // deletion would cascade the retraction away with it.
+    seedMemory('m9', '代理用 excel-mcp 打开 file_info.xlsx');
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'file_info.xlsx', entityType: 'concept' });
+    repo.linkEntities({
+      sourceId: a.id,
+      targetId: b.id,
+      relationType: 'USES',
+      confidence: 0.9,
+      sourceMemoryId: 'm9',
+    });
+    db.prepare("UPDATE entity_edges SET valid_to = ? WHERE relation_type = 'USES'").run(Date.now());
+
+    selfHealGraph(db);
+    expect(count('entities')).toBe(2);
+    expect(count('entity_edges')).toBe(1);
+  });
+
+  it('prunes a refused node together with the edge the same rule refuses', () => {
+    // Order is edges first: a refused endpoint makes the edge unusable, so the node
+    // is isolated by the time the node rule looks at it. Both go.
+    seedMemory('m10', '代理用 excel-mcp 打开 file_info.xlsx');
+    const a = repo.upsertEntity({ name: 'excel-mcp', entityType: 'product' });
+    const b = repo.upsertEntity({ name: 'file_info.xlsx', entityType: 'concept' });
+    repo.linkEntities({
+      sourceId: a.id,
+      targetId: b.id,
+      relationType: 'USES',
+      confidence: 0.9,
+      sourceMemoryId: 'm10',
+    });
+
+    const summary = selfHealGraph(db);
+    expect(summary.edgesPruned).toBe(1);
+    expect(summary.nodesPruned).toBe(1);
+    expect(count('entities')).toBe(1);
+  });
+
   it('is idempotent and reports zero on a second run', () => {
     seedMemory(
       'm5',
@@ -146,7 +199,7 @@ describe('graph-prune: evicting what the current rules refuse', () => {
     });
 
     selfHealGraph(db);
-    expect(selfHealGraph(db)).toEqual({ edgesPruned: 0, nodesMerged: 0 });
+    expect(selfHealGraph(db)).toEqual({ edgesPruned: 0, nodesMerged: 0, nodesPruned: 0 });
   });
 
   it('writes nothing on a dry run but reports what it would do', () => {
@@ -170,7 +223,7 @@ describe('graph-prune: evicting what the current rules refuse', () => {
 
     const summary = selfHealGraph(db, { dryRun: true });
 
-    expect(summary).toEqual({ edgesPruned: 1, nodesMerged: 1 });
+    expect(summary).toEqual({ edgesPruned: 1, nodesMerged: 1, nodesPruned: 0 });
     expect(count('entities')).toBe(entitiesBefore);
     expect(count('entity_edges')).toBe(edgesBefore);
   });

@@ -179,14 +179,40 @@ const CJK_FUNCTION_WORDS = new Set([
 const FILE_LIKE =
   /[\\/]|^[A-Za-z]:|\.(xlsx|xls|docx|pdf|txt|md|json|ts|js|py|log|csv|png|jpe?g|zip|db|sqlite)$/i;
 
+/**
+ * Product names spelled with a file-looking suffix.
+ *
+ * `Node.js` is a runtime, not a file, and the extension rule above would drop it
+ * from the graph. The list is deliberately tiny and explicit: a generic
+ * "looks like a product" heuristic is exactly the kind of guess that lets
+ * `check_upgrade.sh` in and keeps `Next.js` out.
+ */
+const DOTTED_PRODUCTS = new Set([
+  'node.js',
+  'vue.js',
+  'next.js',
+  'nuxt.js',
+  'react.js',
+  'd3.js',
+  'three.js',
+  'express.js',
+  'nest.js',
+  'socket.io',
+  'asp.net',
+]);
+
 export function isVouchableEntityName(name: string | null | undefined): boolean {
   const trimmed = (name ?? '').trim();
   if (trimmed.length < 2 || trimmed.length > DEFAULT_MAX_MENTION_NAME_LENGTH) return false;
   // A path or filename is an artifact, not an entity: the relation it appears in
-  // is about the tool that read the file. Measured need — a model answering about
-  // "通过 excel-mcp 使用 Power Query 获取 E:\Excelile_info.xlsx" offered
-  // `file_info.xlsx —USES→ excel-mcp`, which is true of nobody.
-  if (FILE_LIKE.test(trimmed)) return false;
+  // is about the tool that read the file. Measured need - a model answering about
+  // a memory that named an .xlsx output offered a triple whose subject was the
+  // file itself, which is true of nobody.
+  if (DOTTED_PRODUCTS.has(trimmed.toLowerCase())) {
+    // keep going: a product name is a name even when it ends in .js
+  } else if (FILE_LIKE.test(trimmed)) {
+    return false;
+  }
   if (!/\p{L}/u.test(trimmed)) return false;
   if (/^\p{N}[\p{N}\s.,\-/年月日:]*$/u.test(trimmed)) return false;
   if (CJK_FUNCTION_WORDS.has(trimmed)) return false;
