@@ -155,6 +155,37 @@ describe('graph layout', () => {
     expect(distances[1]).toBeLessThan(distances[2]);
   });
 
+  it('gives a vertical pair the column width, not the 54px ring step', () => {
+    const nodes = [node('voxcpm2.com'), node('phone-use skill')];
+    const result = layout(nodes, [edge('voxcpm2.com', 'phone-use skill')], { width: 390 });
+
+    expect(result.labels.get('voxcpm2.com')).toBe('voxcpm2.com');
+    expect(result.labels.get('phone-use skill')).toBe('phone-use skill');
+  });
+
+  it('cuts a label only when its own band is crowded', () => {
+    const names = [
+      'shell-based monitoring',
+      'power query',
+      'excel-mcp',
+      'termux',
+      'obsidian',
+      'python',
+    ];
+    const nodes = [node('hub', 6), ...names.map((name) => node(name))];
+    const edges = names.map((name) => edge('hub', name));
+
+    const narrow = layoutGraph({ nodes, edges, width: 240, maxHeight: 620, focusId: 'hub' });
+    const wide = layoutGraph({ nodes, edges, width: 700, maxHeight: 620, focusId: 'hub' });
+
+    // The long name loses characters on a phone and fits whole on a wide panel;
+    // the short ones fit in both, which is what a global character count cannot do.
+    expect(narrow.labels.get('shell-based monitoring')).toMatch(/…$/);
+    expect(wide.labels.get('shell-based monitoring')).toBe('shell-based monitoring');
+    expect(wide.labels.get('power query')).toBe('power query');
+    expect(narrow.labels.get('excel-mcp')).toBe('excel-mcp');
+  });
+
   it('caps the overview at the rendering limit', () => {
     const nodes = Array.from({ length: MAX_RENDERED + 20 }, (_unused, index) => node(`n${index}`));
     const edges = Array.from({ length: MAX_RENDERED + 19 }, (_unused, index) =>

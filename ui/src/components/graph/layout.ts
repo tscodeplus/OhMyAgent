@@ -475,19 +475,25 @@ export function layoutGraph(input: LayoutInput): LayoutResult {
   // Labels last, once the scale is known: a name is cut only when the space this
   // node actually got cannot hold it, so a sparse drawing shows whole names and
   // a dense one truncates — instead of every label obeying one character count.
+  //
+  // The room is horizontal, because a label is centred *under* its node: what it
+  // can collide with is another label sharing its text band, which is what
+  // gives a two-node vertical chain its full column width instead of the 54px
+  // ring step it sits above. A node alone in its band may use the panel.
   const labels = new Map<string, string>();
+  const band = LABEL_SIZE + 6;
   for (let index = 0; index < rendered.length; index++) {
     const own = points.get(rendered[index].id);
     if (!own) continue;
-    let nearest = Infinity;
+    const panelRoom = 2 * Math.min(own.x, width - own.x) - 8;
+    let shared = Infinity;
     for (let other = 0; other < rendered.length; other++) {
       if (other === index) continue;
       const point = points.get(rendered[other].id);
-      if (!point) continue;
-      nearest = Math.min(nearest, Math.hypot(own.x - point.x, own.y - point.y));
+      if (!point || Math.abs(point.y - own.y) > band) continue;
+      shared = Math.min(shared, Math.abs(point.x - own.x));
     }
-    // Two labels sit side by side rather than touching, so half a gap each.
-    const room = Number.isFinite(nearest) ? nearest - 4 : width;
+    const room = Number.isFinite(shared) ? Math.min(shared - 4, panelRoom) : Math.max(panelRoom, 0);
     labels.set(rendered[index].id, fitLabel(rendered[index].name, room));
   }
 
