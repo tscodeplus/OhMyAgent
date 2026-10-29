@@ -27,6 +27,7 @@
 
 import type {
   CreateKnowledgePageInput,
+  KnowledgeBacklink,
   KnowledgeLink,
   KnowledgePage,
   KnowledgePageStatus,
@@ -44,7 +45,13 @@ export interface KnowledgeSearchHit {
   title: string;
   /** ±120 chars around the match, from `content_original` (not the segmented text). */
   snippet: string;
-  /** BM25-derived; higher is better. Only comparable within one result set. */
+  /**
+   * Rank-fused relevance (reciprocal-rank), higher is better, ordered best first.
+   *
+   * Only comparable within one result set: the two page lanes — BM25 over the
+   * index and the name leg — are fused by rank, never by adding a BM25 magnitude
+   * to a name match, so the number carries an order and nothing else.
+   */
   score: number;
 }
 
@@ -153,9 +160,9 @@ export interface KnowledgeService {
    * (≤150 tokens) and leaves the body to an explicit tool call. Returns `[]`
    * when nothing clears the relevance floor; never invents a hit.
    *
-   * `score` is relevance in (0,1], normalised so a cross-lane ranking can
-   * compare it against another lane's scores; the raw BM25 magnitude stays
-   * inside the service.
+   * `score` is relevance in (0,1] **relative to the best hit in this result set**
+   * (top = 1), which is what makes it comparable with another lane's scores; the
+   * raw fused rank value stays inside the service.
    */
   titlesForInjection(
     query: string,
@@ -163,6 +170,13 @@ export interface KnowledgeService {
   ): Array<{ slug: string; title: string; score?: number }>;
   /** Outgoing links of a page, for `knowledge_get` and the WebUI backlink panel. */
   linksOf(pageId: string): KnowledgeLink[];
+  /**
+   * Incoming links: the **active** pages whose body cites `ref`, newest first.
+   *
+   * Empty for a page that is not readable (`get` returns null for the same refs),
+   * because a panel of pages pointing at a shadow page is a second way to read it.
+   */
+  backlinks(ref: { slug: string; pageType?: PageType } | { id: string }): KnowledgeBacklink[];
 }
 
 /** Tunables the service reads; a subset of the `knowledge:` config block. */

@@ -396,5 +396,127 @@ describe('KnowledgeRepository', () => {
       ).toHaveLength(1);
       expect(repository.findByTitleOrAlias('PQ', { status: 'pending', limit: 5 })).toHaveLength(0);
     });
+
+    it('matches a title by prefix, which is what a half-remembered name looks like', () => {
+      repository.insertPage(
+        createInput({ pageType: 'entity', slug: 'power-query', title: 'Power Query' }),
+        'agent',
+      );
+      repository.insertPage(
+        createInput({ pageType: 'topic', slug: 'power-bi', title: 'Power BI' }),
+        'agent',
+      );
+      repository.insertPage(createInput({ slug: 'excel-etl', title: 'Excel ETL' }), 'agent');
+
+      expect(
+        repository
+          .findByTitleOrAlias('power', { status: 'active', limit: 5 })
+          .map((page) => page.slug)
+          .sort(),
+      ).toEqual(['power-bi', 'power-query']);
+      // Anchored: a prefix match cannot reach into the middle of a title.
+      expect(repository.findByTitleOrAlias('query', { status: 'active', limit: 5 })).toEqual([]);
+    });
+
+    it('sorts an exact title above the pages that merely prefix-match it', () => {
+      repository.insertPage(createInput({ slug: 'power', title: 'Power' }), 'agent');
+      const newer = repository.insertPage(
+        createInput({ pageType: 'topic', slug: 'power-bi', title: 'Power BI' }),
+        'agent',
+      );
+      if (!newer.ok) throw new Error('insert failed');
+      // Newest otherwise wins, so without the exactness key this page would lead.
+      db.prepare('UPDATE knowledge_pages SET updated_at = 9999999999999 WHERE id = ?').run(
+        newer.page.id,
+      );
+
+      expect(
+        repository.findByTitleOrAlias('power', { status: 'active', limit: 5 }).map((page) => page.slug),
+      ).toEqual(['power', 'power-bi']);
+    });
+
+    it('treats LIKE metacharacters in the query literally', () => {
+      repository.insertPage(
+        createInput({ pageType: 'topic', slug: 'pct-done', title: '100% Done', content: 'x' }),
+        'agent',
+      );
+
+      expect(
+        repository.findByTitleOrAlias('100%', { status: 'active', limit: 5 }).map((page) => page.slug),
+      ).toEqual(['pct-done']);
+      // Escaped, so this is "titles starting with a literal %" — not "everything".
+      expect(repository.findByTitleOrAlias('%', { status: 'active', limit: 5 })).toEqual([]);
+      expect(repository.findByTitleOrAlias('_', { status: 'active', limit: 5 })).toEqual([]);
+    });
+  });
+
+  describe('linksTo (backlinks)', () => {
+    function link(from: string, to: string): void {
+      const result = repository.insertPage(createInput({ slug: from, content: `见 [[${to}]]` }), 'agent');
+      if (!result.ok) throw new Error(`insert failed: ${result.code}`);
+    }
+
+    it('returns the active pages that cite the given page', () => {
+      const target = repository.insertPage(
+        createInput({ pageType: 'entity', slug: 'power-query', title: 'Power Query', content: '本体' }),
+        'agent',
+      );
+      if (!target.ok) throw new Error('insert failed');
+      const linker = repository.insertPage(
+        createInput({ slug: 'excel-etl', title: 'Excel ETL', content: '见 [[entity/power-query|PQ]]' }),
+        'agent',
+      );
+      if (!linker.ok) throw new Error('insert failed');
+
+      expect(repository.linksTo(target.page.id)).toEqual([
+        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' },
+      ]);
+      // The forward direction is unchanged: the linker has one outgoing link.
+      expect(repository.linksOf(linker.page.id)).toHaveLength(1);
+    });
+
+    it('drops a linker that is not active', () => {
+      const target = repository.insertPage(
+        createInput({ pageType: 'entity', slug: 'power-query', title: 'Power Query', content: '本体' }),
+        'agent',
+      );
+      if (!target.ok) throw new Error('insert failed');
+
+      link('live-page', 'power-query');
+      const queued = repository.insertPage(
+        createInput({
+          slug: 'queued-page',
+          title: 'Queued Page',
+          content: '见 [[power-query]]',
+          status: 'pending',
+        }),
+        'agent',
+      );
+      if (!queued.ok) throw new Error('insert failed');
+
+      expect(repository.linksTo(target.page.id).map((backlink) => backlink.slug)).toEqual([
+        'live-page',
+      ]);
+    });
+
+    it('ignores a dangling link row instead of failing', () => {
+      // Only reachable with foreign keys off (the FK cascades on delete), which is
+      // exactly the connection a script or a test can open.
+      db.pragma('foreign_keys = OFF');
+      db.prepare(
+        `INSERT INTO knowledge_links (from_page_id, to_page_id, label, created_at)
+         VALUES ('gone-page', 'no-such-page', NULL, ?)`,
+      ).run(Date.now());
+      db.pragma('foreign_keys = ON');
+
+      expect(repository.linksTo('no-such-page')).toEqual([]);
+    });
+
+    it('returns nothing for a page nobody cites', () => {
+      const page = repository.insertPage(createInput(), 'agent');
+      if (!page.ok) throw new Error('insert failed');
+
+      expect(repository.linksTo(page.page.id)).toEqual([]);
+    });
   });
 });

@@ -133,7 +133,7 @@ export default function KnowledgePageEditor({
   const readOnly = archivedPage !== null;
 
   const [detail, setDetail] = useState<KnowledgePageDetailPayload | null>(() =>
-    archivedPage ? { page: archivedPage, sources: [], links: [] } : null,
+    archivedPage ? { page: archivedPage, sources: [], links: [], backlinks: [] } : null,
   );
   const [form, setForm] = useState<EditorForm | null>(() =>
     archivedPage ? toForm(archivedPage) : null,
@@ -429,8 +429,9 @@ export default function KnowledgePageEditor({
           </div>
         )}
 
-        {/* Sources and links come from the detail endpoint, which does not serve
-            an archived page; an empty list here would read as "none recorded". */}
+        {/* Sources, links and backlinks come from the detail endpoint, which does
+            not serve an archived page; an empty list here would read as "none
+            recorded". */}
         {!readOnly && (
           <>
             <section className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
@@ -481,6 +482,39 @@ export default function KnowledgePageEditor({
                       }`}
                     >
                       {link.label || link.slug}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {/* Backlinks are the pages that cite this one, read from the link
+                table rather than parsed from a body, so they always name a page
+                that exists and is active. */}
+            <section className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+              <h2 className="text-[13px] font-medium text-neutral-800 dark:text-neutral-200">
+                {t('knowledge.editor.backlinksLabel')}
+              </h2>
+              {detail.backlinks.length === 0 ? (
+                <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+                  {t('knowledge.editor.backlinksEmpty')}
+                </p>
+              ) : (
+                <ul className="mt-1 space-y-0.5">
+                  {detail.backlinks.map((backlink) => (
+                    <li
+                      key={backlink.slug}
+                      className="flex items-baseline gap-2 text-[11.5px]"
+                      title={
+                        backlink.label ? `${backlink.label} → ${backlink.slug}` : backlink.slug
+                      }
+                    >
+                      <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300">
+                        {backlink.title}
+                      </span>
+                      <span className="shrink-0 font-mono text-[10px] text-neutral-500 dark:text-neutral-400">
+                        {backlink.slug}
+                      </span>
                     </li>
                   ))}
                 </ul>

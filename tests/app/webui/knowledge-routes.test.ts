@@ -304,6 +304,7 @@ describe('knowledge routes', () => {
         page: { id: string; version: number; tags: string[]; updatedBy: string };
         sources: Array<{ kind: string; id: string; createdAt: number | null }>;
         links: Array<{ slug: string; label: string | null; missing: boolean }>;
+        backlinks: Array<{ slug: string; title: string; label: string | null }>;
       };
       expect(body.page).toMatchObject({ id: POWER_QUERY, version: 1, tags: ['data'] });
       expect(body.sources).toHaveLength(1);
@@ -311,6 +312,31 @@ describe('knowledge routes', () => {
       // A link to a page that does not exist is reported, not dropped: the
       // editor renders it as a "create this page" affordance.
       expect(body.links).toEqual([{ slug: 'entity/globex', label: null, missing: true }]);
+      expect(body.backlinks).toEqual([]);
+    });
+
+    it('names the pages that cite this one', async () => {
+      seedPage({
+        pageType: 'topic',
+        slug: 'excel-etl',
+        title: 'Excel ETL',
+        content: '见 [[topic/power-query|PQ]]。',
+      });
+
+      const res = await app.inject({ method: 'GET', url: `/api/knowledge/page/${POWER_QUERY}` });
+      expect(res.statusCode).toBe(200);
+      expect(
+        (res.json() as { backlinks: Array<{ slug: string; title: string; label: string | null }> })
+          .backlinks,
+      ).toEqual([{ slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' }]);
+
+      // The type + slug address serves the same detail.
+      const byPair = await app.inject({ method: 'GET', url: '/api/knowledge/page/topic/power-query' });
+      expect(
+        (byPair.json() as { backlinks: Array<{ slug: string }> }).backlinks.map(
+          (backlink) => backlink.slug,
+        ),
+      ).toEqual(['excel-etl']);
     });
 
     it('resolves type + slug and 404s an unknown pair', async () => {

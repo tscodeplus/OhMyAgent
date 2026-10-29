@@ -25,6 +25,7 @@ import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import type {
   CreateKnowledgePageInput,
+  KnowledgeBacklink,
   KnowledgePage,
   KnowledgePageStatus,
   KnowledgeSourceInput,
@@ -73,6 +74,9 @@ const MAX_SEARCH_LIMIT = 20;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
 
+/** RRF smoothing for the two page lanes — the same `k` `rrf-merge.ts` defaults to. */
+const RRF_K = 60;
+
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, Math.floor(value)));
@@ -91,6 +95,12 @@ function dedupeSources(sources: KnowledgeSourceInput[]): KnowledgeSourceInput[] 
     out.push({ kind: source.kind, id });
   }
   return out;
+}
+
+/** One lane's candidate: the page it matched and the snippet cut for it. */
+interface SearchCandidate {
+  page: KnowledgePage;
+  snippet: string;
 }
 
 // ── admission (§6 K2-3.2) ──────────────────────────────────────────────────
@@ -189,63 +199,82 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
   // tools are registered at all (layer inert), while a registered service must
   // still serve reads when curation is switched off.
 
+  /**
+   * Active pages matching `query`, best first.
+   *
+   * Two lanes answer "is there a page about this": BM25 over
+   * `knowledge_fts_jieba` (body *and* title since migration-v20) and the name leg
+   * (`findByTitleOrAlias`: title prefix, exact slug, exact alias) for what BM25
+   * cannot reach — an acronym stored as an alias, or the half of a title the
+   * searcher remembered.
+   *
+   * They are fused **by rank** (`score = Σ 1 / (rank + k)`, k = 60, the formula
+   * `rrf-merge.ts` implements), never by adding their numbers: a BM25 magnitude
+   * and "the name matched" are not on one scale, and adding them lets whichever
+   * lane's arithmetic happens to be larger decide every query. A page both lanes
+   * found collects two contributions and therefore outranks a page only one lane
+   * found, which is the point — a name match plus a body match is the strongest
+   * evidence there is. `laneSnippets` remembers which lane supplied the text, so
+   * the snippet is cut from the body the match actually came from.
+   */
   function search(rawQuery: string, options?: KnowledgeSearchOptions): KnowledgeSearchHit[] {
     const query = rawQuery.trim();
     if (!query) return [];
     const limit = clamp(options?.limit ?? DEFAULT_SEARCH_LIMIT, 1, MAX_SEARCH_LIMIT);
-
-    const hits: KnowledgeSearchHit[] = [];
-    const seen = new Set<string>();
-    let bestScore = 0;
-
-    for (const row of searchKnowledgeIndex(db, query, {
-      status: 'active',
+    const filters = {
+      status: 'active' as KnowledgePageStatus,
       pageType: options?.pageType,
       tag: options?.tag,
       limit,
-    })) {
+    };
+
+    // Name leg first: lane order is also the tie-break, and a page found only by
+    // name beats a page found only by BM25 on an equal fused score.
+    const nameLane: SearchCandidate[] = repository
+      .findByTitleOrAlias(query, filters)
+      .map((page) => ({ page, snippet: buildSnippet(page.content, query) }));
+
+    const bodyLane: SearchCandidate[] = searchKnowledgeIndex(db, query, filters).flatMap((row) => {
       const page = repository.findById(row.pageId);
       // The SQL already filters on status; this keeps a stale index row from
       // becoming a hit if the page vanished between the two statements.
-      if (!page || page.status !== 'active') continue;
-      if (seen.has(page.id)) continue;
-      seen.add(page.id);
+      if (!page || page.status !== 'active') return [];
+      return [{ page, snippet: buildSnippet(row.contentOriginal, query) }];
+    });
 
-      const score = -row.bm25Score; // BM25 rank is negative; flip to "higher is better"
-      bestScore = Math.max(bestScore, score);
-      hits.push({
-        id: page.id,
-        slug: page.slug,
-        pageType: page.page_type,
-        title: page.title,
-        snippet: buildSnippet(row.contentOriginal, query),
-        score,
+    const fused = new Map<string, { hit: KnowledgeSearchHit; laneIndex: number }>();
+    [nameLane, bodyLane].forEach((lane, laneIndex) => {
+      const seen = new Set<string>();
+      lane.forEach((candidate, rank) => {
+        // One page, one contribution per lane: a duplicated index row must not
+        // look like a second lane agreeing.
+        if (seen.has(candidate.page.id)) return;
+        seen.add(candidate.page.id);
+
+        const contribution = 1 / (rank + 1 + RRF_K);
+        const existing = fused.get(candidate.page.id);
+        if (existing) {
+          existing.hit.score += contribution;
+          return;
+        }
+        fused.set(candidate.page.id, {
+          laneIndex,
+          hit: {
+            id: candidate.page.id,
+            slug: candidate.page.slug,
+            pageType: candidate.page.page_type,
+            title: candidate.page.title,
+            snippet: candidate.snippet,
+            score: contribution,
+          },
+        });
       });
-    }
+    });
 
-    // Title / alias / slug leg: the index holds bodies only, so `PQ` stored as
-    // an alias of `Power Query` is invisible to BM25. These hits are ranked
-    // above every BM25 hit (an exact name match beats a body match); the
-    // contract only promises scores comparable within one result set.
-    for (const page of repository.findByTitleOrAlias(query, {
-      status: 'active',
-      pageType: options?.pageType,
-      tag: options?.tag,
-      limit,
-    })) {
-      if (seen.has(page.id)) continue;
-      seen.add(page.id);
-      hits.push({
-        id: page.id,
-        slug: page.slug,
-        pageType: page.page_type,
-        title: page.title,
-        snippet: buildSnippet(page.content, query),
-        score: bestScore * 2 + 1,
-      });
-    }
-
-    return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+    return [...fused.values()]
+      .sort((a, b) => b.hit.score - a.hit.score || a.laneIndex - b.laneIndex)
+      .slice(0, limit)
+      .map((entry) => entry.hit);
   }
 
   function findPage(ref: KnowledgePageRef): KnowledgePage | undefined {
@@ -395,25 +424,39 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     const hits = search(query, { limit });
     if (hits.length === 0) return [];
 
+    // The fused score is an RRF value: comparable inside this result set and
+    // nowhere else, so relevance is reported relative to the best hit in it
+    // (top = 1). The former `x / (1 + x)` BM25 curve cannot be reused here — an
+    // RRF value sits near 1/61, so it would report ≈0.016 for every hit and lose
+    // every cross-lane comparison against the episodic lane.
+    const top = hits[0].score;
+    if (top <= 0) return [];
     // Relevance floor, relative to the best hit in this set: a title that scores
     // half as well as the top one is a weak guess, and injection budget is spent
     // on every turn. Absolute thresholds are meaningless across query lengths,
     // so the comparison stays within the set (the contract's own caveat).
-    const floor = hits[0].score > 0 ? hits[0].score / 2 : 0;
-    return (
-      hits
-        .filter((hit) => hit.score >= floor)
-        .slice(0, limit)
-        // `score` is reported as relevance in (0,1] — the same BM25→(0,1) curve
-        // `conversation-search` uses (`x / (1 + x)`) — because the caller ranks
-        // this lane against the conversation lane, and a raw −bm25 magnitude (or
-        // a title hit's `bestScore * 2 + 1`) is not on that scale.
-        .map((hit) => ({ slug: hit.slug, title: hit.title, score: hit.score / (1 + hit.score) }))
-    );
+    const floor = top / 2;
+    return hits
+      .filter((hit) => hit.score >= floor)
+      .slice(0, limit)
+      .map((hit) => ({ slug: hit.slug, title: hit.title, score: hit.score / top }));
   }
 
   function linksOf(pageId: string) {
     return repository.linksOf(pageId);
+  }
+
+  /**
+   * The active pages whose body cites `ref`.
+   *
+   * Resolved through the same active-only lookup as `get`, so a `pending` or
+   * `archived` page has no backlinks to show: its body is not readable, and a
+   * panel of pages pointing at it would be a second way to read it.
+   */
+  function backlinks(ref: KnowledgePageRef): KnowledgeBacklink[] {
+    const page = findPage(ref);
+    if (!page || page.status !== 'active') return [];
+    return repository.linksTo(page.id);
   }
 
   return {
@@ -426,6 +469,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     setStatus,
     titlesForInjection,
     linksOf,
+    backlinks,
   };
 }
 

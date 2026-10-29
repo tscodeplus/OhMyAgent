@@ -1693,6 +1693,8 @@
       "linksLabel": "Outgoing links",
       "linksEmpty": "No outgoing links",
       "linkMissing": "This page does not exist yet",
+      "backlinksLabel": "Backlinks",
+      "backlinksEmpty": "No backlinks",
       "updated": "Edited {{time}} by {{actor}}",
       "actorUnknown": "unknown"
     },

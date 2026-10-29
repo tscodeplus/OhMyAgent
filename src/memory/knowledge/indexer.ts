@@ -3,7 +3,7 @@
  *
  * Two things live here, and only here, because both are consequences of the
  * table's shape (a *standalone* FTS5 table, not external-content — see
- * migration-v14):
+ * migration-v14 and migration-v20):
  *
  * 1. **Write = DELETE by `page_id`, then INSERT.** FTS5 has no uniqueness
  *    constraint, so an INSERT-only update path leaves the previous body in the
@@ -15,6 +15,13 @@
  *    `status = 'pending'` pages out of search results *and* out of the
  *    `LIMIT` accounting.
  *
+ * `content` and `title` are the indexed columns, and both are stored
+ * jieba-segmented: the default `unicode61` tokenizer cannot split CJK, so a
+ * title that tokenizes differently from the query can never match. `title`
+ * became indexed in migration-v20 — in v14 it was `UNINDEXED`, which left a page
+ * findable only through the exact-name leg whenever its body did not repeat the
+ * words in its title.
+ *
  * Segmentation reuses `fts-tokenizer.ts` (`tokenizeForIndex` / `buildFtsQuery`)
  * — there is deliberately no second jieba path in this file.
  */
@@ -23,7 +30,7 @@ import type Database from 'better-sqlite3';
 import { buildFtsQuery, tokenizeForIndex } from '../fts-tokenizer.js';
 import type { KnowledgePageStatus, PageType } from './types.js';
 
-/** Columns written per page. `content` is segmented, `content_original` is the raw markdown. */
+/** Columns written per page. `content` and `title` are indexed, both segmented. */
 export interface KnowledgeIndexablePage {
   id: string;
   title: string;
@@ -36,13 +43,24 @@ export interface KnowledgeIndexablePage {
  *
  * Per-page, not per-batch: the caller runs this inside the page write's
  * transaction so the index can never be ahead of or behind the page row.
+ *
+ * The title is written too, and segmented the same way as the body — a title
+ * change is a search change (a page retitled `Pivot Tables` must stop matching
+ * `Pivot Charts`, and the old title must stop matching at all), which is why
+ * `repository.updatePage` re-indexes on `title` as well as on `content`.
  */
 export function indexKnowledgePage(db: Database.Database, page: KnowledgeIndexablePage): void {
   db.prepare('DELETE FROM knowledge_fts_jieba WHERE page_id = ?').run(page.id);
   db.prepare(
     `INSERT INTO knowledge_fts_jieba (content, content_original, page_id, title, page_type)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run(tokenizeForIndex(page.content), page.content, page.id, page.title, page.pageType);
+  ).run(
+    tokenizeForIndex(page.content),
+    page.content,
+    page.id,
+    tokenizeForIndex(page.title),
+    page.pageType,
+  );
 }
 
 export interface KnowledgeIndexSearchOptions {
@@ -65,6 +83,14 @@ export interface KnowledgeIndexHit {
 /**
  * BM25 search over the page index, filtered to one status.
  *
+ * `bm25()` takes one weight per column, in declaration order
+ * (`content, content_original, page_id, title, page_type`): the body counts
+ * normally, the title counts triple, and the three `UNINDEXED` columns' weights
+ * are inert. A page's own name is the cheapest way to identify it, so the same
+ * word in a title says more about the page than the same word in a paragraph.
+ * This is a *weight*, not a second lane: the fused ordering across the name leg
+ * lives in `service.ts`.
+ *
  * A malformed query is an empty result, not an exception: FTS5 MATCH throws on
  * syntax it dislikes and a search box must not turn that into a failed turn.
  */
@@ -80,7 +106,7 @@ export function searchKnowledgeIndex(
   let sql = `
     SELECT f.page_id AS page_id,
            f.content_original AS content_original,
-           bm25(knowledge_fts_jieba) AS rank
+           bm25(knowledge_fts_jieba, 1.0, 0, 0, 3.0, 0) AS rank
     FROM knowledge_fts_jieba f
     JOIN knowledge_pages p ON p.id = f.page_id
     WHERE knowledge_fts_jieba MATCH ?

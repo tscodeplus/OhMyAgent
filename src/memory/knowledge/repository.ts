@@ -26,6 +26,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import type {
   CreateKnowledgePageInput,
+  KnowledgeBacklink,
   KnowledgeLink,
   KnowledgeLogAction,
   KnowledgeLogActor,
@@ -67,6 +68,17 @@ function serializeArray(values: string[] | undefined): string | null {
   if (values === undefined) return null;
   const cleaned = values.map((value) => value.trim()).filter((value) => value.length > 0);
   return cleaned.length > 0 ? JSON.stringify(cleaned) : null;
+}
+
+/**
+ * Escape LIKE metacharacters so a title search for `100%` is a literal search.
+ *
+ * The backslash is also escaped, because it is the `ESCAPE` character the query
+ * itself declares — an unescaped user `\` would otherwise swallow the `%` the
+ * prefix match appends.
+ */
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export class KnowledgeRepository {
@@ -120,11 +132,22 @@ export class KnowledgeRepository {
   }
 
   /**
-   * Pages whose title, slug or one of whose aliases equals `text` (case-folded).
+   * Pages whose title starts with `text`, or whose slug / one of whose aliases
+   * equals it (case-folded).
    *
-   * The FTS index only holds bodies, so an acronym stored as an alias (`PQ` for
-   * `Power Query`) is findable only through this leg of `knowledge_search`.
-   * The `tag` / `pageType` filters live in SQL for the same reason as in
+   * The title leg is a **prefix** match, not equality: a searcher who typed
+   * `power que` or `Power` is naming the page, and the body leg cannot help when
+   * the body never repeats the words in the title. Prefix is the widest leg that
+   * is still deterministic — no stemming, no fuzzy distance, no model — and it is
+   * anchored (`ESCAPE`d `LIKE prefix%`), so it cannot match a title's middle.
+   * Aliases stay exact because an alias *is* an address (`PQ` for `Power Query`),
+   * and an exact title sorts above a prefix one, newest first after that, so the
+   * leg's own order is total: two pages that both prefix-match `Power` do not
+   * swap places between two identical searches.
+   *
+   * The FTS index holds the segmented body and title, so an acronym stored as an
+   * alias is findable only through this leg of `knowledge_search`. The `tag` /
+   * `pageType` filters live in SQL for the same reason as in
    * `searchKnowledgeIndex`: filtering in JS would make `limit` a lie.
    */
   findByTitleOrAlias(
@@ -134,12 +157,17 @@ export class KnowledgeRepository {
     const trimmed = text.trim();
     if (!trimmed) return [];
 
-    const params: unknown[] = [options.status, trimmed, slugify(trimmed), trimmed];
+    const params: unknown[] = [
+      options.status,
+      `${escapeLike(trimmed.toLowerCase())}%`,
+      slugify(trimmed),
+      trimmed,
+    ];
     let sql = `
       SELECT * FROM knowledge_pages p
       WHERE p.status = ?
         AND (
-          lower(p.title) = lower(?)
+          lower(trim(p.title)) LIKE ? ESCAPE '\\'
           OR p.slug = ?
           OR EXISTS (SELECT 1 FROM json_each(p.aliases) WHERE lower(json_each.value) = lower(?))
         )`;
@@ -151,7 +179,8 @@ export class KnowledgeRepository {
       sql += ` AND EXISTS (SELECT 1 FROM json_each(p.tags) WHERE json_each.value = ?)`;
       params.push(options.tag);
     }
-    sql += ` ORDER BY p.updated_at DESC, p.id ASC LIMIT ?`;
+    params.push(trimmed);
+    sql += ` ORDER BY (lower(trim(p.title)) = lower(?)) DESC, p.updated_at DESC, p.id ASC LIMIT ?`;
     params.push(options.limit);
 
     return this.db.prepare(sql).all(...params) as KnowledgePage[];
@@ -170,6 +199,32 @@ export class KnowledgeRepository {
     return this.db
       .prepare('SELECT * FROM knowledge_links WHERE from_page_id = ? ORDER BY to_page_id')
       .all(pageId) as KnowledgeLink[];
+  }
+
+  /**
+   * The active pages whose body cites `pageId` — the reverse of {@link linksOf}.
+   *
+   * Joined to `knowledge_pages` rather than read straight from
+   * `knowledge_links` because the caller wants to *name* the linking pages, and
+   * `status = 'active'` is the read filter every other knowledge reader applies:
+   * a shadow-mode page must not become visible as somebody's backlink. The join
+   * also drops a link row whose source page no longer exists (only possible on a
+   * connection with foreign keys off, since the FK cascades on delete).
+   *
+   * Reads `idx_knowledge_links_to` (migration-v20); before that index this was a
+   * full scan of the link table. Newest-updated first, id as the tiebreak, so the
+   * order is total.
+   */
+  linksTo(pageId: string): KnowledgeBacklink[] {
+    return this.db
+      .prepare(
+        `SELECT p.slug AS slug, p.title AS title, l.label AS label
+         FROM knowledge_links l
+         JOIN knowledge_pages p ON p.id = l.from_page_id
+         WHERE l.to_page_id = ? AND p.status = 'active'
+         ORDER BY p.updated_at DESC, p.id ASC`,
+      )
+      .all(pageId) as KnowledgeBacklink[];
   }
 
   /**

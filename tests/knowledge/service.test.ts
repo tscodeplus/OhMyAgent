@@ -320,6 +320,38 @@ describe('knowledge service', () => {
       expect(service.search('数据清洗', { limit: 999 })).toHaveLength(1);
       expect(service.search('   ')).toEqual([]);
     });
+
+    it('finds a page by a word that appears only in its title', () => {
+      // I6: v14 marked the title UNINDEXED and the name leg was exact-only, so a
+      // page whose body never repeats its own title was reachable only by typing
+      // the whole name.
+      service.create(
+        createInput({ slug: 'pivot-tables', title: 'Pivot Tables', content: '数据透视的用法。' }),
+        { actor: 'agent' },
+      );
+
+      expect(service.search('Pivot').map((hit) => hit.slug)).toEqual(['pivot-tables']);
+      expect(service.search('pivot tab').map((hit) => hit.slug)).toEqual(['pivot-tables']);
+    });
+
+    it('ranks a page found by both lanes above one found by a body match alone', () => {
+      service.create(
+        createInput({
+          pageType: 'entity',
+          slug: 'two-lane',
+          title: 'Warehouse',
+          content: 'Warehouse 的数据分层。',
+        }),
+        { actor: 'agent' },
+      );
+      service.create(
+        createInput({ slug: 'body-only', title: 'Body Only', content: '提到了 Warehouse 一次。' }),
+        { actor: 'agent' },
+      );
+
+      // Name leg + BM25 versus BM25 alone: fused by rank, so two contributions win.
+      expect(service.search('Warehouse').map((hit) => hit.slug)[0]).toBe('two-lane');
+    });
   });
 
   describe('get', () => {
@@ -359,6 +391,66 @@ describe('knowledge service', () => {
     it('returns null for an unknown ref', () => {
       expect(service.get({ slug: 'nope' })).toBeNull();
       expect(service.get({ id: 'nope' })).toBeNull();
+    });
+  });
+
+  describe('backlinks', () => {
+    function seedPages(): { target: string; linker: string } {
+      const target = service.create(
+        createInput({
+          pageType: 'entity',
+          slug: 'power-query',
+          title: 'Power Query',
+          content: '本体',
+        }),
+        { actor: 'agent' },
+      );
+      const linker = service.create(
+        createInput({
+          slug: 'excel-etl',
+          title: 'Excel ETL',
+          content: '见 [[entity/power-query|PQ]]。',
+        }),
+        { actor: 'agent' },
+      );
+      if (!target.ok || !linker.ok) throw new Error('insert failed');
+      return { target: target.id, linker: linker.id };
+    }
+
+    it('names the active pages that cite the page', () => {
+      seedPages();
+
+      expect(service.backlinks({ slug: 'power-query', pageType: 'entity' })).toEqual([
+        { slug: 'excel-etl', title: 'Excel ETL', label: 'PQ' },
+      ]);
+    });
+
+    it('keeps a shadow page out of the backlink list', () => {
+      const shadowed = createKnowledgeService({ db, config: { shadow: true } });
+      const target = shadowed.create(
+        createInput({
+          pageType: 'entity',
+          slug: 'power-query',
+          title: 'Power Query',
+          content: '本体',
+        }),
+        { actor: 'agent' },
+      );
+      const queued = shadowed.create(
+        createInput({ slug: 'draft', title: 'Draft', content: '见 [[power-query]]。', status: 'pending' }),
+        { actor: 'agent' },
+      );
+      if (!target.ok || !queued.ok) throw new Error('insert failed');
+
+      expect(shadowed.backlinks({ id: target.id })).toEqual([]);
+    });
+
+    it('returns nothing for a page that is not readable', () => {
+      const { target } = seedPages();
+      service.setStatus(target, 'archived', 'user');
+
+      expect(service.backlinks({ id: target })).toEqual([]);
+      expect(service.backlinks({ slug: 'nope' })).toEqual([]);
     });
   });
 

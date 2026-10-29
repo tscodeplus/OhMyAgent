@@ -17,6 +17,7 @@ import {
   rebuild,
   searchKnowledgeIndex,
 } from '../../src/memory/knowledge/indexer.js';
+import { tokenizeForIndex } from '../../src/memory/fts-tokenizer.js';
 import { KnowledgeRepository } from '../../src/memory/knowledge/repository.js';
 import { openSeededDatabase, TWO_MEMORY_SOURCES } from './fixtures.js';
 
@@ -104,6 +105,112 @@ describe('knowledge index', () => {
     // Segmented column: whitespace-joined tokens, not the raw sentence.
     expect(row.content.includes(' ')).toBe(true);
     expect(row.content).not.toBe(row.content_original);
+  });
+
+  it('indexes the title too, so a title-only query hits', () => {
+    const result = repository.insertPage(
+      {
+        pageType: 'topic',
+        slug: 'pivot-tables',
+        title: 'Pivot Tables',
+        content: '数据透视的用法。',
+        sources: TWO_MEMORY_SOURCES,
+        status: 'active',
+        updatedBy: 'agent',
+      },
+      'agent',
+    );
+    if (!result.ok) throw new Error('insert failed');
+    insertPage('excel-etl', '正文完全没提到那两个单词');
+
+    // v14 left the title UNINDEXED, so this query returned nothing at all.
+    expect(
+      searchKnowledgeIndex(db, 'Pivot Tables', { status: 'active', limit: 10 }).map(
+        (hit) => hit.pageId,
+      ),
+    ).toEqual([result.page.id]);
+  });
+
+  it('segments a CJK title so the title leg can match it', () => {
+    const result = repository.insertPage(
+      {
+        pageType: 'topic',
+        slug: 'knowledge-graph',
+        title: '知识图谱',
+        content: '本体不重复标题。',
+        sources: TWO_MEMORY_SOURCES,
+        status: 'active',
+        updatedBy: 'agent',
+      },
+      'agent',
+    );
+    if (!result.ok) throw new Error('insert failed');
+
+    const [row] = db
+      .prepare('SELECT title FROM knowledge_fts_jieba WHERE page_id = ?')
+      .all(result.page.id) as Array<{ title: string }>;
+    // The default unicode61 tokenizer cannot split CJK, so the stored title must
+    // be the jieba token stream — otherwise `知识` could never match.
+    expect(row.title).toBe(tokenizeForIndex('知识图谱'));
+    expect(
+      searchKnowledgeIndex(db, '知识', { status: 'active', limit: 10 }).map((hit) => hit.pageId),
+    ).toEqual([result.page.id]);
+  });
+
+  it('weights a title match above the same term in a body', () => {
+    // Same single term, deliberately not repeated: BM25 without the column
+    // weight ranks the longer body above the title, which is the I6 complaint.
+    const titled = repository.insertPage(
+      {
+        pageType: 'topic',
+        slug: 'titled',
+        title: 'Zebra',
+        content: '正文无关。',
+        sources: TWO_MEMORY_SOURCES,
+        status: 'active',
+        updatedBy: 'agent',
+      },
+      'agent',
+    );
+    const bodied = insertPage('bodied', 'Zebra 是正文里的一个词。');
+    if (!titled.ok) throw new Error('insert failed');
+
+    expect(
+      searchKnowledgeIndex(db, 'Zebra', { status: 'active', limit: 10 }).map((hit) => hit.pageId),
+    ).toEqual([titled.page.id, bodied.id]);
+  });
+
+  it('drops the old title when only the title changes', () => {
+    const result = repository.insertPage(
+      {
+        pageType: 'topic',
+        slug: 'retitled',
+        title: 'Pivot Tables',
+        content: '数据透视。',
+        sources: TWO_MEMORY_SOURCES,
+        status: 'active',
+        updatedBy: 'agent',
+      },
+      'agent',
+    );
+    if (!result.ok) throw new Error('insert failed');
+
+    expect(searchKnowledgeIndex(db, 'Tables', { status: 'active', limit: 10 })).toHaveLength(1);
+
+    indexKnowledgePage(db, {
+      id: result.page.id,
+      title: 'Kernel Log',
+      pageType: 'topic',
+      content: '数据透视。',
+    });
+
+    expect(searchKnowledgeIndex(db, 'Tables', { status: 'active', limit: 10 })).toEqual([]);
+    expect(ftsRows(result.page.id)).toHaveLength(1);
+    expect(
+      searchKnowledgeIndex(db, 'Kernel', { status: 'active', limit: 10 }).map(
+        (hit) => hit.pageId,
+      ),
+    ).toEqual([result.page.id]);
   });
 
   it('filters by status in SQL, so a pending page is never returned', () => {

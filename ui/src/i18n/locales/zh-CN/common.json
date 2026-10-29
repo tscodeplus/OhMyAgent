@@ -1693,6 +1693,8 @@
       "linksLabel": "出链",
       "linksEmpty": "没有出链",
       "linkMissing": "该页面尚不存在",
+      "backlinksLabel": "反链",
+      "backlinksEmpty": "没有反链",
       "updated": "{{time}}由 {{actor}} 编辑",
       "actorUnknown": "未知"
     },

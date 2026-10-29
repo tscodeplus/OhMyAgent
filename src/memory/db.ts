@@ -18,6 +18,7 @@ import { migrateV16 } from './migration-v16.js';
 import { migrateV17 } from './migration-v17.js';
 import { migrateV18 } from './migration-v18.js';
 import { migrateV19 } from './migration-v19.js';
+import { migrateV20 } from './migration-v20.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -260,6 +261,23 @@ export function openDatabase(dbPath: string): Database.Database {
       `[V19] merged ${v19Result.merged} duplicate node(s), rewrote ` +
         `${v19Result.renamedCanonical} canonical name(s)`,
     );
+  }
+
+  // V20: the page index gets a searchable title (v14 marked it UNINDEXED, so
+  // BM25 could only measure bodies) and knowledge_links gets the to_page_id
+  // index a backlink needs. After applySchema like v14/v17/v18/v19: it reworks
+  // the table v14 created and adds no column for schema.ts to reference. The
+  // recreate is guarded by the table's own DDL, so it runs once per database
+  // rather than on every open (see the module comment).
+  const v20Result = migrateV20(db);
+  if (v20Result.rebuiltFts) {
+    logger.info(
+      `[V20] Knowledge migration: rebuilt knowledge_fts_jieba with the title indexed ` +
+        `(${v20Result.indexedPages} page(s) re-indexed)`,
+    );
+  }
+  if (v20Result.createdIndexes.length > 0) {
+    logger.info(`[V20] Knowledge migration: created: ${v20Result.createdIndexes.join(', ')}`);
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

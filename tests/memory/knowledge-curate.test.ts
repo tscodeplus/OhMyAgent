@@ -18,6 +18,7 @@ import type {
 } from '../../src/memory/knowledge/service-contract.js';
 import type {
   CreateKnowledgePageInput,
+  KnowledgeBacklink,
   KnowledgeLink,
   KnowledgePage,
   KnowledgePageStatus,
@@ -155,6 +156,10 @@ class FakeKnowledgeService implements KnowledgeService {
   }
 
   linksOf(): KnowledgeLink[] {
+    return [];
+  }
+
+  backlinks(): KnowledgeBacklink[] {
     return [];
   }
 

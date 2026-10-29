@@ -57,11 +57,24 @@ export interface KnowledgePageLink {
   missing: boolean;
 }
 
+/**
+ * One incoming `[[wikilink]]`: a page whose body cites this one.
+ *
+ * Outgoing links can be dangling; backlinks cannot — the server reads them from
+ * `knowledge_links` joined to `knowledge_pages`, active pages only.
+ */
+export interface KnowledgeBacklink {
+  slug: string;
+  title: string;
+  label: string | null;
+}
+
 /** `GET /api/knowledge/page/:id` and `GET /api/knowledge/page/:pageType/:slug`. */
 export interface KnowledgePageDetailPayload {
   page: KnowledgePagePayload;
   sources: KnowledgeSourceRef[];
   links: KnowledgePageLink[];
+  backlinks: KnowledgeBacklink[];
 }
 
 /** `GET /api/knowledge/pages` — `count` is the rows on this page, not a total. */

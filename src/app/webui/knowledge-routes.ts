@@ -43,6 +43,7 @@ import {
   KNOWLEDGE_SOURCE_KINDS,
   PAGE_TYPES,
   isPageType,
+  type KnowledgeBacklink,
   type KnowledgePage,
   type KnowledgePageStatus,
   type KnowledgeSourceKind,
@@ -154,10 +155,14 @@ function toPagePayload(page: KnowledgePage): KnowledgePagePayload {
   };
 }
 
-function toDetailPayload(detail: KnowledgePageDetail): {
+function toDetailPayload(
+  detail: KnowledgePageDetail,
+  backlinks: KnowledgeBacklink[],
+): {
   page: KnowledgePagePayload;
   sources: Array<{ kind: KnowledgeSourceKind; id: string; createdAt: number | null }>;
   links: Array<{ slug: string; label: string | null; missing: boolean }>;
+  backlinks: Array<{ slug: string; title: string; label: string | null }>;
 } {
   return {
     page: toPagePayload(detail.page),
@@ -169,6 +174,10 @@ function toDetailPayload(detail: KnowledgePageDetail): {
       createdAt: source.created_at,
     })),
     links: detail.links,
+    // Outgoing links are parsed from the body (they can be dangling); incoming
+    // ones are read from `knowledge_links`, so they can only name pages that
+    // exist and are active.
+    backlinks,
   };
 }
 
@@ -602,7 +611,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
     }
   });
 
-  /** One page by id, with its sources and (possibly dangling) outgoing links. */
+  /** One page by id, with its sources, its outgoing links and its backlinks. */
   app.get<{ Params: { id: string } }>('/api/knowledge/page/:id', async (request, reply) => {
     try {
       // `service.get` is active-only, so a pending page answers 404 here: its body
@@ -613,7 +622,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
           .status(404)
           .send({ error: 'Not Found', message: `No knowledge page with id ${request.params.id}` });
       }
-      return reply.send(toDetailPayload(detail));
+      return reply.send(toDetailPayload(detail, service.backlinks({ id: request.params.id })));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
@@ -638,7 +647,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
             message: `No knowledge page ${pageType}/${slug}`,
           });
         }
-        return reply.send(toDetailPayload(detail));
+        return reply.send(toDetailPayload(detail, service.backlinks({ slug, pageType })));
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });
@@ -797,7 +806,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
           ok: true,
           id,
           status: 'active',
-          page: detail ? toDetailPayload(detail) : null,
+          page: detail ? toDetailPayload(detail, service.backlinks({ id })) : null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -831,7 +840,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
           ok: true,
           id,
           status: 'archived',
-          page: detail ? toDetailPayload(detail) : null,
+          page: detail ? toDetailPayload(detail, service.backlinks({ id })) : null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

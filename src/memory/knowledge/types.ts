@@ -90,6 +90,21 @@ export interface KnowledgeLink {
   created_at: number | null;
 }
 
+/**
+ * One incoming `[[wikilink]]`, flattened for a reader.
+ *
+ * A read projection, not a table row: the linking page's address and name come
+ * from `knowledge_pages`, the label from the link the author wrote. This is what
+ * `KnowledgeRepository.linksTo()` joins, and it is the shape the page-detail API
+ * and the WebUI render — a `KnowledgeLink` would force every caller to re-read
+ * the page row to name the linker.
+ */
+export interface KnowledgeBacklink {
+  slug: string;
+  title: string;
+  label: string | null;
+}
+
 /** A `knowledge_log` row. Append-only; `page_id` is NULL for global actions. */
 export interface KnowledgeLogEntry {
   id: string;
