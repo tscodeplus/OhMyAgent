@@ -22,6 +22,7 @@ import type Database from 'better-sqlite3';
 import {
   createTransformContext,
   readInjectionReferences,
+  recordInjectedGraphHints,
   recordInjectionReference,
 } from '../../src/agent/context-transform.js';
 import type {
@@ -1183,6 +1184,125 @@ describe('turn-end reference reading', () => {
     expect(() =>
       readInjectionReferences({ sessionKey: 'turn-end-size', answerText: enormous }),
     ).not.toThrow();
+    expect(referenced()).toEqual([]);
+  });
+});
+
+/**
+ * Graph hints: the one prompt-facing consumer of `entity_edges` that is not an
+ * injected block.
+ *
+ * `memory_recall` appends `A —USES→ B [mem:xxxxxxxx]` to its own tool result,
+ * so the probe cannot read the hint out of an offer list — the tool publishes it
+ * (`recordInjectedGraphHints`) and the turn-end reader scores it. A hint is a
+ * statement about a pair, so the rule is stricter than the memory lane's: the
+ * answer has to contain the neighbour's name AND the relation word. A name
+ * alone, or a paraphrase that replaces the relation with its meaning, is not
+ * evidence that the hint was read.
+ */
+describe('turn-end reference reading — graph hints', () => {
+  let record: ReturnType<typeof vi.spyOn>;
+
+  const HINT = {
+    subject: 'excel-mcp',
+    relation: 'USES',
+    object: 'Power Query',
+    memoryId: 'mem-edge-1',
+    memoryRef: 'mem-edge',
+  };
+
+  beforeEach(() => {
+    record = vi.spyOn(memoryObservability, 'record');
+  });
+
+  afterEach(() => {
+    record.mockRestore();
+  });
+
+  function referenced(): Array<Record<string, any>> {
+    return record.mock.calls
+      .filter((call) => call[0] === 'memory.injection.referenced')
+      .map((call) => (call[1] ?? {}) as Record<string, any>);
+  }
+
+  it('credits the hint when the answer repeats the neighbour and the relation', () => {
+    recordInjectedGraphHints({ sessionKey: 'graph-literal', hints: [HINT] });
+
+    readInjectionReferences({
+      sessionKey: 'graph-literal',
+      answerText: '结论：excel-mcp —USES→ Power Query，也就是 excel-mcp 用 Power Query 读表。',
+    });
+
+    expect(referenced()).toEqual([
+      {
+        lane: 'graph',
+        toolName: 'assistant_message',
+        knowledgeSlugs: [],
+        memoryIds: ['mem-edge-1'],
+        messageIds: [],
+      },
+    ]);
+  });
+
+  it('does not credit a paraphrase that names the neighbour without the relation', () => {
+    recordInjectedGraphHints({ sessionKey: 'graph-paraphrase', hints: [HINT] });
+
+    readInjectionReferences({
+      sessionKey: 'graph-paraphrase',
+      answerText: 'excel-mcp 靠着 Power Query 就能把文件名和行数读出来。',
+    });
+
+    expect(referenced()).toEqual([]);
+  });
+
+  it('does not credit the relation word without the neighbour', () => {
+    recordInjectedGraphHints({ sessionKey: 'graph-lonely-relation', hints: [HINT] });
+
+    readInjectionReferences({
+      sessionKey: 'graph-lonely-relation',
+      answerText: 'excel-mcp uses 了别的办法，和这张表无关。',
+    });
+
+    expect(referenced()).toEqual([]);
+  });
+
+  it('survives an empty answer, and the hint can still be credited afterwards', () => {
+    recordInjectedGraphHints({ sessionKey: 'graph-empty', hints: [HINT] });
+
+    expect(() =>
+      readInjectionReferences({ sessionKey: 'graph-empty', answerText: '' }),
+    ).not.toThrow();
+    expect(referenced()).toEqual([]);
+
+    // Nothing was consumed by the empty answer, so the next one is still scored.
+    readInjectionReferences({
+      sessionKey: 'graph-empty',
+      answerText: 'excel-mcp —USES→ Power Query 是图里唯一的边。',
+    });
+    expect(referenced()).toHaveLength(1);
+  });
+
+  it('credits a hint once per offer', () => {
+    recordInjectedGraphHints({ sessionKey: 'graph-once', hints: [HINT] });
+    const answer = 'excel-mcp —USES→ Power Query，只此一条。';
+
+    readInjectionReferences({ sessionKey: 'graph-once', answerText: answer });
+    readInjectionReferences({ sessionKey: 'graph-once', answerText: answer });
+
+    expect(referenced()).toHaveLength(1);
+  });
+
+  it('ignores a hint whose relation or neighbour normalises to nothing', () => {
+    recordInjectedGraphHints({
+      sessionKey: 'graph-blank',
+      hints: [{ ...HINT, object: '   ' }],
+    });
+
+    readInjectionReferences({
+      sessionKey: 'graph-blank',
+      answerText: 'excel-mcp USES 任何东西。',
+    });
+
     expect(referenced()).toEqual([]);
   });
 });

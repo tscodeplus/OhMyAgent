@@ -1,11 +1,22 @@
 /**
  * Knowledge-workbench eval runner — plan §6 K0, measuring the stack that ships.
  *
- * Three datasets in `tests/eval/knowledge/` (JSONL, one case per line):
+ * Four datasets in `tests/eval/knowledge/` (JSONL, one case per line):
  *
  *   episodic.jsonl    session-recall questions, golden = `expectedMessageIds[]`
  *   semantic.jsonl    knowledge questions,      golden = `expectedMemoryIds[]` + `expectedKeywords[]`
  *   preference.jsonl  preference quizzes,       golden = `mustContain[]` + `mustNotContain[]`
+ *   graph.jsonl       relation questions,       golden = `expectedNeighbours[]` + `forbiddenNeighbours[]`
+ *
+ * The graph dataset is the one lane whose answer is not fused: `memory_recall`
+ * appends `A —REL→ B [mem:x]` hints to its own tool result, so the hints are
+ * measured against what the hint block presented (`hintsFor`, wired to
+ * `readHintsForMemories`), not against the fused hit list. Everything else —
+ * corpus applicability, unlabelled cases, the honest-reporting rules — behaves
+ * the same, and the numbers are reported beside the fused metrics instead of
+ * being averaged into them: a hint layer cannot raise a memory's rank
+ * (`neighborhood.ts`), so a fused number that included it would describe a
+ * ranking the agent does not have.
  *
  * ## What is measured
  *
@@ -70,6 +81,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { GraphHint } from '../../graph/neighborhood.js';
 import type { EvalPair } from './eval-builder.js';
 import { computeMetrics } from './eval-runner.js';
 import type { EvalMetrics, EvalResult } from './metrics.js';
@@ -115,12 +127,17 @@ export const PERSONA_FRESHNESS_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 /** Lane order fixes the concatenation order of the injected union. */
 const LANE_ORDER: readonly EvalLane[] = ['messages', 'memories', 'knowledge'];
 
-const DATASET_ORDER: readonly KnowledgeEvalDatasetName[] = ['episodic', 'semantic', 'preference'];
+const DATASET_ORDER: readonly KnowledgeEvalDatasetName[] = [
+  'episodic',
+  'semantic',
+  'preference',
+  'graph',
+];
 
 // ─── Types ───
 
 export type EvalLane = 'messages' | 'memories' | 'knowledge';
-export type KnowledgeEvalDatasetName = 'episodic' | 'semantic' | 'preference';
+export type KnowledgeEvalDatasetName = 'episodic' | 'semantic' | 'preference' | 'graph';
 
 /** One injected item: `id` feeds the id metrics, `text` feeds the text metrics. */
 export interface EvalSearchHit {
@@ -187,6 +204,41 @@ export interface PreferenceEvalCase {
   note?: string;
 }
 
+/** One relation a graph case needs the hint block to present. */
+export interface GraphNeighbourExpectation {
+  subject: string;
+  relation: string;
+  object: string;
+}
+
+/**
+ * A pair the corpus only co-mentions. Presenting it with any relation turns
+ * co-occurrence into a statement, which is the failure `MENTIONED` is kept out
+ * of `entity_edges` to prevent (docs/KNOWLEDGE_GRAPH.md §3).
+ */
+export interface GraphMentionPair {
+  subject: string;
+  object: string;
+}
+
+export interface GraphEvalCase {
+  id: string;
+  query: string;
+  /**
+   * Memories whose hints answer this question. When empty the case is seeded
+   * from the query's own memory hits, exactly as `memory_recall` does; a case
+   * that pins them measures the graph rather than the retrieval that the
+   * semantic dataset already scores.
+   */
+  seedMemoryIds: string[];
+  /** Every one of these must be presented, or the case is a miss. */
+  expectedNeighbours: GraphNeighbourExpectation[];
+  /** None of these pairs may be presented with any relation. */
+  forbiddenNeighbours: GraphMentionPair[];
+  unlabelled?: boolean;
+  note?: string;
+}
+
 /**
  * Which corpus one dataset file's goldens were written against.
  *
@@ -217,6 +269,7 @@ export interface KnowledgeEvalDataset {
   episodic: EpisodicEvalCase[];
   semantic: SemanticEvalCase[];
   preference: PreferenceEvalCase[];
+  graph: GraphEvalCase[];
 }
 
 export interface RunKnowledgeEvalOptions {
@@ -248,6 +301,12 @@ export interface RunKnowledgeEvalOptions {
   personaUpdatedAt?: number | null;
   /** Epoch ms of the newest active preference memory (the layer persona is distilled from). */
   newestActiveMemoryUpdatedAt?: number | null;
+  /**
+   * The graph hint block for a set of memories — `readHintsForMemories(db, ids)`
+   * in the CLI, a stub in tests. Absent means the graph lane is not wired, and
+   * `graph.applicable` says so instead of reporting 0%.
+   */
+  hintsFor?: (memoryIds: string[]) => GraphHint[];
   logger?: (line: string) => void;
 }
 
@@ -291,6 +350,43 @@ export interface PreferenceReport {
   staleCases: number;
   stalePreferenceRate: number | null;
   leakedCaseIds: string[];
+}
+
+/**
+ * The graph lane: does the hint block present the relations the question needs,
+ * and only those?
+ *
+ * Direction is deliberately not asserted. No gate reads word order
+ * (docs/KNOWLEDGE_GRAPH.md §2), so `A —USES→ B` and `B —USES→ A` both pass
+ * attestation; scoring the arrow would fail a corpus for a defect the eval
+ * cannot see, and the lane's job is to report whether the relation is presented
+ * at all. `forbiddenNeighbours` is the half that catches co-occurrence dressed
+ * as a statement — a graph with the wrong edges still answers every expected
+ * neighbour, so `neighbourRecall` alone cannot see that failure.
+ */
+export interface GraphReport {
+  applicable: boolean;
+  applicabilityReason: string;
+  labelled: number;
+  unlabelled: number;
+  unlabelledIds: string[];
+  /** Cases where every expected neighbour was presented. */
+  casesWithAllNeighbours: number;
+  /** Expected triples across scored cases. */
+  neighbourAssertions: number;
+  neighboursPresented: number;
+  neighbourRecall: number | null;
+  /** Cases whose expected neighbours were not all presented. */
+  missedCaseIds: string[];
+  negativeCases: number;
+  negativeCasesClean: number;
+  negativePassRate: number | null;
+  /** Cases that presented a mention-only pair as a relation. */
+  mentionOnlyLeakIds: string[];
+  /** Hints the block presented across scored cases — 0 with an empty graph. */
+  hintsPresented: number;
+  /** Set when the hints provider threw; the lane then measured nothing. */
+  providerError?: string;
 }
 
 /** Per-lane blame surface: one row per lane, over the same cases as the aggregate. */
@@ -347,6 +443,14 @@ export interface KnowledgeEvalRun extends EvalResult {
   episodic: IdRankingReport;
   semantic: IdRankingReport & KeywordReport;
   preference: PreferenceReport;
+  /**
+   * The graph lane, reported beside the fused metrics rather than inside them
+   * — see this module's header. A baseline file carries it too, so a later
+   * baseline has the number even though `formatBaselineDiff` does not tabulate
+   * it: a hint layer does not move any fused metric, so a delta row would be a
+   * row of zeros pretending to be a measurement.
+   */
+  graph: GraphReport;
 }
 
 export interface DatasetApplicability {
@@ -716,6 +820,90 @@ function loadPreference(filePath: string): PreferenceEvalCase[] {
   return cases;
 }
 
+function loadGraph(filePath: string): GraphEvalCase[] {
+  const cases = readJsonlCases(filePath).map(({ entry, where }) => {
+    const evalCase: GraphEvalCase = {
+      id: requireString(entry, 'id', where),
+      query: requireString(entry, 'query', where),
+      seedMemoryIds: optionalStringArray(entry, 'seedMemoryIds', where),
+      expectedNeighbours: neighbourExpectations(entry, where),
+      forbiddenNeighbours: mentionPairs(entry, where),
+      unlabelled: isUnlabelled(entry, where) || undefined,
+      note: optionalNote(entry, where),
+    };
+    if (
+      !evalCase.unlabelled &&
+      evalCase.expectedNeighbours.length === 0 &&
+      evalCase.forbiddenNeighbours.length === 0
+    ) {
+      // A case with no expectation is neither a hit nor a miss; it would be
+      // counted as scored and dilute every rate on the way through.
+      throw new Error(
+        `${where}: labelled case "${evalCase.id}" needs expectedNeighbours or forbiddenNeighbours`,
+      );
+    }
+    return evalCase;
+  });
+  assertUniqueIds(cases, filePath);
+  return cases;
+}
+
+/** `expectedNeighbours`: triples, each field a non-empty string. */
+function neighbourExpectations(
+  entry: Record<string, unknown>,
+  where: string,
+): GraphNeighbourExpectation[] {
+  const value = entry.expectedNeighbours;
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "expectedNeighbours" must be an array of triples`);
+  }
+  return value.map((item, index) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${where}: "expectedNeighbours[${index}]" must be an object`);
+    }
+    const triple = item as Record<string, unknown>;
+    const at = `${where}:expectedNeighbours[${index}]`;
+    return {
+      subject: requireNonEmptyField(triple, 'subject', at),
+      relation: requireNonEmptyField(triple, 'relation', at),
+      object: requireNonEmptyField(triple, 'object', at),
+    };
+  });
+}
+
+/** `forbiddenNeighbours`: pairs the corpus only co-mentions. */
+function mentionPairs(entry: Record<string, unknown>, where: string): GraphMentionPair[] {
+  const value = entry.forbiddenNeighbours;
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "forbiddenNeighbours" must be an array of pairs`);
+  }
+  return value.map((item, index) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${where}: "forbiddenNeighbours[${index}]" must be an object`);
+    }
+    const pair = item as Record<string, unknown>;
+    const at = `${where}:forbiddenNeighbours[${index}]`;
+    return {
+      subject: requireNonEmptyField(pair, 'subject', at),
+      object: requireNonEmptyField(pair, 'object', at),
+    };
+  });
+}
+
+function requireNonEmptyField(
+  entry: Record<string, unknown>,
+  field: string,
+  where: string,
+): string {
+  const value = entry[field];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${where}: "${field}" must be a non-empty string`);
+  }
+  return value;
+}
+
 function loadCorpusDeclaration(
   raw: unknown,
   dataset: KnowledgeEvalDatasetName,
@@ -808,6 +996,7 @@ export function loadKnowledgeEvalDataset(
     episodic: loadEpisodic(path.join(dir, 'episodic.jsonl')),
     semantic: loadSemantic(path.join(dir, 'semantic.jsonl')),
     preference: loadPreference(path.join(dir, 'preference.jsonl')),
+    graph: loadGraph(path.join(dir, 'graph.jsonl')),
   };
 }
 
@@ -906,6 +1095,135 @@ function matchedByLane(
   return matched;
 }
 
+// ─── Graph lane ───
+
+/**
+ * Order-insensitive name pair. Direction is not scored (see `GraphReport`), and
+ * a hint's two endpoints are one statement either way.
+ */
+function graphPairKey(subject: string, object: string): string {
+  return [normaliseEvalText(subject), normaliseEvalText(object)].sort().join('\u0000');
+}
+
+function graphNeighbourKey(neighbour: GraphNeighbourExpectation): string {
+  return `${graphPairKey(neighbour.subject, neighbour.object)}\u0000${normaliseEvalText(neighbour.relation)}`;
+}
+
+/** Memory hits a graph case was seeded from when it does not pin its seeds. */
+function graphSeedMemoryIds(retrieval: QueryRetrieval | undefined): string[] {
+  if (!retrieval) return [];
+  const ids: string[] = [];
+  for (const hit of retrieval.topHits) {
+    if (hit.lane !== 'memories' || ids.includes(hit.id)) continue;
+    ids.push(hit.id);
+  }
+  return ids;
+}
+
+/**
+ * The graph lane ignores the fused ranking: `memory_recall` appends hints to its
+ * own result, so what this scores is the hint block — expected neighbours
+ * presented, mention-only pairs not presented — and nothing here can move a
+ * fused metric. A provider that throws is reported (`providerError`) and scores
+ * nothing, because "the graph answered nothing" and "the graph could not be
+ * asked" are different facts.
+ */
+function scoreGraphLane(input: {
+  dataset: GraphEvalCase[];
+  fit: DatasetApplicability;
+  hintsFor: ((memoryIds: string[]) => GraphHint[]) | undefined;
+  retrievalByQuery: Map<string, QueryRetrieval>;
+}): GraphReport {
+  const wired = input.hintsFor !== undefined;
+  const labelled = input.dataset.filter((evalCase) => !evalCase.unlabelled);
+  const unlabelledIds = input.dataset.filter((evalCase) => evalCase.unlabelled).map((c) => c.id);
+  const report: GraphReport = {
+    applicable: wired && input.fit.applicable,
+    applicabilityReason: wired
+      ? input.fit.reason
+      : 'the graph lane is not wired (no hints provider) — the hint block cannot be measured',
+    labelled: 0,
+    unlabelled: unlabelledIds.length,
+    unlabelledIds,
+    casesWithAllNeighbours: 0,
+    neighbourAssertions: 0,
+    neighboursPresented: 0,
+    neighbourRecall: null,
+    missedCaseIds: [],
+    negativeCases: 0,
+    negativeCasesClean: 0,
+    negativePassRate: null,
+    mentionOnlyLeakIds: [],
+    hintsPresented: 0,
+  };
+  const hintsFor = input.hintsFor;
+  if (!report.applicable || !hintsFor) return report;
+
+  const negativeCases = labelled.filter((c) => c.forbiddenNeighbours.length > 0).length;
+  const missedCaseIds: string[] = [];
+  const mentionOnlyLeakIds: string[] = [];
+  let casesWithAllNeighbours = 0;
+  let neighbourAssertions = 0;
+  let neighboursPresented = 0;
+  let negativeCasesClean = 0;
+  let hintsPresented = 0;
+
+  try {
+    for (const evalCase of labelled) {
+      const seeds =
+        evalCase.seedMemoryIds.length > 0
+          ? evalCase.seedMemoryIds
+          : graphSeedMemoryIds(input.retrievalByQuery.get(evalCase.query));
+      const hints = hintsFor(seeds);
+      hintsPresented += hints.length;
+      const presentedTriples = new Set(
+        hints.map(
+          (hint) =>
+            `${graphPairKey(hint.subject, hint.object)}\u0000${normaliseEvalText(hint.relation)}`,
+        ),
+      );
+      const presentedPairs = new Set(hints.map((hint) => graphPairKey(hint.subject, hint.object)));
+
+      if (evalCase.expectedNeighbours.length > 0) {
+        const missing = evalCase.expectedNeighbours.filter(
+          (neighbour) => !presentedTriples.has(graphNeighbourKey(neighbour)),
+        );
+        neighbourAssertions += evalCase.expectedNeighbours.length;
+        neighboursPresented += evalCase.expectedNeighbours.length - missing.length;
+        if (missing.length > 0) missedCaseIds.push(evalCase.id);
+        else casesWithAllNeighbours++;
+      }
+
+      if (evalCase.forbiddenNeighbours.length > 0) {
+        const leaked = evalCase.forbiddenNeighbours.some((pair) =>
+          presentedPairs.has(graphPairKey(pair.subject, pair.object)),
+        );
+        if (leaked) mentionOnlyLeakIds.push(evalCase.id);
+        else negativeCasesClean++;
+      }
+    }
+  } catch (err) {
+    report.providerError = err instanceof Error ? err.message : String(err);
+    report.applicable = false;
+    report.applicabilityReason = `hints provider threw: ${report.providerError}`;
+    return report;
+  }
+
+  report.labelled = labelled.length;
+  report.casesWithAllNeighbours = casesWithAllNeighbours;
+  report.neighbourAssertions = neighbourAssertions;
+  report.neighboursPresented = neighboursPresented;
+  report.neighbourRecall =
+    neighbourAssertions > 0 ? neighboursPresented / neighbourAssertions : null;
+  report.missedCaseIds = missedCaseIds;
+  report.negativeCases = negativeCases;
+  report.negativeCasesClean = negativeCasesClean;
+  report.negativePassRate = negativeCases > 0 ? negativeCasesClean / negativeCases : null;
+  report.mentionOnlyLeakIds = mentionOnlyLeakIds;
+  report.hintsPresented = hintsPresented;
+  return report;
+}
+
 export async function runKnowledgeEval(
   options: RunKnowledgeEvalOptions,
 ): Promise<KnowledgeEvalRun> {
@@ -935,16 +1253,19 @@ export async function runKnowledgeEval(
   // those datasets is scored.
   const labelledQueries: string[] = [];
   const seenQueries = new Set<string>();
-  const allCases: Array<EpisodicEvalCase | SemanticEvalCase | PreferenceEvalCase> = [
-    ...dataset.episodic,
-    ...dataset.semantic,
-    ...dataset.preference,
-  ];
+  const allCases: Array<EpisodicEvalCase | SemanticEvalCase | PreferenceEvalCase | GraphEvalCase> =
+    [...dataset.episodic, ...dataset.semantic, ...dataset.preference, ...dataset.graph];
+  const addQuery = (query: string): void => {
+    if (seenQueries.has(query)) return;
+    seenQueries.add(query);
+    labelledQueries.push(query);
+  };
   for (const evalCase of allCases) {
     if (evalCase.unlabelled) continue;
-    if (seenQueries.has(evalCase.query)) continue;
-    seenQueries.add(evalCase.query);
-    labelledQueries.push(evalCase.query);
+    // A graph case with pinned seeds already knows what will be recalled, so the
+    // retrieval it does not use is not paid for either.
+    if ('seedMemoryIds' in evalCase && evalCase.seedMemoryIds.length > 0) continue;
+    addQuery(evalCase.query);
   }
 
   const retrievalByQuery = new Map<string, QueryRetrieval>();
@@ -1157,6 +1478,14 @@ export async function runKnowledgeEval(
     leakedCaseIds,
   };
 
+  // ── graph: does the hint block present the relations the question needs? ──
+  const graph = scoreGraphLane({
+    dataset: dataset.graph,
+    fit: applicability.graph,
+    hintsFor: options.hintsFor,
+    retrievalByQuery,
+  });
+
   // ── per-lane attribution ──
   const idScoredCases: Array<{ query: string; expectedIds: string[] }> = [
     ...episodicScored.map((c) => ({ query: c.query, expectedIds: c.expectedMessageIds })),
@@ -1321,6 +1650,7 @@ export async function runKnowledgeEval(
     episodic,
     semantic,
     preference,
+    graph,
   };
   run.summary = formatKnowledgeEvalReport(run);
 
@@ -1387,6 +1717,19 @@ function formatDatasetDetail(run: KnowledgeEvalRun): string[] {
   if (run.semantic.missedCaseIds.length > 0) {
     lines.push(`  keyword misses: ${run.semantic.missedCaseIds.join(', ')}`);
   }
+  lines.push(
+    `graph:      ${run.graph.labelled} scored, ${run.graph.unlabelled} unlabelled${unlabelledNotes(run.graph.unlabelledIds)}` +
+      `, ${run.graph.neighbourAssertions} expected neighbour(s), ${run.graph.negativeCases} mention-only case(s)`,
+  );
+  if (run.graph.missedCaseIds.length > 0) {
+    lines.push(`  neighbour misses: ${run.graph.missedCaseIds.join(', ')}`);
+  }
+  if (run.graph.mentionOnlyLeakIds.length > 0) {
+    lines.push(`  mention-only leaks: ${run.graph.mentionOnlyLeakIds.join(', ')}`);
+  }
+  if (run.graph.providerError !== undefined) {
+    lines.push(`  hints provider error: ${run.graph.providerError}`);
+  }
   return lines;
 }
 
@@ -1427,6 +1770,13 @@ export function formatKnowledgeEvalReport(run: KnowledgeEvalRun): string {
     `  personaFreshness: ${metrics.personaFreshness}`,
     `  latency: avg ${formatMsOrNa(metrics.averageRetrievalLatencyMs)}` +
       `   p50 ${formatMsOrNa(metrics.latencyP50Ms)}   p95 ${formatMsOrNa(metrics.latencyP95Ms)}`,
+    // The graph lane is printed even when it could not run: a hint block that
+    // was never measured must not be inferred from the absence of a line.
+    `  graph: neighbourRecall ${formatPercentOrNa(run.graph.neighbourRecall)}` +
+      ` (${run.graph.neighboursPresented}/${run.graph.neighbourAssertions})` +
+      `   mentionOnlyLeaks ${run.graph.mentionOnlyLeakIds.length}` +
+      `   hints ${run.graph.hintsPresented}` +
+      `   ${run.graph.applicable ? '' : `[not measured: ${run.graph.applicabilityReason}]`}`.trimEnd(),
   ].join('\n');
 }
 
@@ -1690,9 +2040,10 @@ function parseCliArgs(argv: string[]): CliOptions {
 
 const CLI_HELP = `Usage: tsx src/memory/eval/knowledge-eval.ts [--baseline] [--corpus <label>]
 
-  (no flag)        run the three datasets through unifiedSearch() (message +
-                   memory + knowledge lanes fused) and diff the metrics against
-                   the newest ${BASELINE_DIR}/baseline-<date>.json
+  (no flag)        run the datasets through unifiedSearch() (message +
+                   memory + knowledge lanes fused) plus the graph lane, and
+                   diff the fused metrics against the newest
+                   ${BASELINE_DIR}/baseline-<date>.json
   --baseline       run and archive the report as ${BASELINE_DIR}/baseline-<date>.json
   --corpus <label> declare which corpus this run measures; the shipped datasets
                    were quoted from 'dev-machine'. A corpus-specific dataset run
@@ -1738,6 +2089,7 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     { parseEpochMs },
     { unifiedSearch },
     { createKnowledgeService },
+    { readHintsForMemories },
   ] = await Promise.all([
     import('../../app/config.js'),
     import('../db.js'),
@@ -1751,6 +2103,7 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
     import('../../shared/timestamp.js'),
     import('../unified-search.js'),
     import('../knowledge/service.js'),
+    import('../../graph/neighborhood.js'),
   ]);
 
   const config = loadConfig();
@@ -1866,6 +2219,9 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
       },
       personaUpdatedAt: parseEpochMs(personaRow?.updated_at),
       newestActiveMemoryUpdatedAt: parseEpochMs(newestPreferenceRow?.updated_at),
+      // The same reader `memory_recall` uses, so the eval scores the hint block
+      // the agent would actually have seen — not a copy of the SQL.
+      hintsFor: (memoryIds) => readHintsForMemories(db, memoryIds),
     },
     close: () => db.close(),
   };

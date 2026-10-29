@@ -41,6 +41,7 @@ import type {
   KnowledgeEvalDataset,
   KnowledgeEvalRun,
 } from '../../src/memory/eval/knowledge-eval.js';
+import type { GraphHint } from '../../src/graph/neighborhood.js';
 
 const ALL_LANES: EvalLane[] = ['messages', 'memories', 'knowledge'];
 const DEV_CORPUS = 'dev-machine';
@@ -49,6 +50,7 @@ interface TempDatasetFiles {
   episodic?: string;
   semantic?: string;
   preference?: string;
+  graph?: string;
   manifest?: unknown;
 }
 
@@ -58,6 +60,7 @@ const DEFAULT_MANIFEST = {
     episodic: { corpus: DEV_CORPUS },
     semantic: { corpus: DEV_CORPUS },
     preference: { corpus: DEV_CORPUS },
+    graph: { corpus: DEV_CORPUS },
   },
 };
 
@@ -69,7 +72,7 @@ function makeTempDatasetDir(files: TempDatasetFiles = {}): string {
     typeof manifest === 'string' ? manifest : JSON.stringify(manifest),
     'utf-8',
   );
-  for (const name of ['episodic', 'semantic', 'preference'] as const) {
+  for (const name of ['episodic', 'semantic', 'preference', 'graph'] as const) {
     fs.writeFileSync(path.join(dir, `${name}.jsonl`), files[name] ?? '', 'utf-8');
   }
   return dir;
@@ -215,7 +218,7 @@ describe('loadKnowledgeEvalManifest', () => {
   it('reads the shipped corpus declarations', () => {
     const manifest = loadKnowledgeEvalManifest(KNOWLEDGE_EVAL_DATASET_DIR);
     expect(manifest.version).toBe(1);
-    for (const name of ['episodic', 'semantic', 'preference'] as const) {
+    for (const name of ['episodic', 'semantic', 'preference', 'graph'] as const) {
       expect(manifest.datasets[name].corpus).toBe(DEV_CORPUS);
       expect(manifest.datasets[name].portable).toBeUndefined();
     }
@@ -226,7 +229,12 @@ describe('loadKnowledgeEvalManifest', () => {
       const dir = makeTempDatasetDir({
         manifest: {
           version: 1,
-          datasets: { episodic: declaration, semantic: declaration, preference: declaration },
+          datasets: {
+            episodic: declaration,
+            semantic: declaration,
+            preference: declaration,
+            graph: declaration,
+          },
         },
       });
       expect(() => loadKnowledgeEvalManifest(dir)).toThrow(/must declare "corpus".*or "portable"/);
@@ -241,6 +249,7 @@ describe('loadKnowledgeEvalManifest', () => {
           episodic: { corpus: DEV_CORPUS, portable: true },
           semantic: { corpus: DEV_CORPUS },
           preference: { corpus: DEV_CORPUS },
+          graph: { corpus: DEV_CORPUS },
         },
       },
     });
@@ -266,6 +275,9 @@ describe('loadKnowledgeEvalDataset', () => {
     expect(dataset.episodic).toHaveLength(10);
     expect(dataset.semantic).toHaveLength(15);
     expect(dataset.preference).toHaveLength(20);
+    // Three relation questions plus the mention-only negative case.
+    expect(dataset.graph).toHaveLength(4);
+    expect(dataset.graph.filter((c) => c.forbiddenNeighbours.length > 0)).toHaveLength(1);
   });
 
   it('scores only labelled cases and explains every unlabelled one', () => {
@@ -744,6 +756,7 @@ describe('runKnowledgeEval corpus applicability', () => {
           episodic: { portable: true },
           semantic: { portable: true },
           preference: { portable: true },
+          graph: { portable: true },
         },
       },
       episodic: jsonl(
@@ -834,6 +847,202 @@ describe('toEvalSearchResult (unifiedSearch wiring)', () => {
       ['message', 'memory'],
     );
     expect(Object.keys(result.lanes).sort()).toEqual(['memories', 'messages']);
+  });
+});
+
+describe('graph lane', () => {
+  const NEIGHBOUR = { subject: 'excel-mcp', relation: 'USES', object: 'Power Query' };
+  const HINT: GraphHint = {
+    subject: 'excel-mcp',
+    relation: 'USES',
+    object: 'Power Query',
+    memoryId: 'mem-edge',
+    memoryRef: 'mem-edge',
+  };
+
+  const noSearch: EvalSearchFn = async () => ({ hits: [], lanes: {} });
+
+  function graphRun(options: {
+    cases: unknown[];
+    hintsFor?: (memoryIds: string[]) => GraphHint[];
+    search?: EvalSearchFn;
+  }) {
+    const dir = makeTempDatasetDir({ graph: jsonl(...options.cases) });
+    return runKnowledgeEval({
+      search: options.search ?? noSearch,
+      datasetDir: dir,
+      corpus: DEV_CORPUS,
+      ...(options.hintsFor ? { hintsFor: options.hintsFor } : {}),
+    });
+  }
+
+  it('scores a relation the hint block presents', async () => {
+    const run = await graphRun({
+      cases: [
+        {
+          id: 'g1',
+          query: 'excel-mcp 怎么读 Excel？',
+          seedMemoryIds: ['mem-edge'],
+          expectedNeighbours: [NEIGHBOUR],
+        },
+      ],
+      hintsFor: () => [HINT],
+    });
+
+    expect(run.graph.applicable).toBe(true);
+    expect(run.graph.labelled).toBe(1);
+    expect(run.graph.casesWithAllNeighbours).toBe(1);
+    expect(run.graph.neighbourAssertions).toBe(1);
+    expect(run.graph.neighbourRecall).toBe(1);
+    expect(run.graph.missedCaseIds).toEqual([]);
+    expect(run.graph.hintsPresented).toBe(1);
+    // The lane is printed even though it feeds no fused metric.
+    expect(run.summary).toContain('neighbourRecall 100.0%');
+  });
+
+  it('seeds from the query’s memory hits when the case pins no seeds', async () => {
+    const seen: string[][] = [];
+    const query = 'excel-mcp 怎么读 Excel？';
+    const search: EvalSearchFn = async () => ({
+      hits: [{ lane: 'memories', id: 'mem-recalled', text: 'excel-mcp … Power Query' }],
+      lanes: { memories: { hits: 1, dropped: 0 } },
+    });
+
+    const run = await graphRun({
+      cases: [{ id: 'g1', query, expectedNeighbours: [NEIGHBOUR] }],
+      search,
+      hintsFor: (ids) => {
+        seen.push(ids);
+        return [HINT];
+      },
+    });
+
+    // Pinned seeds are the only reason a graph query is not searched, so the
+    // unpinned case has to reach the retriever exactly as `memory_recall` does.
+    expect(seen).toEqual([['mem-recalled']]);
+    expect(run.graph.neighbourRecall).toBe(1);
+  });
+
+  it('reports a miss when the hint block does not hold the relation', async () => {
+    const run = await graphRun({
+      cases: [
+        {
+          id: 'g-missing',
+          query: 'excel-mcp 怎么读 Excel？',
+          seedMemoryIds: ['mem-other'],
+          expectedNeighbours: [NEIGHBOUR],
+        },
+      ],
+      hintsFor: () => [],
+    });
+
+    expect(run.graph.neighbourRecall).toBe(0);
+    expect(run.graph.missedCaseIds).toEqual(['g-missing']);
+    expect(run.graph.casesWithAllNeighbours).toBe(0);
+    // An empty block is not an error — it is the ordinary case on a graph with
+    // no edge among the recalled memories.
+    expect(run.graph.applicable).toBe(true);
+  });
+
+  it('flags a mention-only pair presented as a relation', async () => {
+    const run = await graphRun({
+      cases: [
+        {
+          id: 'g-negative',
+          query: 'excel-mcp 会用 Python 处理 Excel 吗？',
+          seedMemoryIds: ['mem-edge'],
+          expectedNeighbours: [NEIGHBOUR],
+          forbiddenNeighbours: [{ subject: 'Python', object: 'Excel' }],
+        },
+      ],
+      // The same memory mentions Python and Excel; here the projection has
+      // dressed that co-occurrence as a statement, which the lane must catch.
+      hintsFor: () => [
+        HINT,
+        {
+          subject: 'Python',
+          relation: 'USES',
+          object: 'Excel',
+          memoryId: 'mem-edge',
+          memoryRef: 'mem-edge',
+        },
+      ],
+    });
+
+    expect(run.graph.negativeCases).toBe(1);
+    expect(run.graph.negativePassRate).toBe(0);
+    expect(run.graph.mentionOnlyLeakIds).toEqual(['g-negative']);
+    expect(run.summary).toContain('mentionOnlyLeaks 1');
+  });
+
+  it('passes the negative half when the block holds relations but not that pair', async () => {
+    const run = await graphRun({
+      cases: [
+        {
+          id: 'g-clean',
+          query: 'excel-mcp 会用 Python 处理 Excel 吗？',
+          seedMemoryIds: ['mem-edge'],
+          forbiddenNeighbours: [{ subject: 'Python', object: 'Excel' }],
+        },
+      ],
+      hintsFor: () => [HINT],
+    });
+
+    expect(run.graph.negativeCases).toBe(1);
+    expect(run.graph.negativePassRate).toBe(1);
+    expect(run.graph.mentionOnlyLeakIds).toEqual([]);
+    // The expected-neighbour half is empty here, so it is not scored as a hit.
+    expect(run.graph.neighbourAssertions).toBe(0);
+    expect(run.graph.neighbourRecall).toBeNull();
+  });
+
+  it('reports the lane as not measured when no hints provider is wired', async () => {
+    const run = await graphRun({
+      cases: [
+        { id: 'g1', query: 'q', seedMemoryIds: ['mem-edge'], expectedNeighbours: [NEIGHBOUR] },
+      ],
+    });
+
+    expect(run.graph.applicable).toBe(false);
+    expect(run.graph.applicabilityReason).toContain('no hints provider');
+    expect(run.graph.neighbourRecall).toBeNull();
+    expect(run.summary).toContain('not measured');
+  });
+
+  it('reports a throwing provider instead of scoring it as a miss', async () => {
+    const run = await graphRun({
+      cases: [
+        { id: 'g1', query: 'q', seedMemoryIds: ['mem-edge'], expectedNeighbours: [NEIGHBOUR] },
+      ],
+      hintsFor: () => {
+        throw new Error('graph tables missing');
+      },
+    });
+
+    expect(run.graph.providerError).toBe('graph tables missing');
+    expect(run.graph.applicable).toBe(false);
+    expect(run.graph.missedCaseIds).toEqual([]);
+    expect(run.graph.neighbourRecall).toBeNull();
+  });
+
+  it('refuses a labelled graph case with nothing to assert', () => {
+    const dir = makeTempDatasetDir({
+      graph: jsonl({ id: 'g1', query: 'q', expectedNeighbours: [], forbiddenNeighbours: [] }),
+    });
+    expect(() => loadKnowledgeEvalDataset(dir)).toThrow(
+      /labelled case "g1" needs expectedNeighbours or forbiddenNeighbours/,
+    );
+  });
+
+  it('rejects a neighbour triple with a missing field', () => {
+    const dir = makeTempDatasetDir({
+      graph: jsonl({
+        id: 'g1',
+        query: 'q',
+        expectedNeighbours: [{ subject: 'a', object: 'b' }],
+      }),
+    });
+    expect(() => loadKnowledgeEvalDataset(dir)).toThrow(/expectedNeighbours\[0\]: "relation"/);
   });
 });
 

@@ -1,0 +1,18 @@
+// Relation questions (I9). golden = expectedNeighbours[] (the hint block must
+// present these relations) + forbiddenNeighbours[] (co-mentioned pairs that must
+// NOT be presented with any relation — `MENTIONED` is never an edge).
+//
+// Seeds are pinned (`seedMemoryIds`) because the retrieval half of this corpus is
+// already scored by semantic.jsonl; an unpinned case is seeded from the query's
+// own memory hits instead, exactly as `memory_recall` does. Direction is not
+// asserted: no gate reads word order (docs/KNOWLEDGE_GRAPH.md §2), so a case
+// asserts that the two names are presented with the relation, either way round.
+//
+// The authoring corpus's typed graph is one edge — excel-mcp —USES→ Power Query,
+// stated by aIPAHFdCHt69RQrECEoDb, which also mentions Python and Excel without
+// stating anything about them. All four cases ask about that one relation; the
+// last one is the negative case.
+{"id":"graph-01","query":"excel-mcp 是怎么读取 Excel 文件的？","seedMemoryIds":["aIPAHFdCHt69RQrECEoDb"],"expectedNeighbours":[{"subject":"excel-mcp","relation":"USES","object":"Power Query"}],"forbiddenNeighbours":[],"note":"The only typed edge on this corpus; the question is unanswerable from the memories' text alone."}
+{"id":"graph-02","query":"Power Query 在我们这套流程里被哪个工具使用？","seedMemoryIds":["aIPAHFdCHt69RQrECEoDb"],"expectedNeighbours":[{"subject":"excel-mcp","relation":"USES","object":"Power Query"}],"forbiddenNeighbours":[],"note":"Same relation asked from the object side — the pair is matched order-insensitively on purpose."}
+{"id":"graph-03","query":"excel-mcp 和 Power Query 之间是什么关系？","seedMemoryIds":["aIPAHFdCHt69RQrECEoDb"],"expectedNeighbours":[{"subject":"excel-mcp","relation":"USES","object":"Power Query"}],"forbiddenNeighbours":[],"note":"A relation question with no wording the memory repeats, so the hint block is the only source."}
+{"id":"graph-04","query":"excel-mcp 会用 Python 处理 Excel 吗？","seedMemoryIds":["aIPAHFdCHt69RQrECEoDb"],"expectedNeighbours":[{"subject":"excel-mcp","relation":"USES","object":"Power Query"}],"forbiddenNeighbours":[{"subject":"Python","object":"Excel"}],"note":"Negative case: that memory mentions Python and Excel (memory_links MENTIONED rows) and states no relation between them, so presenting one would be co-occurrence dressed as a fact. The expected neighbour is the positive control: an empty hint block must not make the negative half pass vacuously."}

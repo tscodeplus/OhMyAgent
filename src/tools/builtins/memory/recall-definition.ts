@@ -5,6 +5,7 @@
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { createMemoryRecallTool } from '../memory-recall-tool.js';
+import { recordInjectedGraphHints } from '../../../agent/context-transform.js';
 import type { MemoryRetriever } from '../../../memory/memory-retriever.js';
 
 export const memoryRecallToolCapability: ToolCapabilityDescriptor = {
@@ -40,6 +41,16 @@ export function createMemoryRecallToolDefinition(options: {
         ...options,
         getAgentId: () => ctx.agentId,
         logger: options.logger,
+        // The tool layer is the only place that knows which hints the model was
+        // shown, and this wrapper is the only layer that knows the session, so
+        // the two are joined here. `readInjectionReferences` credits them under
+        // the `graph` lane at turn end.
+        onHintsInjected: (hints) =>
+          recordInjectedGraphHints({
+            agentId: ctx.agentId,
+            sessionKey: ctx.sessionId,
+            hints,
+          }),
       });
       const result = await tool.execute('' as any, args as any);
       return {

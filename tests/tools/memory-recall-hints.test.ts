@@ -84,6 +84,69 @@ describe('memory_recall structural hints', () => {
     expect(memoryBlock.indexOf('excel-mcp')).toBeLessThan(memoryBlock.indexOf('Termux'));
   });
 
+  it('reports the hints it appended, so the turn-end probe can score them', async () => {
+    const seen: Array<{ relation: string; object: string; memoryId: string }> = [];
+    const tool = createMemoryRecallTool({
+      memoryRetriever: retrieverReturning(MEMORIES),
+      hintsFor: () => [
+        {
+          subject: 'excel-mcp',
+          relation: 'USES',
+          object: 'Power Query',
+          memoryId: 'aaaaaaaa1111',
+          memoryRef: 'aaaaaaaa',
+        },
+      ],
+      onHintsInjected: (hints) => seen.push(...hints),
+    });
+
+    await tool.execute({} as never, { query: 'excel' } as never);
+
+    // The observer sees exactly what reached the model — same call, same list.
+    expect(seen).toEqual([
+      {
+        subject: 'excel-mcp',
+        relation: 'USES',
+        object: 'Power Query',
+        memoryId: 'aaaaaaaa1111',
+        memoryRef: 'aaaaaaaa',
+      },
+    ]);
+  });
+
+  it('does not report an empty hint list, and a throwing observer cannot break recall', async () => {
+    let calls = 0;
+    const silent = createMemoryRecallTool({
+      memoryRetriever: retrieverReturning(MEMORIES),
+      hintsFor: () => [],
+      onHintsInjected: () => {
+        calls++;
+      },
+    });
+    await silent.execute({} as never, { query: 'excel' } as never);
+    expect(calls).toBe(0);
+
+    const throwing = createMemoryRecallTool({
+      memoryRetriever: retrieverReturning(MEMORIES),
+      hintsFor: () => [
+        {
+          subject: 'excel-mcp',
+          relation: 'USES',
+          object: 'Power Query',
+          memoryId: 'aaaaaaaa1111',
+          memoryRef: 'aaaaaaaa',
+        },
+      ],
+      onHintsInjected: () => {
+        throw new Error('metric exploded');
+      },
+    });
+    const result = await throwing.execute({} as never, { query: 'excel' } as never);
+    const text = String((result.content as Array<{ text: string }>)[0].text);
+    // The metric is one-sided by construction: it costs a datapoint, never a result.
+    expect(text).toContain('excel-mcp —USES→ Power Query [mem:aaaaaaaa]');
+  });
+
   it('passes the retrieved memory ids to the provider', async () => {
     let seen: string[] = [];
     const tool = createMemoryRecallTool({

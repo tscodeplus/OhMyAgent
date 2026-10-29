@@ -27,6 +27,13 @@ export function createMemoryRecallTool(options: {
    * incomplete, because they are a derived view, not another retrieval result.
    */
   hintsFor?: (memoryIds: string[]) => GraphHint[];
+  /**
+   * Called with the hints this call actually appended to its result, so the
+   * turn-end reference check can score whether the answer used one. Optional:
+   * a caller without a session to publish against (a bare tool in a test) gets
+   * exactly the old output.
+   */
+  onHintsInjected?: (hints: GraphHint[]) => void;
 }): AgentTool<any> {
   const schema = z.object({
     query: z.string().describe('Search query for finding relevant memories'),
@@ -98,6 +105,14 @@ export function createMemoryRecallTool(options: {
         const hints = options.hintsFor?.(safeResults.map((r) => r.id)) ?? [];
         if (hints.length === 0) {
           return { content: [{ type: 'text', text: formatted }] };
+        }
+        // A hint that reached the model is what the reference check scores. The
+        // observer is a metric, so a throw from it must not replace a result
+        // that is already correct.
+        try {
+          options.onHintsInjected?.(hints);
+        } catch (err) {
+          options.logger?.debug({ err }, 'graph hint observer failed — reference metric skipped');
         }
         // Appended, never sorted into the results above: an edge is derived from a
         // memory, so promoting that memory would turn one bad edge into a ranking

@@ -12,6 +12,10 @@
     "preference": {
       "corpus": "dev-machine",
       "note": "mustContain/mustNotContain are literal wordings of that corpus's preference rows."
+    },
+    "graph": {
+      "corpus": "dev-machine",
+      "note": "expectedNeighbours are relations the authoring machine's entity_edges holds, forbiddenNeighbours are pairs only its memory_links co-mentions; both are seeded by that corpus's memory ids."
     }
   }
 }
