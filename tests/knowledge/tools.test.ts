@@ -7,6 +7,12 @@
  * that does not fail closed to "mutating" for the read tools, and the write
  * tool's version-conflict contract — it must return the current body, not
  * overwrite it.
+ *
+ * The last block is the half of migration-v22 the tools own: they are the only
+ * callers that know *which* conversation a call belongs to, so they are what
+ * turns `ToolExecutionContext` into a scope. A write lands where the turn lives,
+ * a read sees that scope plus `global`, another chat's page is neither readable
+ * nor updatable, and a turn with no conversation identity still writes `global`.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -327,6 +333,107 @@ describe('knowledge tool definitions', () => {
         ctx,
       );
       expect(result.isError).toBeFalsy();
+    });
+  });
+
+  describe('scope from the turn context', () => {
+    // Two chats on one install: the same tools object, two conversations.
+    const CHAT_A = { channel: 'feishu', chatId: 'oc_a' } as unknown as ToolExecutionContext;
+    const CHAT_B = { channel: 'telegram', chatId: '42' } as unknown as ToolExecutionContext;
+
+    const pageArgs = {
+      pageType: 'topic' as const,
+      slug: 'excel-etl',
+      title: 'Excel ETL',
+      content: 'Excel ETL 用 Power Query 清洗数据。',
+      sources: TWO_MEMORY_SOURCES,
+    };
+
+    function tools() {
+      return {
+        search: createKnowledgeSearchToolDefinition({ knowledgeService: service }),
+        get: createKnowledgeGetToolDefinition({ knowledgeService: service }),
+        write: createKnowledgeWriteToolDefinition({ knowledgeService: service }),
+      };
+    }
+
+    it('keeps a chat’s write out of another chat’s search and get', async () => {
+      const { search, get, write } = tools();
+
+      const created = await write.execute(pageArgs, CHAT_A);
+      expect(created.isError).toBeFalsy();
+      expect(created.metadata).toMatchObject({ created: true, scope: 'feishu:oc_a' });
+
+      const elsewhere = await search.execute({ query: 'Power Query' }, CHAT_B);
+      expect(textOf(elsewhere)).toContain('No knowledge pages matched');
+      expect(elsewhere.metadata).toMatchObject({ count: 0, scope: 'telegram:42' });
+
+      const miss = await get.execute({ ref: 'topic/excel-etl' }, CHAT_B);
+      expect(miss.isError).toBe(true);
+      expect(miss.metadata).toMatchObject({ code: 'not_found', scope: 'telegram:42' });
+    });
+
+    it('shows the page to the chat that wrote it and to a global (console) read', async () => {
+      const { search, get, write } = tools();
+      await write.execute(pageArgs, CHAT_A);
+
+      const own = await search.execute({ query: 'Power Query' }, CHAT_A);
+      expect(textOf(own)).toContain('topic/excel-etl');
+      expect(own.metadata).toMatchObject({ count: 1, scope: 'feishu:oc_a' });
+
+      const detail = await get.execute({ ref: 'topic/excel-etl' }, CHAT_A);
+      expect(detail.metadata).toMatchObject({ slug: 'excel-etl', scope: 'feishu:oc_a' });
+
+      // A turn with no channel, chat or session derives `global`, and a read
+      // with nothing to narrow by is the console read: every scope, so chat A's
+      // page is in it. The scope field reports the turn's own scope (`global`),
+      // which is also what the write below would record.
+      const global = await search.execute({ query: 'Power Query' }, ctx);
+      expect(textOf(global)).toContain('topic/excel-etl');
+      expect(global.metadata).toMatchObject({ count: 1, scope: 'global' });
+    });
+
+    it('writes global when the turn carries no scope', async () => {
+      const { search, write } = tools();
+
+      const created = await write.execute(pageArgs, ctx);
+      expect(created.isError).toBeFalsy();
+      expect(created.metadata).toMatchObject({ created: true, scope: 'global' });
+
+      // The row itself is `global` — not just reported as such — so every chat
+      // reads it. `list({ scope })` returns the asked scope plus globals.
+      expect(service.list({ scope: 'global' }).map((page) => page.slug)).toEqual(['excel-etl']);
+      const fromChat = await search.execute({ query: 'Power Query' }, CHAT_B);
+      expect(fromChat.metadata).toMatchObject({ count: 1, scope: 'telegram:42' });
+      expect(textOf(fromChat)).toContain('topic/excel-etl');
+    });
+
+    it('refuses a cross-scope update instead of rewriting the other chat’s page', async () => {
+      const { write } = tools();
+      await write.execute(pageArgs, CHAT_A);
+
+      // Chat B says "I read this page, here is version 1": that is an update, and
+      // an update is addressed inside the writer's scope, so A's page is not
+      // found — the write neither rewrites it nor creates a second page.
+      const hijack = await write.execute(
+        { ...pageArgs, content: 'Rewritten from chat B.', expectedVersion: 1 },
+        CHAT_B,
+      );
+      expect(hijack.isError).toBe(true);
+      expect(hijack.metadata).toMatchObject({ code: 'not_found', scope: 'telegram:42' });
+      expect(textOf(hijack)).toContain('not_found');
+
+      const mine = service.get({ slug: 'excel-etl' }, { scope: 'feishu:oc_a' });
+      expect(mine?.page).toMatchObject({ version: 1, scope: 'feishu:oc_a' });
+      expect(mine?.page.content).toBe(pageArgs.content);
+      expect(service.list({ scope: 'telegram:42' })).toEqual([]);
+
+      // The chat that owns the page still updates it with the version it read.
+      const own = await write.execute(
+        { ...pageArgs, content: 'Excel ETL 走 Power Query + Python。', expectedVersion: 1 },
+        CHAT_A,
+      );
+      expect(own.metadata).toMatchObject({ created: false, version: 2, scope: 'feishu:oc_a' });
     });
   });
 });

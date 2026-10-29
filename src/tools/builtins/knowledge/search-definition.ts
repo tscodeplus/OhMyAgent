@@ -8,6 +8,7 @@ import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.
 import { textResult, errorResult } from '../../platform/tool-result.js';
 import { zodToTypeBox } from '../../tool-adapter.js';
 import { PAGE_TYPES } from '../../../memory/knowledge/types.js';
+import { turnScope } from './turn-scope.js';
 import type { KnowledgeService } from '../../../memory/knowledge/service-contract.js';
 
 export const knowledgeSearchToolCapability: ToolCapabilityDescriptor = {
@@ -46,7 +47,7 @@ export function createKnowledgeSearchToolDefinition(options: {
     parametersSchema: zodToTypeBox(knowledgeSearchParams),
     capability: knowledgeSearchToolCapability,
     deferrable: true,
-    execute: async (args) => {
+    execute: async (args, ctx) => {
       const parsed = knowledgeSearchParams.safeParse(args);
       if (!parsed.success) {
         return errorResult(
@@ -54,14 +55,22 @@ export function createKnowledgeSearchToolDefinition(options: {
         );
       }
 
+      // The turn's conversation decides what this search can return: its own
+      // pages plus `global` ones, never another chat's (migration-v22).
+      const { scope, readScope } = turnScope(ctx);
+
       const hits = options.knowledgeService.search(parsed.data.query, {
         pageType: parsed.data.pageType,
         tag: parsed.data.tag,
         limit: parsed.data.limit,
+        scope: readScope,
       });
 
       if (hits.length === 0) {
-        return textResult(`No knowledge pages matched "${parsed.data.query}".`, { count: 0 });
+        return textResult(`No knowledge pages matched "${parsed.data.query}" (scope ${scope}).`, {
+          count: 0,
+          scope,
+        });
       }
 
       const lines = hits.flatMap((hit, index) => [
@@ -72,6 +81,7 @@ export function createKnowledgeSearchToolDefinition(options: {
 
       return textResult(lines.join('\n'), {
         count: hits.length,
+        scope,
         hits: hits.map((hit) => ({
           id: hit.id,
           slug: hit.slug,

@@ -8,6 +8,7 @@ import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.
 import { textResult, errorResult } from '../../platform/tool-result.js';
 import { zodToTypeBox } from '../../tool-adapter.js';
 import { isPageType } from '../../../memory/knowledge/types.js';
+import { turnScope } from './turn-scope.js';
 import type { KnowledgeService } from '../../../memory/knowledge/service-contract.js';
 import type { KnowledgePageRef } from '../../../memory/knowledge/repository.js';
 
@@ -75,7 +76,7 @@ export function createKnowledgeGetToolDefinition(options: {
     parametersSchema: zodToTypeBox(knowledgeGetParams),
     capability: knowledgeGetToolCapability,
     deferrable: true,
-    execute: async (args) => {
+    execute: async (args, ctx) => {
       const parsed = knowledgeGetParams.safeParse(args);
       if (!parsed.success) {
         return errorResult(
@@ -83,10 +84,24 @@ export function createKnowledgeGetToolDefinition(options: {
         );
       }
 
+      // A page is addressed within the turn's conversation: its own pages plus
+      // `global` ones. Another chat's page is not addressable at all, by slug or
+      // by id.
+      const { scope, readScope } = turnScope(ctx);
+
       const ref = parseKnowledgeRef(parsed.data.ref);
-      const detail = options.knowledgeService.get(ref);
+      const detail = options.knowledgeService.get(ref, { scope: readScope });
       if (!detail) {
-        return errorResult(`No knowledge page found for "${parsed.data.ref}".`);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `No knowledge page found for "${parsed.data.ref}" (scope ${scope}).`,
+            },
+          ],
+          isError: true,
+          metadata: { code: 'not_found', scope },
+        };
       }
 
       const maxChars = parsed.data.maxChars ?? DEFAULT_MAX_CHARS;
@@ -119,6 +134,7 @@ export function createKnowledgeGetToolDefinition(options: {
         slug: page.slug,
         pageType: page.page_type,
         version: page.version,
+        scope,
         contentLength: page.content.length,
         truncated,
         sourceCount: detail.sources.length,

@@ -9,6 +9,7 @@ import { errorResult, textResult } from '../../platform/tool-result.js';
 import type { ToolExecutionResult } from '../../platform/tool-result.js';
 import { zodToTypeBox } from '../../tool-adapter.js';
 import { KNOWLEDGE_SOURCE_KINDS, PAGE_TYPES } from '../../../memory/knowledge/types.js';
+import { turnScope } from './turn-scope.js';
 import type {
   KnowledgeService,
   KnowledgeWriteResult,
@@ -81,12 +82,12 @@ export function createKnowledgeWriteToolDefinition(options: {
     name: 'knowledge_write',
     label: 'Knowledge Write',
     description:
-      'Create or update a knowledge page. Every write must cite at least one existing memory/message/session id, and an update must pass the `version` it read (`expectedVersion`) — a mismatch is refused and returns the current body instead of overwriting it.',
+      'Create or update a knowledge page. Every write must cite at least one existing memory/message/session id, and an update must pass the `version` it read (`expectedVersion`) — a mismatch is refused and returns the current body instead of overwriting it. A write passing `expectedVersion` is addressed as an update of a page in this conversation, so it is not found when the page is not here: drop `expectedVersion` to create a page in this conversation instead.',
     category: 'memory',
     parametersSchema: zodToTypeBox(knowledgeWriteParams),
     capability: knowledgeWriteToolCapability,
     deferrable: true,
-    execute: async (args) => {
+    execute: async (args, ctx) => {
       const parsed = knowledgeWriteParams.safeParse(args);
       if (!parsed.success) {
         return errorResult(
@@ -95,40 +96,48 @@ export function createKnowledgeWriteToolDefinition(options: {
       }
 
       const input = parsed.data;
+      // The page lands in the conversation that asked for it; a write with no
+      // conversation identity records `global`, so an unpinned background write
+      // stays readable from every chat.
+      const { scope } = turnScope(ctx);
+      const writeOptions = { actor: 'agent' as const, scope };
 
-      // Create first: that is the honest attempt for a page the caller believes
-      // is new. If the slug is taken, the create is refused *before* writing
-      // anything and hands back the current body — the caller then decides to
-      // update with the version it just learned.
-      let result: KnowledgeWriteResult = options.knowledgeService.create(
-        {
-          pageType: input.pageType,
-          slug: input.slug,
-          title: input.title,
-          content: input.content,
-          tags: input.tags,
-          sources: input.sources,
-          reason: input.reason,
-        },
-        { actor: 'agent' },
-      );
+      // `expectedVersion` is the caller saying "I read this page", so the call is
+      // an update and is addressed as one. That is what keeps the refusal honest:
+      // an update resolves within the writer's scope, so a slug owned by another
+      // chat comes back as `not_found` rather than creating a second page in this
+      // chat or — worse — reaching across and rewriting the other chat's body.
+      // Without `expectedVersion` the honest attempt is a create: it is refused
+      // *before* writing when the slug is taken here, handing back the current
+      // body so the caller can decide to update.
+      const result: KnowledgeWriteResult =
+        input.expectedVersion === undefined
+          ? options.knowledgeService.create(
+              {
+                pageType: input.pageType,
+                slug: input.slug,
+                title: input.title,
+                content: input.content,
+                tags: input.tags,
+                sources: input.sources,
+                reason: input.reason,
+              },
+              writeOptions,
+            )
+          : options.knowledgeService.update(
+              { slug: input.slug, pageType: input.pageType },
+              {
+                title: input.title,
+                content: input.content,
+                tags: input.tags,
+                sources: input.sources,
+                expectedVersion: input.expectedVersion,
+                reason: input.reason,
+              },
+              writeOptions,
+            );
 
-      if (!result.ok && result.code === 'version_conflict' && input.expectedVersion !== undefined) {
-        result = options.knowledgeService.update(
-          { slug: input.slug, pageType: input.pageType },
-          {
-            title: input.title,
-            content: input.content,
-            tags: input.tags,
-            sources: input.sources,
-            expectedVersion: input.expectedVersion,
-            reason: input.reason,
-          },
-          { actor: 'agent' },
-        );
-      }
-
-      if (!result.ok) return formatRejection(result);
+      if (!result.ok) return formatRejection(result, scope);
 
       const action = result.created ? 'Created' : 'Updated';
       const lines = [
@@ -153,6 +162,7 @@ export function createKnowledgeWriteToolDefinition(options: {
         version: result.version,
         status: result.status,
         created: result.created,
+        scope,
         danglingLinks: result.danglingLinks,
       });
     },
@@ -168,6 +178,7 @@ export function createKnowledgeWriteToolDefinition(options: {
  */
 function formatRejection(
   result: Extract<KnowledgeWriteResult, { ok: false }>,
+  scope: string,
 ): ToolExecutionResult {
   switch (result.code) {
     case 'version_conflict': {
@@ -227,11 +238,11 @@ function formatRejection(
         content: [
           {
             type: 'text' as const,
-            text: `not_found: no knowledge page addresses "${result.slug}". Create it first.`,
+            text: `not_found: no knowledge page addresses "${result.slug}" (scope ${scope}). Create it first.`,
           },
         ],
         isError: true,
-        metadata: { code: 'not_found', slug: result.slug },
+        metadata: { code: 'not_found', slug: result.slug, scope },
       };
   }
 }
