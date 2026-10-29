@@ -39,6 +39,8 @@ They have different evidence, different admission rules, and different consumers
 
 ---
 
+12. **A page belongs to the conversation that wrote it, and a read sees that scope plus `global`.** `knowledge_pages.scope` is set at write time by `scopeFromContext` (`channel:<chatId>`, `telegram:session:<id>`, else `global`); the console is not a conversation, so a `webui` channel and every unscoped write resolve to `global`. Reads use one rule — `scope = asked OR scope = 'global'` — implemented once in `src/memory/knowledge/scope.ts` and called by the repository, the FTS lane and the service, because a filter that ranks differently from the layer that returns it leaks exactly the pages it meant to exclude. Equality would hide every console-written page from every chat; no filter at all lets a curation in chat B rewrite chat A's page on the same subject (`findByTitleOrAlias`), which is the failure the column exists to prevent. A wikilink into another scope stays text in the body and is reported `dangling` instead of becoming a stored link that publishes that page's existence back as a backlink. Slug uniqueness is `(page_type, scope, slug)`, so two chats may hold the same subject; `migration-v22` widens it by inspecting `PRAGMA index_info`, because the index keeps its name and `CREATE ... IF NOT EXISTS` would silently leave the narrow definition in place.
+
 ## 3. Rejected design: promote `MENTIONED` into an edge
 
 This is the single most tempting "improvement" in the codebase — the table already has 800+ mention rows and the graph looks empty. It fails mechanically, not aesthetically. Six consequences, in order of severity:
@@ -115,7 +117,7 @@ Kept because each one is the reason a rule exists. They are not targets and shou
 
 These are gaps in the design, not rules: each is verified against the code as of 2026-10-29, and none is covered by a rule in §2.
 
-- **pages have no scope isolation** — `knowledge_pages` has no `scope` column, so a page curated from one IM chat is a candidate answer in every other chat on the same database, `findByTitleOrAlias` lets a curation in chat B _update_ chat A's page, and `/knowledge share` publishes to everyone. The identity needed to fix it already exists: `ToolDefinition.execute(args, ctx)` receives a `ToolExecutionContext` carrying `sessionId`, `channel`, `chatId` and `projectId` — the knowledge tools simply ignore the second argument. So the remaining work is inside the knowledge layer (a column, a unique index on `(page_type, scope, slug)`, and scope-aware repository/service/tools/curation/injection/API), not a platform change.
+- **A page never expires.** `knowledge_pages` has `updated_at` but no staleness policy, so a page written a year ago ranks exactly as high as one written yesterday and the review queue cannot surface what has aged out. Edges decay (§2.10) because they had a `valid_from` to measure from; a page's age is not evidence that its statement is wrong.
 
 This file should not grow into a backlog. When a gap closes, delete it here and record the rule it produced in §2.
 
