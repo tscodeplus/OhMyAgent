@@ -259,6 +259,44 @@ export class MemoryDoctor {
       },
     });
 
+    // 7. Dangling knowledge sources (plan §8 S2). A page's citations are
+    // verified at write time only; `MemoryHygiene.clean()` and
+    // `session-delete.ts` delete rows without telling the pages that cite them,
+    // so a memory reaching `retentionDays` leaves a citation nobody can check —
+    // the page still ranks and still injects. Report only: the strategical fix
+    // (page downgrade / re-verify) needs to see how large this really is first.
+    let danglingSourcePages: string[] = [];
+    let danglingSourceCount = 0;
+    try {
+      const rows = this.db
+        .prepare(
+          `
+      SELECT s.page_id AS page_id, COUNT(*) AS n FROM knowledge_sources s
+      WHERE s.source_kind = 'memory'
+        AND NOT EXISTS (SELECT 1 FROM memories m WHERE m.id = s.source_id)
+      GROUP BY s.page_id
+      ORDER BY n DESC
+    `,
+        )
+        .all() as Array<{ page_id: string; n: number }>;
+      danglingSourceCount = rows.reduce((sum, row) => sum + row.n, 0);
+      danglingSourcePages = rows.slice(0, 20).map((row) => row.page_id);
+    } catch {
+      // Knowledge layer absent on this install — the table does not exist.
+    }
+    checks.push({
+      name: 'orphan_knowledge_sources',
+      status: danglingSourceCount > 0 ? 'warning' : 'ok',
+      message:
+        danglingSourceCount > 0
+          ? `${danglingSourceCount} knowledge citations point at deleted memories (${danglingSourcePages.length} pages)`
+          : 'No knowledge page cites a deleted memory',
+      details: {
+        count: danglingSourceCount,
+        pageIds: danglingSourcePages,
+      },
+    });
+
     const embeddingCount = this.db
       .prepare('SELECT COUNT(*) as cnt FROM memory_embeddings')
       .get() as { cnt: number };

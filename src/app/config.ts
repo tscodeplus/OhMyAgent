@@ -429,6 +429,15 @@ const configSchema = z.object({
     recallTopK: z.coerce.number().int().positive().default(3),
     recallMinScore: z.coerce.number().min(0).default(0.01),
     captureMaxChars: z.coerce.number().int().positive().default(500),
+    // Write-side capture quality (plan §3.2/§3.3). One switch for all three
+    // gates: the shape gate, the durability check and the `memory.worth`
+    // judgment. `false` restores the pre-plan behavior (every candidate is
+    // written); kind selection in `MemoryWriter.writePreference` is not covered.
+    capture: z
+      .object({
+        durable_only: z.boolean().default(true),
+      })
+      .default({}),
     historyLoadCount: z.coerce.number().int().nonnegative().default(5),
     /** Max estimated tokens for loaded history. 0 = no limit. @default 1000 */
     historyMaxTokens: z.coerce.number().int().nonnegative().default(1000),
@@ -460,8 +469,15 @@ const configSchema = z.object({
         // Recall character budgets (TencentDB-Agent-Memory pattern). 0 = no cap:
         // oversized items are truncated (per-item) or dropped (total) in score
         // order to keep memory injection from crowding the context window.
-        maxCharsPerMemory: z.coerce.number().int().nonnegative().default(0),
-        maxTotalRecallChars: z.coerce.number().int().nonnegative().default(0),
+        // Non-zero defaults (plan §8 S5): `<memory_context>` was the only
+        // injection lane outside the per-turn budget, so a single 2000-char
+        // memory (`isSafe`) times five entries could inject ~10k chars.
+        maxCharsPerMemory: z.coerce.number().int().nonnegative().default(800),
+        maxTotalRecallChars: z.coerce.number().int().nonnegative().default(2000),
+        // Scope dimension of the agent-pool weighting (plan §8 S8): a
+        // `scope: 'session'` memory written by a *different* session scores at
+        // this factor of its pool weight. 1 = today's ranking exactly.
+        crossSessionWeight: z.coerce.number().min(0).max(1).default(0.6),
       })
       .default({}),
     // Score-gated LLM query expansion. When enabled, a query whose initial recall
@@ -1205,6 +1221,7 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         mergeCandidateMultiplier: env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER,
         maxCharsPerMemory: env.MEMORY_RECALL_MAX_CHARS_PER_MEMORY,
         maxTotalRecallChars: env.MEMORY_RECALL_MAX_TOTAL_RECALL_CHARS,
+        crossSessionWeight: env.MEMORY_RECALL_CROSS_SESSION_WEIGHT,
       },
       expansion: {
         enabled: envBool(env.MEMORY_EXPANSION_ENABLED, false),
@@ -1507,7 +1524,8 @@ function applyEnvOverrides(
     env.MEMORY_RECALL_PREFILTER_MIN !== undefined ||
     env.MEMORY_RECALL_MERGE_CANDIDATE_MULTIPLIER !== undefined ||
     env.MEMORY_RECALL_MAX_CHARS_PER_MEMORY !== undefined ||
-    env.MEMORY_RECALL_MAX_TOTAL_RECALL_CHARS !== undefined
+    env.MEMORY_RECALL_MAX_TOTAL_RECALL_CHARS !== undefined ||
+    env.MEMORY_RECALL_CROSS_SESSION_WEIGHT !== undefined
       ? [{ env: '1', field: 'recall' }]
       : []),
     ...(env.MEMORY_EXPANSION_ENABLED !== undefined ||

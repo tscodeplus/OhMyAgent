@@ -34,8 +34,9 @@ function getBaseContent(): string {
     `Memory tools: **memory-store** (save preferences/facts/decisions), **memory-recall** (search past context), **summarize-session** (persist a concluded discussion into long-term memory).
 
 1. When the user shares their name or how to address them, your name/identity, or personal preferences/habits/devices/skills → **immediately call memory-store** (do NOT just verbally acknowledge).
-2. Use memory-recall when you need context about the user or past discussions.
-3. After complex tasks or multi-turn discussions reach a natural conclusion, call summarize-session.
+2. Do NOT store volatile state: directory/file listings and counts, the current time or environment snapshot, this task's output format requirements, or a narration of what already happened. These live in the session transcript — use session_search when you need them.
+3. Use memory-recall when you need context about the user or past discussions.
+4. After complex tasks or multi-turn discussions reach a natural conclusion, call summarize-session.
 
 Example: User says "My name is Bob, call me Boss. Your name is Helper." → call memory-store twice (name/preference), not "OK".`,
     '',

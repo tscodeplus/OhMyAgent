@@ -212,6 +212,7 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
   const personaCfg = memCfg?.persona as YamlNode;
   const sceneCfg = memCfg?.scene_clustering as YamlNode;
   const graphCfg = memCfg?.graph as YamlNode;
+  const captureCfg = memCfg?.capture as YamlNode;
   const entityExtractionCfg = memCfg?.entity_extraction as YamlNode;
   const provenanceBackfillCfg = memCfg?.provenance_backfill as YamlNode;
   const compressCfg = memCfg?.auto_compress as YamlNode;
@@ -228,6 +229,12 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
     recallTopK: num(memCfg?.recall_top_k, 3, 'memCfg?.recall_top_k'),
     recallMinScore: num(memCfg?.recall_min_score, 0.01, 'memCfg?.recall_min_score'),
     captureMaxChars: num(memCfg?.capture_max_chars, 500, 'memCfg?.capture_max_chars'),
+    // Write-side capture gates (`memory.capture.durable_only`). Snake_case inner
+    // key, declared snake_case in the config schema, so the YAML spelling is
+    // what `AppConfig` carries — no camelCase mapping to drift from.
+    capture: {
+      durable_only: yamlBool(captureCfg?.durable_only, true, 'memCfg.capture.durable_only'),
+    },
     historyLoadCount: num(memCfg?.history_load_count, 5, 'memCfg?.history_load_count'),
     historyMaxTokens: num(memCfg?.history_max_tokens, 1000, 'memCfg?.history_max_tokens'),
     summarizeInterval: num(memCfg?.summarize_interval, 20, 'memCfg?.summarize_interval'),
@@ -284,6 +291,25 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
         memCfg?.recall?.merge_candidate_multiplier,
         3,
         'memCfg?.recall?.merge_candidate_multiplier',
+      ),
+      // The memory lane's own char budget (plan §8 S5) and the cross-session
+      // re-weighting of `scope: 'session'` memories (plan §8 S8). Both are read
+      // here rather than left to the zod defaults so `config.yaml` can actually
+      // set them — an unwired key looks settable and silently is not.
+      maxCharsPerMemory: num(
+        memCfg?.recall?.max_chars_per_memory,
+        800,
+        'memCfg?.recall?.max_chars_per_memory',
+      ),
+      maxTotalRecallChars: num(
+        memCfg?.recall?.max_total_chars,
+        2000,
+        'memCfg?.recall?.max_total_chars',
+      ),
+      crossSessionWeight: num(
+        memCfg?.recall?.cross_session_weight,
+        0.6,
+        'memCfg?.recall?.cross_session_weight',
       ),
     },
     expansion: {
@@ -1885,9 +1911,9 @@ export function jsConfigToYaml(
         for (const [jsKey, yamlKey] of Object.entries(memTopMap)) {
           if (mem[jsKey] !== undefined) m[yamlKey] = mem[jsKey];
         }
-        // Sub-sections. `entityExtraction`, `provenanceBackfill` and `graph`
-        // carry snake_case inner keys in AppConfig (the loader passes them
-        // through as YAML spellings), so the spread below round-trips them
+        // Sub-sections. `entityExtraction`, `provenanceBackfill`, `graph` and
+        // `capture` carry snake_case inner keys in AppConfig (the loader passes
+        // them through as YAML spellings), so the spread below round-trips them
         // verbatim.
         for (const sub of [
           'hygiene',
@@ -1898,6 +1924,7 @@ export function jsConfigToYaml(
           'entityExtraction',
           'provenanceBackfill',
           'graph',
+          'capture',
         ]) {
           if (mem[sub]) {
             const subMap: Record<string, string> = {
@@ -1909,6 +1936,7 @@ export function jsConfigToYaml(
               entityExtraction: 'entity_extraction',
               provenanceBackfill: 'provenance_backfill',
               graph: 'graph',
+              capture: 'capture',
             };
             m[subMap[sub]] = {
               ...((m[subMap[sub]] as Record<string, unknown>) || {}),

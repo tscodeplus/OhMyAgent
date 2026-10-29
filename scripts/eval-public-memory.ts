@@ -1476,6 +1476,9 @@ async function main(): Promise<void> {
           mergeCandidateMultiplier: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MERGE_MULT ?? 8),
           maxCharsPerMemory: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_CHARS ?? 0),
           maxTotalRecallChars: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_TOTAL_CHARS ?? 0),
+          // The eval compares retrieval strategies, not scope weighting, so the
+          // cross-session penalty stays neutral (1 = no reweighting).
+          crossSessionWeight: 1,
         },
       }),
     );
@@ -1496,6 +1499,9 @@ async function main(): Promise<void> {
             mergeCandidateMultiplier: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MERGE_MULT ?? 8),
             maxCharsPerMemory: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_CHARS ?? 0),
             maxTotalRecallChars: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_TOTAL_CHARS ?? 0),
+            // The eval compares retrieval strategies, not scope weighting, so the
+            // cross-session penalty stays neutral (1 = no reweighting).
+            crossSessionWeight: 1,
           },
           expansionConfig,
         }),
@@ -1529,6 +1535,9 @@ async function main(): Promise<void> {
             mergeCandidateMultiplier: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MERGE_MULT ?? 8),
             maxCharsPerMemory: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_CHARS ?? 0),
             maxTotalRecallChars: Number(process.env.PUBLIC_MEMORY_EVAL_RECALL_MAX_TOTAL_CHARS ?? 0),
+            // The eval compares retrieval strategies, not scope weighting, so the
+            // cross-session penalty stays neutral (1 = no reweighting).
+            crossSessionWeight: 1,
           },
           expansionConfig: gatedExpansion,
         }),

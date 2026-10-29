@@ -135,6 +135,9 @@ describe('MemoryRetriever recall char budget integration', () => {
         mergeCandidateMultiplier: 3,
         maxCharsPerMemory: 20,
         maxTotalRecallChars: 0,
+        // Irrelevant to the char budget under test; the field is required so
+        // this config object stays a complete `RecallConfig`.
+        crossSessionWeight: 1,
       },
     });
 

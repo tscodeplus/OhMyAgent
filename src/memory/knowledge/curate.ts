@@ -44,7 +44,10 @@
  * ## The three rules (§6 K2-3.2), and who enforces them
  *
  * A page needs at least two of: (1) a nameable subject, (2) ≥ `requireSources`
- * independent sources, (3) an explicit user request. Rule 1 is not optional in
+ * independent sources, (3) an explicit user request. "Independent" is counted per
+ * *conversation*, not per row ({@link countIndependentSources}): the same session
+ * summarised twice is one attestation of the subject, and counting the rows would
+ * let one chat satisfy recurrence with its own restatement. Rule 1 is not optional in
  * practice — a page with no nameable subject has no title and no slug — so the
  * majority reduces to `rule1 && (rule2 || rule3)`, which is what
  * {@link evaluateAdmission} checks. That check is a **cost gate, not the
@@ -265,6 +268,7 @@ interface SourceMemory {
   id: string;
   content: string;
   scope: string;
+  scope_key: string;
   confidence: number;
 }
 
@@ -281,6 +285,12 @@ export interface CurateGroup {
  *
  * `scope`/`confidence` are memory-only; a message carries neither, and both are
  * nullable so a citation kind cannot quietly inherit a memory's trust score.
+ *
+ * `conversationKey` is the conversation that attested the subject — for a memory,
+ * `memories.scope_key`, which is the session key both `writeSummary()` and
+ * `writePreference()` store. It is `null` for a message citation, which carries no
+ * conversation of its own. It is deliberately not exposed as a citation: the page
+ * still cites `kind:id` rows, and this field exists for the recurrence count.
  */
 export interface CurateSource {
   kind: KnowledgeSourceKind;
@@ -288,6 +298,7 @@ export interface CurateSource {
   content: string;
   scope: string | null;
   confidence: number | null;
+  conversationKey: string | null;
 }
 
 export interface CuratedPage {
@@ -315,7 +326,10 @@ export interface ExistingPageHint {
 export interface AdmissionFacts {
   /** Nameable subject, trimmed; `''` when the group named nothing usable. */
   subject: string;
-  /** Distinct memory ids backing the group (recurrence). */
+  /**
+   * Distinct conversations backing the group (recurrence), not distinct rows —
+   * see {@link countIndependentSources}.
+   */
   sourceCount: number;
   /** The user asked for this page in so many words (rule 3). */
   explicitRequest: boolean;
@@ -542,6 +556,30 @@ function mergeSources(
   return out.slice(0, MAX_SOURCES_PER_PAGE);
 }
 
+/**
+ * How many *conversations* attest this group — the number admission rule 2 counts.
+ *
+ * A source is a conversation, not a row: summaries are written every
+ * `summarize_interval` messages, so one chat restating a subject produces several
+ * `summary`/`preference` memories that all mention it. Counting rows let that one
+ * chat satisfy `require_sources: 2` with its own restatement, which is the exact
+ * inversion of the rule — recurrence is meant to measure "who attested this", and
+ * a single session cannot be a second witness to itself. Two genuinely different
+ * facts from one session are still one source for the same reason.
+ *
+ * A citation with no conversation (`scope_key` missing, or a shared message, which
+ * has none) counts as its own source: it is not evidence of a shared origin, and
+ * folding unrelated rows together would refuse real recurrence instead.
+ */
+export function countIndependentSources(sources: readonly CurateSource[]): number {
+  const seen = new Set<string>();
+  for (const source of sources) {
+    const conversation = source.conversationKey?.trim();
+    seen.add(conversation ? `conversation:${conversation}` : `${source.kind}:${source.id}`);
+  }
+  return seen.size;
+}
+
 // ── Curator ─────────────────────────────────────────────────────────────
 
 export class KnowledgeCurator {
@@ -732,6 +770,7 @@ export class KnowledgeCurator {
           content: message.content,
           scope: null,
           confidence: null,
+          conversationKey: null,
         },
       ],
     });
@@ -918,7 +957,7 @@ export class KnowledgeCurator {
     const idClause = groupIds.length > 0 ? ` OR id IN (${idPlaceholders})` : '';
     const rows = this.db
       .prepare(
-        `SELECT id, content, scope, confidence
+        `SELECT id, content, scope, scope_key, confidence
            FROM memories
           WHERE status = 'active'
             AND kind IN (${placeholders})
@@ -940,6 +979,10 @@ export class KnowledgeCurator {
       content: row.content,
       scope: row.scope,
       confidence: row.confidence,
+      // `scope_key` is the session key the writer stamped (both `writeSummary()`
+      // and `writePreference()` pass it), so it names the conversation that
+      // attested the subject — see `countIndependentSources()`.
+      conversationKey: row.scope_key,
     }));
   }
 
@@ -1014,11 +1057,21 @@ export class KnowledgeCurator {
     // unnamed so rule 1 answers for it (the service would refuse it too).
     const slug = slugifySegment(subject);
     const sources = mergeSources(extraSources, this.gatherSources(subject, group.memoryIds));
+    // Admission counts conversations, not rows (see `countIndependentSources`),
+    // and the collapse is logged so a refusal is readable: "1 source" out of four
+    // candidate rows is a dedupe, not a thin corpus.
+    const independentSources = countIndependentSources(sources);
+    if (independentSources !== sources.length) {
+      this.logger.debug(
+        { subject, candidates: sources.length, sources: independentSources },
+        'knowledge curate: candidate sources collapsed to one per conversation',
+      );
+    }
 
     const rejection = evaluateAdmission(
       {
         subject: slug ? subject : '',
-        sourceCount: sources.length,
+        sourceCount: independentSources,
         explicitRequest: isExplicitRequest(trigger),
       },
       this.config.requireSources,

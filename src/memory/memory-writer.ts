@@ -13,8 +13,9 @@ import { mergeMemory, appendTimeline, appendMemoryDispute } from './memory-merge
 import type { MergeConfig } from './memory-merge.js';
 import { matchesMemoryAccess } from './memory-access-policy.js';
 import type { MemoryAccessPolicy } from './memory-access-policy.js';
-import { PreferenceConflictResolver } from './write/preference-conflict-resolver.js';
+import { PreferenceConflictResolver, detectTopic } from './write/preference-conflict-resolver.js';
 import { errorForObservation, hashForObservation, memoryObservability } from './observability.js';
+import { invalidatePagesCitingMemory } from './knowledge/memory-page-invalidation.js';
 
 export interface WriteOptions {
   id?: string;
@@ -255,6 +256,9 @@ export class MemoryWriter {
                       // Content changed → terms + embedding must be recomputed,
                       // otherwise retrieval scores the row against its old text.
                       await this.refreshDerivedData(existing.id, result.mergedContent);
+                      // …and every knowledge page that cites this memory now
+                      // quotes the superseded text (plan §8 S1).
+                      await this.invalidateCitedKnowledgePages(existing.id, 'update');
                       this.notifyMemoryChanged(result.mergedContent, kind, options.scope, scopeKey);
                       this.mergeConfig?.logger.info(
                         { memoryId: existing.id, similarity: similar.score },
@@ -398,6 +402,13 @@ export class MemoryWriter {
     }
     const memory = outcome.created;
 
+    // A memory row exists under this id again, so any page citing the id is
+    // citing text that has just been replaced (plan §8 S1). Only a caller that
+    // supplied the id (import/backfill) can land here with citations already
+    // pointing at it — a generated id cannot have any — so the query is skipped
+    // on the ordinary create path, which runs on every memory write.
+    if (options.id) await this.invalidateCitedKnowledgePages(memory.id, 'write');
+
     // 3.1. For preferences: resolve topic conflicts with the new resolver.
     // Must happen AFTER creation so the new memory exists in DB.
     // Uses action='update' (not 'delete') for superseded preferences to avoid
@@ -495,6 +506,20 @@ export class MemoryWriter {
       supersededBy,
       warnings: warnings.length > 0 ? warnings : undefined,
     };
+  }
+
+  /**
+   * Re-queue the knowledge pages that cite a memory whose text this write
+   * created or changed (plan §8 S1). Never throws: a stale page is a stale
+   * page, not a reason to lose the memory.
+   */
+  private async invalidateCitedKnowledgePages(
+    memoryId: string,
+    cause: 'write' | 'update',
+  ): Promise<void> {
+    const db = this.db;
+    if (!db) return;
+    await invalidatePagesCitingMemory(db, memoryId, cause, this.mergeConfig?.logger);
   }
 
   private notifyMemoryChanged(
@@ -707,7 +732,21 @@ export class MemoryWriter {
   }
 
   /**
-   * Write a user preference memory.
+   * Write a preference-shaped memory extracted from a session.
+   *
+   * `kind` follows the topic, not the call site (plan §3.1, revision A1):
+   * `detectTopic()` returns `generic` when the text matches none of the five
+   * real preference topics, and a generic sentence is not an evergreen
+   * attribute — it is written as `fact` so `memory-hygiene` can reclaim it after
+   * `retentionDays` instead of giving it the permanent `preference` exemption.
+   *
+   * Everything `detectTopic()` DOES recognise stays `kind: 'preference'`, because
+   * `write()` hangs two behaviours on that kind: the semantic-duplicate branch
+   * (~:205, a preference returns `semantic_duplicate`, other kinds go through
+   * LLM merge) and `PreferenceConflictResolver` (~:405, which supersedes the
+   * older memory on the same topic). Dropping the kind for style/tool/language/
+   * workflow preferences would make「回复简洁点」and「回复详细点」coexist instead of
+   * the newer replacing the older — the opposite of what this path is for.
    */
   async writePreference(
     scopeKey: string,
@@ -715,11 +754,12 @@ export class MemoryWriter {
     metadata?: Record<string, unknown>,
     sourceChannel?: string | null,
   ): Promise<WriteResult> {
+    const kind = detectTopic(content) === 'generic' ? 'fact' : 'preference';
     return this.write({
       content,
       scope: 'user',
       scopeKey,
-      kind: 'preference',
+      kind,
       sourceChannel,
     });
   }

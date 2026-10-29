@@ -185,6 +185,14 @@ export interface AppConfig {
     /** Minimum retrieval score. Default 0.01 (RRF-scale). */
     recallMinScore: number;
     captureMaxChars: number;
+    /**
+     * Write-side capture quality (plan §3.2/§3.3): one switch for the shape gate,
+     * the durability check and the `memory.worth` judgment. `durable_only: false`
+     * restores the pre-plan behavior (every summarizer candidate is written).
+     */
+    capture: {
+      durable_only: boolean;
+    };
     summarizeInterval: number;
     /** Number of recent messages loaded from DB when creating a new runtime after restart. 0 disables. */
     historyLoadCount: number;
@@ -211,10 +219,16 @@ export interface AppConfig {
       prefilterMultiplier: number;
       prefilterMin: number;
       mergeCandidateMultiplier: number;
-      /** Per-item recall char cap (0 = disabled). */
+      /** Per-memory recall char cap (0 = disabled). Default 800. */
       maxCharsPerMemory: number;
-      /** Total recall char budget (0 = disabled). */
+      /** Total recall char budget across the recalled set (0 = disabled). Default 2000. */
       maxTotalRecallChars: number;
+      /**
+       * Score factor for a `scope: 'session'` memory belonging to a *different*
+       * session than the one being recalled for (0–1). 1 = no re-weighting,
+       * i.e. the pre-S8 ranking.
+       */
+      crossSessionWeight: number;
     };
     /** Score-gated LLM query expansion (opt-in; uses memory_aux_models). */
     expansion: {

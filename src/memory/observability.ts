@@ -25,23 +25,33 @@ export type MemoryObservationEvent =
    * offer was not wasted, which no offline eval can see. Written only for the
    * knowledge lane — the other two lanes have no tool that reads them back.
    */
-  | 'memory.injection.referenced';
+  | 'memory.injection.referenced'
+  /**
+   * A candidate the deterministic write-side gates refused (plan §3.3): the
+   * measurement of how much noise the summarizer still produces, which is what
+   * tells an operator whether `memory.capture.durable_only` did anything. It is
+   * a filtering decision, not a fault — see INFORMATIONAL_EVENT_PREFIXES.
+   */
+  | 'memory.durability.rejected';
 
 /**
- * Events that record what was injected into a prompt — not what failed.
+ * Events that record what happened to content — injected, or filtered out — not
+ * what failed.
  *
- * They exist so retrieval quality can be measured per turn (ids, token cost,
- * latency), which means one row per prompt build rather than one per incident.
- * Every other consumer of this table counts *degradation*, so they must all skip
- * this family: an unfiltered `COUNT(*)` would report thousands of "degradation
- * events" on a healthy device, which is worse than no telemetry because it
- * teaches the operator to ignore the panel.
+ * They exist so retrieval and write-side quality can be measured per event, not
+ * per incident. Every other consumer of this table counts *degradation*, so they
+ * must all skip these families: an unfiltered `COUNT(*)` would report thousands
+ * of "degradation events" on a healthy device, which is worse than no telemetry
+ * because it teaches the operator to ignore the panel. `memory.durability.*` is
+ * the `memory.injection` argument in the other direction — a candidate being
+ * refused is the gate working, not breaking.
  *
  * That is why the predicate lives here, next to the union, instead of being
- * repeated in each counter — the day a second informational event appears, one
- * edit keeps WebUI, memory-doctor and pipeline metrics in agreement.
+ * repeated in each counter — when a second informational event appeared
+ * (`memory.durability`), one edit kept WebUI, memory-doctor and pipeline metrics
+ * in agreement.
  */
-export const INFORMATIONAL_EVENT_PREFIXES = ['memory.injection'] as const;
+export const INFORMATIONAL_EVENT_PREFIXES = ['memory.injection', 'memory.durability'] as const;
 
 /** SQL predicate for "this row is a degradation event". */
 export const DEGRADATION_EVENT_SQL = INFORMATIONAL_EVENT_PREFIXES.map(

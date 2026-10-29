@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import type Database from 'better-sqlite3';
 import type { ToolDefinition } from '../../platform/tool-definition.js';
 import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.js';
 import { errorResult, textResult } from '../../platform/tool-result.js';
@@ -7,6 +8,7 @@ import type { EmbeddingRepository } from '../../../memory/repositories/embedding
 import type { EmbeddingClient } from '../../../provider/embedding-client.js';
 import type { MemoryChangeEvent } from '../../../memory/memory-writer.js';
 import { appendTimeline } from '../../../memory/memory-merge.js';
+import { invalidatePagesCitingMemory } from '../../../memory/knowledge/memory-page-invalidation.js';
 import { generateId } from '../../../shared/ids.js';
 import { matchesMemoryAccess } from '../../../memory/memory-access-policy.js';
 
@@ -41,6 +43,12 @@ export function createMemoryUpdateToolDefinition(options: {
   embeddingRepository: EmbeddingRepository;
   embeddingClient: EmbeddingClient;
   onMemoryChanged?: (event?: MemoryChangeEvent) => void;
+  /**
+   * Shared connection, for the one derived write a correction owes: the
+   * knowledge pages that cite the memory being corrected (§8 S1). Optional so a
+   * tool built without a database still updates memories.
+   */
+  db?: Database.Database;
 }): ToolDefinition<MemoryUpdateArgs> {
   return {
     name: 'memory_update',
@@ -70,6 +78,13 @@ export function createMemoryUpdateToolDefinition(options: {
         metadata,
       });
       if (!updated) return errorResult(`Memory not updated: ${args.id}`);
+
+      // §8 S1: a correction must not leave a page citing the old wording. The
+      // page would keep `active` and keep winning every read — including the
+      // per-turn injection lane, which never goes through `unified-search` — so
+      // it is re-queued for review here, on the write side, where every lane
+      // sees the same page row. Fails open: the memory is already corrected.
+      await invalidatePagesCitingMemory(options.db, args.id, 'update');
 
       options.embeddingRepository.deleteByMemoryId(args.id);
 

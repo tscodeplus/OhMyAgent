@@ -9,10 +9,12 @@
  *   one-off       — one-time logistics with no reusable lesson → dropped
  *   already-known — restates something the memory layer already holds → dropped
  *
- * Policy: only `useful-again` persists (`route` choice). Fallback =
- * `route('useful-again')` — identical to the pre-judge behavior of keeping
- * every candidate (deviation note: the impl doc's fallback column says
- * 保留 which IS this value).
+ * Policy: only `useful-again` persists (`route` choice). Fallback = `none`
+ * (fail-closed, plan §3.3 point 3): the summarizer window is incremental, so a
+ * lost candidate cannot be replayed — but the alternative (keep-all) would let
+ * every judge outage through the gate on the one path that must not flood, and
+ * the deterministic shape/durability gates already cover the common true
+ * positives.
  */
 
 import { choice, defineDecision, type DecisionOutcome, type DecisionSpec } from '../types.js';
@@ -84,8 +86,8 @@ function memoryWorthPolicy(
   return { action: 'keep', ids: persistIds };
 }
 
-/** Fallback: keep every candidate — the pre-judge behavior. */
-const MEMORY_WORTH_FALLBACK: DecisionOutcome = { action: 'keep-all' };
+/** Fallback: persist nothing — writing less is the recoverable failure. */
+const MEMORY_WORTH_FALLBACK: DecisionOutcome = { action: 'none' };
 
 /**
  * Per-call spec: one choice question per candidate keyed "w1".."wN"; state

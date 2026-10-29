@@ -2145,6 +2145,7 @@ async function createLiveEvalContext(): Promise<LiveEvalContext> {
       mergeCandidateMultiplier: config.memory.recall.mergeCandidateMultiplier,
       maxCharsPerMemory: config.memory.recall.maxCharsPerMemory,
       maxTotalRecallChars: config.memory.recall.maxTotalRecallChars,
+      crossSessionWeight: config.memory.recall.crossSessionWeight,
     },
     searchConcurrency: config.performance?.embeddingApiConcurrency ?? 8,
   });

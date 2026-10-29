@@ -240,6 +240,8 @@ channels:
 #   # auto_capture: false          # deprecated, unimplemented
 #   summarize_interval: 20
 #   output_language: Auto          # Auto | English | Simplified Chinese | ...
+#   capture:
+#     durable_only: true           # false = write every summarizer candidate again
 #   # recall_top_k: 3
 #   # recall_min_score: 0.01
 #   # capture_max_chars: 500
@@ -260,6 +262,14 @@ channels:
 #     # prefilter_multiplier: 5
 #     # prefilter_min: 20
 #     # merge_candidate_multiplier: 3
+#     # Per-memory / total char budget for recalled memory (0 = no cap).
+#     # The memory lane was the one injection lane with no budget at all.
+#     max_chars_per_memory: 800
+#     max_total_chars: 2000
+#     # Score factor for a session summary written by a DIFFERENT session.
+#     # 1.0 reproduces the pre-S8 ranking; 0.6 keeps cross-session recall but
+#     # ranks it below the current session's own summaries.
+#     cross_session_weight: 0.6
 #   expansion:
 #     enabled: false
 #     # min_query_length: 15

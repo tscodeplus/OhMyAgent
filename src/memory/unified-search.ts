@@ -145,6 +145,14 @@ export interface UnifiedMemoryHit extends UnifiedSearchHitBase {
   scope: string;
   /** Epoch milliseconds. */
   createdAt: number;
+  /**
+   * Epoch milliseconds of the last write, which is what the page/memory
+   * same-source rule compares (plan §8 S1). Optional because a lane that cannot
+   * measure it (a test double) must not be forced to lie; absent means "unknown",
+   * and an unknown timestamp loses to a known one only when the memory is known
+   * to be older.
+   */
+  updatedAt?: number;
 }
 
 export interface UnifiedKnowledgeHit extends UnifiedSearchHitBase {
@@ -152,6 +160,8 @@ export interface UnifiedKnowledgeHit extends UnifiedSearchHitBase {
   slug: string;
   pageType: PageType;
   title: string;
+  /** Epoch milliseconds of the page's last write — the other half of §8 S1. */
+  updatedAt?: number;
   /** Memory ids this page cites — why a memory hit may have been dropped. */
   memoryIds: string[];
 }
@@ -169,11 +179,18 @@ export interface UnifiedLaneReport {
 }
 
 export interface UnifiedDedupeRecord {
-  lane: 'memory';
-  /** The dropped memory id. */
+  /**
+   * Which copy was dropped.
+   *
+   * `memory` — a page covers it ("the curated copy is authoritative").
+   * `knowledge` — the page was **older than the memory it cites**, so the page
+   * is the stale copy and the memory survives (plan §8 S1).
+   */
+  lane: 'memory' | 'knowledge';
+  /** The dropped row's id (a memory id, or a page id for the `knowledge` lane). */
   ref: string;
-  reason: 'cited_by_knowledge_page';
-  /** The page that covers it, so the drop is explainable. */
+  reason: 'cited_by_knowledge_page' | 'superseded_by_cited_memory';
+  /** The page involved: the cover for a dropped memory, the stale copy otherwise. */
   pageSlug: string;
 }
 
@@ -385,9 +402,47 @@ export async function unifiedSearch(options: UnifiedSearchOptions): Promise<Unif
   lanes.memory.hits = memoryHits.length;
   lanes.knowledge.hits = knowledgeHits.length;
 
-  // ── Provenance dedupe: page wins over the memories it was curated from ──
-  const citedByPage = new Map<string, UnifiedKnowledgeHit>();
+  // ── Provenance dedupe: the newer copy wins between a page and the memories it cites ──
+  //
+  // A page is a *copy* of the memories it cites, so a search result set may hold
+  // both. Dropping the memory unconditionally (the original rule) assumed the
+  // page is always the corrected copy — it is, only until the memory is
+  // corrected, and `knowledge_sources` has no FK to notice (§8 S1). The
+  // write-side fix re-queues citing pages when a memory changes; this is the
+  // belt-and-braces half, for a page that escaped it (a write path that is not
+  // hooked, or a database where the invalidation could not run).
+  //
+  // Only memories present in this result set can win: a citation to a memory the
+  // search did not return is not evidence that the page is stale, and using one
+  // would drop both copies.
+  const memoryById = new Map<string, UnifiedMemoryHit>();
+  for (const hit of memoryHits) memoryById.set(hit.ref, hit);
+
+  const supersededPages = new Set<string>();
   for (const page of knowledgeHits) {
+    const pageAt = page.updatedAt;
+    if (pageAt === undefined) continue;
+    const newer = page.memoryIds.some((memoryId) => {
+      const memoryAt = memoryById.get(memoryId)?.updatedAt;
+      return memoryAt !== undefined && memoryAt > pageAt;
+    });
+    if (newer) supersededPages.add(page.ref);
+  }
+
+  const survivingPages = knowledgeHits.filter((page) => {
+    if (!supersededPages.has(page.ref)) return true;
+    deduped.push({
+      lane: 'knowledge',
+      ref: page.ref,
+      reason: 'superseded_by_cited_memory',
+      pageSlug: page.slug,
+    });
+    return false;
+  });
+  lanes.knowledge.dropped = knowledgeHits.length - survivingPages.length;
+
+  const citedByPage = new Map<string, UnifiedKnowledgeHit>();
+  for (const page of survivingPages) {
     for (const memoryId of page.memoryIds) {
       if (!citedByPage.has(memoryId)) citedByPage.set(memoryId, page);
     }
@@ -411,7 +466,11 @@ export async function unifiedSearch(options: UnifiedSearchOptions): Promise<Unif
   };
 
   const hits = fuseLanes(
-    [withLaneScores(messageHits), withLaneScores(survivingMemories), withLaneScores(knowledgeHits)],
+    [
+      withLaneScores(messageHits),
+      withLaneScores(survivingMemories),
+      withLaneScores(survivingPages),
+    ],
     limit,
   );
 
@@ -506,6 +565,7 @@ async function collectMemoryHits(
     kind: memory.kind,
     scope: memory.scope,
     createdAt: memory.createdAt,
+    updatedAt: memory.updatedAt,
   }));
 }
 
@@ -531,6 +591,7 @@ function collectKnowledgeHits(
     slug: hit.slug,
     pageType: hit.pageType,
     title: hit.title,
+    updatedAt: hit.updatedAt,
     memoryIds: citedMemoryIds(options.service, hit.id),
   }));
 }

@@ -4,10 +4,12 @@ import type { Logger } from 'pino';
 import { openDatabase } from '../../src/memory/db.js';
 import {
   KnowledgeCurator,
+  countIndependentSources,
   evaluateAdmission,
   parseGroupingResponse,
   parsePageResponse,
   type CurateRunReport,
+  type CurateSource,
   type KnowledgeCurateConfig,
 } from '../../src/memory/knowledge/curate.js';
 import type {
@@ -243,7 +245,10 @@ describe('KnowledgeCurator', () => {
     ).run(
       row.id,
       row.scope ?? 'user',
-      row.scopeKey ?? 'u1',
+      // Each row defaults to its own conversation: admission counts conversations,
+      // not rows, so a test that wants recurrence must share a `scopeKey` on
+      // purpose instead of getting it from the helper by accident.
+      row.scopeKey ?? `session-${row.id}`,
       row.kind ?? 'fact',
       row.content,
       row.confidence ?? 0.9,
@@ -397,6 +402,103 @@ describe('KnowledgeCurator', () => {
       expect(
         evaluateAdmission({ subject, sourceCount: 0, explicitRequest: false }, 0)?.reason,
       ).toBe('not_recurrent');
+    });
+  });
+
+  // ── Source independence (plan §8 S3) ────────────────────────────────
+
+  /**
+   * One conversation is one source, however many times it restated the subject.
+   * The summary path writes a new `summary` memory every `summarize_interval`
+   * messages, so counting rows let a single chat satisfy `require_sources: 2` with
+   * its own paraphrase — recurrence degenerated into "the string appeared twice".
+   */
+  describe('source independence', () => {
+    function twoSummariesOfOneSession(): void {
+      const conversation = { scope: 'session', scopeKey: 'feishu:oc_chat' };
+      insertMemory({
+        id: 'm1',
+        ...conversation,
+        kind: 'summary',
+        content: 'Power Query replaced the manual VLOOKUP ETL',
+      });
+      insertMemory({
+        id: 'm2',
+        ...conversation,
+        kind: 'summary',
+        content: 'Power Query also handles the weekly ETL',
+      });
+    }
+
+    it('two summaries of one session are one source, so the group stays below the threshold', async () => {
+      twoSummariesOfOneSession();
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }])];
+
+      const report = await curator().run();
+
+      expect(report.rejected.not_recurrent).toBe(1);
+      expect(service.writes).toHaveLength(0);
+      // Only the grouping call was spent: the refusal happens before the page call.
+      expect(llmCalls).toHaveLength(1);
+    });
+
+    it('two different sessions are two sources, so the page is admitted', async () => {
+      insertMemory({
+        id: 'm1',
+        scope: 'session',
+        scopeKey: 'feishu:oc_chat',
+        kind: 'summary',
+        content: 'Power Query replaced the manual VLOOKUP ETL',
+      });
+      insertMemory({
+        id: 'm2',
+        scope: 'user',
+        scopeKey: 'telegram:42',
+        kind: 'fact',
+        content: 'Power Query is used for all ETL here',
+      });
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }]), page()];
+
+      const report = await curator().run();
+
+      expect(report.rejected).toEqual({});
+      expect(report.created).toBe(1);
+      // Both rows are still cited: dedupe changes the *count*, never the
+      // provenance the page is written with.
+      expect(service.writes[0].input.sources).toEqual([
+        { kind: 'memory', id: 'm1' },
+        { kind: 'memory', id: 'm2' },
+      ]);
+    });
+
+    it('an explicit request still bypasses the source count', async () => {
+      twoSummariesOfOneSession();
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m1', 'm2'] }]), page()];
+
+      const report = await curator().run({ trigger: 'manual' });
+
+      expect(report.rejected).toEqual({});
+      expect(report.created).toBe(1);
+      expect(service.writes[0].options.explicitRequest).toBe(true);
+    });
+
+    it('countIndependentSources keys on the conversation, not the citation', () => {
+      const memory = (id: string, conversationKey: string | null): CurateSource => ({
+        kind: 'memory',
+        id,
+        content: 'Power Query',
+        scope: 'session',
+        confidence: 0.9,
+        conversationKey,
+      });
+      // One conversation restating itself twice — one source.
+      expect(countIndependentSources([memory('m1', 'chat-a'), memory('m2', 'chat-a')])).toBe(1);
+      // Two conversations — two sources.
+      expect(countIndependentSources([memory('m1', 'chat-a'), memory('m2', 'chat-b')])).toBe(2);
+      // A citation with no conversation is its own source rather than merging
+      // with every other anonymous row.
+      expect(countIndependentSources([memory('m1', null), memory('m2', 'chat-a')])).toBe(2);
+      expect(countIndependentSources([])).toBe(0);
     });
   });
 

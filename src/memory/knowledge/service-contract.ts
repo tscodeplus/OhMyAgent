@@ -53,6 +53,16 @@ export interface KnowledgeSearchHit {
    * to a name match, so the number carries an order and nothing else.
    */
   score: number;
+  /**
+   * Epoch ms of the page's last write.
+   *
+   * Only used to answer "which copy is current" when one search result set
+   * contains both a page and a memory the page cites: the newer of the two
+   * wins (plan §8 S1). It is not a ranking input — relevance is `score`, and
+   * freshness must never reorder a lane. The memory-side equivalent is
+   * `UnifiedMemoryHit.updatedAt`.
+   */
+  updatedAt: number;
 }
 
 /** A page plus everything needed to render it and to explain where it came from. */

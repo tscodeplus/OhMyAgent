@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MemoryRetriever } from '../../src/memory/memory-retriever.js';
+import { MemoryRetriever, DEFAULT_RECALL_CONFIG } from '../../src/memory/memory-retriever.js';
 import { textFallbackRetrieve } from '../../src/memory/fallback-retriever.js';
 import type { Memory } from '../../src/memory/repositories/memory-repository.js';
+import type { RetrievedMemory } from '../../src/memory/memory-retriever.js';
 
 // Spy on the LLM expansion entrypoint so gating tests can assert (a) whether it
 // runs at all and (b) the initialMaxScore the retriever computes from its probe.
@@ -569,6 +570,156 @@ describe('MemoryRetriever', () => {
       expect(results.map((r) => r.id)).toEqual(['mem-current', 'mem-shared', 'mem-other-shared']);
       expect(results.map((r) => r.sourcePool)).toEqual(['current', 'shared', 'other']);
       expect(results.map((r) => r.id)).not.toContain('mem-other-private');
+    });
+  });
+
+  /**
+   * Session summaries (plan §8 S8).
+   *
+   * `writeSummary()` writes `scope: 'session'` with the session key as
+   * `scope_key`, and the pools split by *agent*, so every past session's summary
+   * used to be a full-weight `current`-pool candidate forever. The two memories
+   * below are listed in the order that gives the *other* session's summary the
+   * better base score (RRF scores by list position), so the assertions are about
+   * the scope weight moving it, not about the input order being echoed back.
+   */
+  describe('cross-session summaries', () => {
+    const otherSession = () =>
+      createMockMemory({
+        id: 'mem-other-session',
+        scope: 'session',
+        scope_key: 'sess-b',
+        kind: 'summary',
+        agent_id: 'agent-a',
+        visibility: 'private',
+        content: '另一段会话的摘要',
+      } as any);
+    const thisSession = () =>
+      createMockMemory({
+        id: 'mem-this-session',
+        scope: 'session',
+        scope_key: 'sess-a',
+        kind: 'summary',
+        agent_id: 'agent-a',
+        visibility: 'private',
+        content: '本轮会话的摘要',
+      } as any);
+
+    function retrieverWith(recallConfig?: any) {
+      return new MemoryRetriever({
+        memoryRepository: createMockMemoryRepository([otherSession(), thisSession()]) as any,
+        embeddingRepository: createMockEmbeddingRepository([]) as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+        recallConfig,
+      });
+    }
+
+    it('ranks the current session summary above another session by default', async () => {
+      const results = await retrieverWith().retrieveGrouped({
+        query: 'summaries',
+        agentId: 'agent-a',
+        topK: 2,
+        scopeKey: 'sess-a',
+      });
+
+      expect(results.map((r) => r.id)).toEqual(['mem-this-session', 'mem-other-session']);
+      // Re-weighted, never dropped: the other session is still recallable.
+      expect(results).toHaveLength(2);
+    });
+
+    it('reproduces the pre-change ordering when crossSessionWeight is 1', async () => {
+      const results = await retrieverWith({
+        ...DEFAULT_RECALL_CONFIG,
+        crossSessionWeight: 1,
+      }).retrieveGrouped({
+        query: 'summaries',
+        agentId: 'agent-a',
+        topK: 2,
+        scopeKey: 'sess-a',
+      });
+
+      // Without the scope dimension the first-listed summary wins on RRF
+      // position alone — the ordering this change is rolling back.
+      expect(results.map((r) => r.id)).toEqual(['mem-other-session', 'mem-this-session']);
+    });
+
+    it('leaves scoring alone when the caller has no session to compare against', async () => {
+      const results = await retrieverWith().retrieveGrouped({
+        query: 'summaries',
+        agentId: 'agent-a',
+        topK: 2,
+      });
+
+      expect(results.map((r) => r.id)).toEqual(['mem-other-session', 'mem-this-session']);
+    });
+
+    it('does not re-weight a user-scoped memory that happens to carry a scope_key', async () => {
+      const userMemory = createMockMemory({
+        id: 'mem-user',
+        scope: 'user',
+        scope_key: 'sess-b',
+        agent_id: 'agent-a',
+        visibility: 'private',
+        content: '用户偏好',
+      } as any);
+      const build = (recallConfig?: any) =>
+        new MemoryRetriever({
+          memoryRepository: createMockMemoryRepository([thisSession(), userMemory]) as any,
+          embeddingRepository: createMockEmbeddingRepository([]) as any,
+          embeddingClient: createMockEmbeddingClient() as any,
+          embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+          db: createMockDb(),
+          recallConfig,
+        });
+
+      const weighted = await build().retrieveGrouped({
+        query: 'preferences',
+        agentId: 'agent-a',
+        topK: 2,
+        scopeKey: 'sess-a',
+      });
+      const baseline = await build({
+        ...DEFAULT_RECALL_CONFIG,
+        crossSessionWeight: 1,
+      }).retrieveGrouped({ query: 'preferences', agentId: 'agent-a', topK: 2 });
+
+      const scoreOf = (list: RetrievedMemory[], id: string) => list.find((r) => r.id === id)!.score;
+      // Only the session-scoped row is discounted; the user memory's score is
+      // untouched, which is why the dimension cannot hide a preference.
+      expect(scoreOf(weighted, 'mem-user')).toBeCloseTo(scoreOf(baseline, 'mem-user'), 6);
+      expect(scoreOf(weighted, 'mem-this-session')).toBeCloseTo(
+        scoreOf(baseline, 'mem-this-session'),
+        6,
+      );
+    });
+
+    it('populates updatedAt from the row instead of the created timestamp', async () => {
+      const now = Date.now();
+      const touched = createMockMemory({
+        id: 'mem-touched',
+        content: 'corrected in place',
+        // Digit strings, as the schema stores them — this is what `parseEpochMs`
+        // exists for, and what `new Date(...)` would misread.
+        created_at: String(now - 900_000),
+        updated_at: String(now),
+      } as any);
+      const retriever = new MemoryRetriever({
+        memoryRepository: createMockMemoryRepository([touched]) as any,
+        embeddingRepository: createMockEmbeddingRepository([
+          { memory_id: 'mem-touched', score: 0.9 },
+        ]) as any,
+        embeddingClient: createMockEmbeddingClient() as any,
+        embeddingCacheRepo: createMockEmbeddingCacheRepo(),
+        db: createMockDb(),
+      });
+
+      const results = await retriever.retrieve({ query: 'corrected' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.createdAt).toBe(now - 900_000);
+      expect(results[0]!.updatedAt).toBe(now);
     });
   });
 

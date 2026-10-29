@@ -3,8 +3,10 @@
  *
  * When a summary LLM is configured (SUMMARY_MODEL in .env):
  *   1. Incrementally summarizes only new messages since the last episode
- *   2. Calls the LLM to produce a concise summary + extract user preferences
- *   3. Auto-captures extracted preferences via MemoryWriter
+ *   2. Calls the LLM for a concise summary (always produced) plus a `durable`
+ *      list of long-term user attributes (defaults to empty)
+ *   3. Runs the write-side gates — shape (§3.2), durability (§3.3) and the
+ *      `memory.worth` judgment — then writes only what survives them
  *
  * Falls back to rule-based extraction when no summary LLM is configured.
  */
@@ -19,6 +21,9 @@ import type { MemoryWriter } from './memory-writer.js';
 import { openCodeClientOptions } from '../utils/opencode-session.js';
 import type { PersonaDistiller } from './persona-distiller.js';
 import { detectTopic } from './write/preference-conflict-resolver.js';
+import { isDurableShape } from './write/durable-shape.js';
+import { assessDurability } from './write/durability.js';
+import { judgePreferenceCandidates } from './write/worth-gate.js';
 import { hashForObservation, memoryObservability } from './observability.js';
 import { judgeExperiences } from './judge-experience-gate.js';
 import type { JudgeEngine } from '../judge/engine.js';
@@ -36,6 +41,13 @@ export interface SummaryLLMConfig {
   baseUrl?: string;
   /** Output language for summaries and preferences. "Auto" follows the conversation language. */
   outputLanguage?: string;
+  /**
+   * `memory.capture.durable_only` — when false, the shape/durability/worth gates
+   * in the summarizer are all skipped and every parsed candidate is written, i.e.
+   * exactly the behavior before plan §3.2/§3.3. The kind selection in
+   * `MemoryWriter.writePreference` is NOT covered by this switch.
+   */
+  durableOnly?: boolean;
 }
 
 export async function resolveSummaryModelConnection(
@@ -165,24 +177,34 @@ export class MemorySummarizer {
 
     const outputLanguageValue =
       this.llmConfig?.outputLanguage && this.llmConfig.outputLanguage !== 'Auto'
-        ? `Write the summary and extracted preferences in ${translateLanguageName(this.llmConfig.outputLanguage)}.`
+        ? `Write the summary and the durable attributes in ${translateLanguageName(this.llmConfig.outputLanguage)}.`
         : 'Use the same language as the conversation.';
 
+    // Plan §3.2: summarizing the session and harvesting durable user attributes
+    // are two jobs. The summary is always produced; `durable` starts empty and
+    // the model has to earn every entry.
     const prompt = `You are a conversation analyst. Review the following conversation and:
 
 1. Write a concise summary (2-5 sentences) of what was discussed and decided.
-2. Extract any user preferences, facts, or personal information the user shared (e.g., "User likes X", "User is a Y", "User prefers Z").
-3. ${outputLanguageValue}
+2. Extract ONLY long-term user attributes that stay true across sessions, into an array named "durable":
+   - Allowed: how to address the user, their identity/role, long-term preferences (tools, style, habits, language), explicit long-term rules.
+   - Forbidden: this task's output format/length requirements, directory or file listings and counts, the current time or an environment snapshot, narration of what already happened ("user asked X, the assistant answered Y"), any temporary state tied to a concrete date.
+   These live in the conversation itself and can be found later with session_search; they do not belong in long-term memory.
+3. "durable" MUST default to an empty array []. When unsure, leave it empty.
+4. ${outputLanguageValue}
 
 Conversation:
 ${transcript}
 
 Output ONLY valid JSON with this shape:
-{"summary":"concise summary","preferences":["extracted preference"]}`;
+{"summary":"concise summary","durable":["durable user attribute"]}`;
 
     try {
       const response = await this.callLLM(prompt);
-      const { summary, preferences, usedFallback } = parseSummaryLLMResponse(response);
+      const durableOnly = this.durableOnly;
+      const { summary, preferences, usedFallback, dropped } = parseSummaryLLMResponse(response, {
+        durableOnly,
+      });
       if (usedFallback) {
         memoryObservability.record('memory.summary.parse_failed', {
           responseHash: hashForObservation(response),
@@ -190,9 +212,34 @@ Output ONLY valid JSON with this shape:
           stage: 'json_parse',
         });
       }
+      for (const rejection of dropped) {
+        // One row per refused candidate: this is the measurement §5③ reads.
+        memoryObservability.record('memory.durability.rejected', {
+          reason: rejection.reason,
+          candidateHash: hashForObservation(rejection.text),
+          candidateLength: rejection.text.length,
+        });
+        this.logger.debug(
+          { sessionKey, reason: rejection.reason, candidate: rejection.text.slice(0, 120) },
+          'Dropped non-durable memory candidate',
+        );
+      }
       const supportedPreferences = preferences.filter((pref) =>
         this.isSupportedByUserMessage(pref, messages),
       );
+
+      // Worth gate (plan §3.3): the judge must recognise a reusable attribute
+      // before it is persisted. `durable_only: false` is the whole-subsystem
+      // rollback and skips all three gates together.
+      const durablePreferences = durableOnly
+        ? await judgePreferenceCandidates({
+            candidates: supportedPreferences,
+            sessionScenario: summary.slice(0, 200),
+            judgeGet: this.judgeGet,
+            sessionId: sessionKey,
+            logger: this.logger,
+          })
+        : supportedPreferences;
 
       // Store episode
       const episodeId = generateId();
@@ -200,7 +247,7 @@ Output ONLY valid JSON with this shape:
         id: episodeId,
         session_id: sessionKey,
         summary,
-        key_points: JSON.stringify(supportedPreferences),
+        key_points: JSON.stringify(durablePreferences),
       });
 
       // Kernel M2 (`memory.capture`/`memory.worth`): judged experience gate —
@@ -224,8 +271,8 @@ Output ONLY valid JSON with this shape:
       // stay in the shared pool so every agent recalls them at full weight.
       await this.memoryWriter.writeSummary(sessionKey, summary, undefined, channel, agentId);
 
-      // Auto-capture preferences
-      for (const pref of supportedPreferences) {
+      // Auto-capture durable user attributes
+      for (const pref of durablePreferences) {
         await this.memoryWriter.writePreference(sessionKey, pref, undefined, channel);
         this.logger.debug({ sessionKey, preference: pref, channel }, 'Auto-captured preference');
       }
@@ -235,7 +282,8 @@ Output ONLY valid JSON with this shape:
           sessionKey,
           episodeId,
           messageCount: messages.length,
-          preferenceCount: supportedPreferences.length,
+          candidates: preferences.length,
+          preferenceCount: durablePreferences.length,
         },
         'LLM session summarized',
       );
@@ -258,8 +306,13 @@ Output ONLY valid JSON with this shape:
     return messages.some((m) => m.role === 'user' && extractPreferredName(m.content) === name);
   }
 
+  /** `memory.capture.durable_only` — one switch for all three write-side gates. */
+  private get durableOnly(): boolean {
+    return this.llmConfig?.durableOnly !== false;
+  }
+
   private parseResponse(response: string): { summary: string; preferences: string[] } {
-    const parsed = parseSummaryLLMResponse(response);
+    const parsed = parseSummaryLLMResponse(response, { durableOnly: this.durableOnly });
     return { summary: parsed.summary, preferences: parsed.preferences };
   }
 
@@ -386,14 +439,76 @@ Output ONLY valid JSON with this shape:
   }
 }
 
-export function parseSummaryLLMResponse(response: string): {
+/**
+ * Why a candidate never reached the write path. `shape` is §3.2 (the model
+ * narrated the session instead of stating an attribute), `durability` is §3.3
+ * (the candidate is provably a transient: a listing, a past event, this task's
+ * output format).
+ */
+export type DurableRejectionReason = 'shape' | 'durability';
+
+export interface RejectedCandidate {
+  text: string;
+  reason: DurableRejectionReason;
+}
+
+export interface SummaryParseOptions {
+  /** `memory.capture.durable_only` — default true. False = pre-plan behavior. */
+  durableOnly?: boolean;
+}
+
+export interface ParsedSummary {
   summary: string;
+  /** Kept candidates. The field keeps its old name on purpose (§3.2 兼容): it is
+   * the parser's output for both the JSON and the degraded PREF: path. */
   preferences: string[];
   usedFallback: boolean;
+  /** Candidates the deterministic gates refused, for observability. */
+  dropped: RejectedCandidate[];
+}
+
+/**
+ * The two deterministic gates, in the documented order. Applied at the parse
+ * layer so BOTH the JSON path and the degraded `PREF:` path are covered — the
+ * degraded path exists precisely because the model misbehaved, so it is the last
+ * one that should be trusted with unfiltered output.
+ */
+function gateCandidates(candidates: string[]): {
+  kept: string[];
+  dropped: RejectedCandidate[];
 } {
-  const parsed = parseSummaryJson(response) ?? parseSummaryJson(extractJsonFence(response));
-  if (parsed) return { ...parsed, usedFallback: false };
-  return { ...parsePrefixSummaryResponse(response), usedFallback: true };
+  const kept: string[] = [];
+  const dropped: RejectedCandidate[] = [];
+  for (const candidate of candidates) {
+    if (!isDurableShape(candidate)) {
+      dropped.push({ text: candidate, reason: 'shape' });
+      continue;
+    }
+    if (assessDurability(candidate) === 'volatile') {
+      dropped.push({ text: candidate, reason: 'durability' });
+      continue;
+    }
+    kept.push(candidate);
+  }
+  return { kept, dropped };
+}
+
+export function parseSummaryLLMResponse(
+  response: string,
+  options?: SummaryParseOptions,
+): ParsedSummary {
+  const fromJson = parseSummaryJson(response) ?? parseSummaryJson(extractJsonFence(response));
+  const parsed = fromJson ?? parsePrefixSummaryResponse(response);
+  const durableOnly = options?.durableOnly !== false;
+  const gated = durableOnly
+    ? gateCandidates(parsed.preferences)
+    : { kept: parsed.preferences, dropped: [] as RejectedCandidate[] };
+  return {
+    summary: parsed.summary,
+    preferences: gated.kept,
+    usedFallback: !fromJson,
+    dropped: gated.dropped,
+  };
 }
 
 function parseSummaryJson(
@@ -403,12 +518,15 @@ function parseSummaryJson(
   try {
     const value = JSON.parse(response.trim()) as unknown;
     if (!value || typeof value !== 'object') return null;
-    const obj = value as { summary?: unknown; preferences?: unknown };
+    // `durable` is what the §3.2 prompt asks for; `preferences` is the pre-plan
+    // field name, still accepted so an older/other model shape is not discarded.
+    const obj = value as { summary?: unknown; preferences?: unknown; durable?: unknown };
     if (typeof obj.summary !== 'string') return null;
     const summary = obj.summary.trim().slice(0, 1000);
     if (!summary) return null;
-    const preferences = Array.isArray(obj.preferences)
-      ? obj.preferences
+    const list = Array.isArray(obj.durable) ? obj.durable : obj.preferences;
+    const preferences = Array.isArray(list)
+      ? list
           .filter((pref): pref is string => typeof pref === 'string')
           .map((pref) => pref.trim())
           .filter((pref) => pref.length > 2)

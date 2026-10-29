@@ -53,6 +53,7 @@ import { buildSnippet, searchKnowledgeIndex } from './indexer.js';
 import { parseWikilinks } from './links.js';
 import { slugify } from './slug.js';
 import { normalizeScope } from './scope.js';
+import { parseEpochMs } from '../../shared/timestamp.js';
 
 /** Defaults mirror the `knowledge:` block in the plan (§9.1). */
 export const DEFAULT_KNOWLEDGE_RUNTIME_CONFIG: KnowledgeRuntimeConfig = {
@@ -268,6 +269,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
             title: candidate.page.title,
             snippet: candidate.snippet,
             score: contribution,
+            updatedAt: parseEpochMs(candidate.page.updated_at),
           },
         });
       });

@@ -149,12 +149,20 @@ export class MemoryPipeline {
         if (await this.deps.personaDistiller.shouldDistill()) {
           await this.deps.personaDistiller.distillIncremental();
         }
-        const summaryCount = this.deps.memoryRepository.findByScopeKind('user', 'summary').length;
+        // The persona is distilled from `scope='user', kind='preference'` rows —
+        // that is exactly the set `PersonaDistiller.distillFull()` reads. Counting
+        // `('user','summary')` here was always 0: `writeSummary()` only ever writes
+        // `scope='session'` (memory-writer.ts), so the panel reported an empty L3
+        // on a device with a perfectly good persona.
+        const preferenceCount = this.deps.memoryRepository.findByScopeKind(
+          'user',
+          'preference',
+        ).length;
         layers.push({
           layer: 'L3',
           label: 'User Persona',
-          recordCount: summaryCount,
-          active: summaryCount > 0,
+          recordCount: preferenceCount,
+          active: preferenceCount > 0,
           lastProcessedAt: this.lastRunAt,
         });
       } catch (err) {
@@ -239,7 +247,7 @@ export class MemoryPipeline {
       {
         layer: 'L3',
         label: 'User Persona',
-        recordCount: this.deps.memoryRepository.findByScopeKind('user', 'summary').length,
+        recordCount: this.deps.memoryRepository.findByScopeKind('user', 'preference').length,
         active: false,
         lastProcessedAt: this.lastRunAt,
       },

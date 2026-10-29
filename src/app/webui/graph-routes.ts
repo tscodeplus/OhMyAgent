@@ -116,11 +116,12 @@ export interface SearchPageRow extends Omit<SearchResult, 'kind'> {
 
 /** A memory dropped because a returned page already covers it (same-source rule). */
 export interface SearchDedupeRecord {
-  lane: 'memory';
-  /** The dropped memory id. */
+  /** `memory` — a page covered it; `knowledge` — the page was older than its source. */
+  lane: 'memory' | 'knowledge';
+  /** The dropped row's id (a memory id, or a page id for the `knowledge` lane). */
   id: string;
-  reason: 'cited_by_knowledge_page';
-  /** The page that covers it, so the drop is explainable from the payload. */
+  reason: 'cited_by_knowledge_page' | 'superseded_by_cited_memory';
+  /** The page involved, so the drop is explainable from the payload. */
   page_slug: string;
 }
 

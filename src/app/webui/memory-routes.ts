@@ -18,6 +18,7 @@ import {
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
 import { PersonaFeedback } from '../../memory/persona/feedback.js';
 import { DEGRADATION_EVENT_SQL } from '../../memory/observability.js';
+import { assessDurability } from '../../memory/write/durability.js';
 import type { UserPersona } from '../../memory/persona-model.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
 
@@ -565,6 +566,119 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
       deleteAll();
 
       return reply.send({ ok: true, deleted, missing });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Memory review queue — the memories a human should look at, and why.
+   *
+   * Knowledge pages have a review path (`pending` + `/knowledge approve`);
+   * memories only had after-the-fact deletion. This endpoint is the missing
+   * "what should I look at" list. It is **read-only by design**: acting on an
+   * item reuses the existing `DELETE /api/memory/:id` and
+   * `/api/memory/batch-delete`, so there is no second write path to keep
+   * consistent.
+   *
+   * There is deliberately **no `pending` status column**. Memories are read by
+   * six lanes (retrieval, injection, persona, curation, graph, API); a seventh
+   * state would have to be honoured by every one of them or it would silently
+   * leak into prompts. A review *view* over existing rows costs nothing and
+   * cannot leak.
+   *
+   * The scan is a bounded recent window, not a full audit: this runs while a
+   * phone is serving chat, and `content LIKE`/`GROUP BY` over the whole table is
+   * the kind of query that shows up as latency. The full sweep is
+   * `scripts/memory-sweep-volatile.ts` (one-off, §4 of the plan); this endpoint
+   * answers "what has been growing lately".
+   */
+  app.get('/api/memory/review-queue', async (request, reply) => {
+    try {
+      const query = request.query as { limit?: string; window?: string };
+      const limit = Math.min(Math.max(parseInt(query.limit || '50', 10) || 50, 1), 200);
+      // Rows scanned before ranking: enough to find the recent junk on a phone,
+      // small enough that the endpoint stays single-digit-ms per call.
+      const window = Math.min(Math.max(parseInt(query.window || '500', 10) || 500, 50), 2000);
+
+      const rows = cfg.db
+        .prepare(
+          `SELECT id, scope, scope_key, kind, content, confidence, status,
+                  created_at, updated_at
+             FROM memories
+            WHERE status = 'active'
+            ORDER BY created_at DESC
+            LIMIT ?`,
+        )
+        .all(window) as Array<Record<string, unknown>>;
+
+      const textOf = (row: Record<string, unknown>): string =>
+        typeof row.content === 'string' ? row.content : JSON.stringify(row.content ?? '');
+
+      // Duplicate groups are computed inside the same window, so a duplicate is
+      // reported only when both copies are recent enough to be in it — an old
+      // twin plus a new copy still shows one item, not a phantom pair.
+      const groups = new Map<string, Array<Record<string, unknown>>>();
+      for (const row of rows) {
+        const key = `${row.scope}|${row.scope_key ?? ''}|${textOf(row).trim()}`;
+        const bucket = groups.get(key);
+        if (bucket) bucket.push(row);
+        else groups.set(key, [row]);
+      }
+
+      const items: Array<Record<string, unknown>> = [];
+      for (const row of rows) {
+        const reasons: string[] = [];
+        const content = textOf(row);
+        if (assessDurability(content) === 'volatile') reasons.push('volatile');
+
+        const bucket = groups.get(`${row.scope}|${row.scope_key ?? ''}|${content.trim()}`) ?? [];
+        let duplicateOf: string | undefined;
+        if (bucket.length > 1) {
+          // Keep the newest of a duplicate group: the older copy is the one to
+          // delete, and flagging the newest instead would make `batch-delete`
+          // fight the writer that just refreshed it.
+          const newest = bucket.reduce((a, b) =>
+            parseInt(String(b.created_at ?? 0), 10) > parseInt(String(a.created_at ?? 0), 10)
+              ? b
+              : a,
+          );
+          if (newest.id !== row.id) {
+            reasons.push('duplicate');
+            duplicateOf = String(newest.id);
+          }
+        }
+
+        if (reasons.length === 0) continue;
+        items.push({
+          id: row.id,
+          scope: row.scope,
+          scope_key: row.scope_key ?? null,
+          kind: row.kind,
+          // The queue is a list, not a reader: 200 chars is enough to recognise
+          // the row, and the full body is one `GET /api/memory/:id` away.
+          content: content.length > 200 ? `${content.slice(0, 200)}…` : content,
+          confidence: row.confidence ?? null,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          reasons,
+          duplicate_of: duplicateOf ?? null,
+        });
+        if (items.length >= limit) break;
+      }
+
+      return reply.send({
+        items,
+        limit,
+        window,
+        scanned: rows.length,
+        counts: {
+          volatile: items.filter((i) => (i.reasons as string[]).includes('volatile')).length,
+          duplicate: items.filter((i) => (i.reasons as string[]).includes('duplicate')).length,
+        },
+        generatedAt: Date.now(),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

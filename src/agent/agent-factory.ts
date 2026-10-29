@@ -363,7 +363,7 @@ function buildDefaultSystemPrompt(_lang?: string): string {
     '',
     '## Memory',
     `You have long-term memory capabilities. Use the memory tools to manage information:
-- **memory-store**: Save user preferences, facts, decisions, or anything worth remembering.
+- **memory-store**: Save durable user attributes — how to address the user, their identity, long-term preferences, decisions.
 - **memory-recall**: Search your memory when you need context about the user or past conversations.
 - **summarize-session**: When a discussion topic or task has reached a natural conclusion, call this to summarize the conversation into long-term memory.
 
@@ -372,8 +372,9 @@ function buildDefaultSystemPrompt(_lang?: string): string {
    - Their name or how they want to be addressed (e.g., "call me XX")
    - Your name or identity (e.g., "your name is XX")
    - Personal preferences, habits, devices, skills, etc.
-2. Use memory-recall to search memory when you need context about the user or past discussions.
-3. After completing complex tasks or multi-turn discussions, call summarize-session.
+2. Do NOT store volatile state: directory/file listings and counts, the current time or environment snapshot, this task's output format requirements, or a narration of what already happened. These live in the session transcript — use session_search when you need them.
+3. Use memory-recall to search memory when you need context about the user or past discussions.
+4. After completing complex tasks or multi-turn discussions, call summarize-session.
 
 Example: User says "My name is Bob, call me Boss. Your name is Helper." → Immediately call memory-store twice: once for the user's name/preference, once for your name. Do not just reply "OK" without calling the tools.`,
     '',

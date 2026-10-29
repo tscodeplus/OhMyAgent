@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema';
+import { migrateV14 } from '../../src/memory/migration-v14';
 import { MemoryDoctor } from '../../src/memory/maintenance/memory-doctor';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository';
 import { generateId } from '../../src/shared/ids';
@@ -123,5 +124,56 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
     const obs = (await doctor.diagnose()).checks.find((c) => c.name === 'memory_observability')!;
     expect(obs.status).toBe('ok');
     expect((obs.details as { total?: number }).total ?? 0).toBe(0);
+  });
+
+  it('does not treat refused write-side candidates as a degradation signal', async () => {
+    // `memory.durability.rejected` is the gates working, not breaking.
+    db.prepare('INSERT INTO memory_observation_events (event, created_at) VALUES (?, ?)').run(
+      'memory.durability.rejected',
+      String(Date.now() - 60 * 60 * 1000),
+    );
+
+    const doctor = new (await import('../../src/memory/maintenance/memory-doctor.js')).MemoryDoctor(
+      db,
+      repo,
+    );
+    const obs = (await doctor.diagnose()).checks.find((c) => c.name === 'memory_observability')!;
+    expect(obs.status).toBe('ok');
+  });
+
+  it('reports knowledge pages citing deleted memories (plan §8 S2)', async () => {
+    migrateV14(db);
+    const memId = repo.create({
+      id: 'mem-doc-4',
+      scope: 'user',
+      scope_key: 'default',
+      kind: 'fact',
+      content: 'cited by a page',
+    }).id;
+    db.prepare(
+      `INSERT INTO knowledge_pages (id, page_type, slug, title, content, status, version, created_at, updated_at)
+       VALUES ('page-1', 'topic', 'slug-1', 'Title', 'Body', 'active', 1, ?, ?)`,
+    ).run(Date.now(), Date.now());
+    db.prepare(
+      `INSERT INTO knowledge_sources (page_id, source_kind, source_id) VALUES ('page-1', 'memory', ?)`,
+    ).run(memId);
+
+    const doctor = new (await import('../../src/memory/maintenance/memory-doctor.js')).MemoryDoctor(
+      db,
+      repo,
+    );
+    let check = (await doctor.diagnose()).checks.find(
+      (c) => c.name === 'orphan_knowledge_sources',
+    )!;
+    expect(check.status).toBe('ok');
+
+    // Deleting the memory (hygiene / session-delete) is what leaves the citation
+    // dangling — nothing tells the page.
+    db.prepare('DELETE FROM memories WHERE id = ?').run(memId);
+
+    check = (await doctor.diagnose()).checks.find((c) => c.name === 'orphan_knowledge_sources')!;
+    expect(check.status).toBe('warning');
+    expect((check.details as { count: number }).count).toBe(1);
+    expect((check.details as { pageIds: string[] }).pageIds).toEqual(['page-1']);
   });
 });

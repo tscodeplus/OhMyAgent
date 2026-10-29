@@ -92,6 +92,7 @@ export interface MemoryServices {
 function buildSummaryLLMConfig(
   auxConfig: AuxModelConfig,
   outputLanguage: string,
+  durableOnly: boolean,
 ): SummaryLLMConfig {
   return {
     modelRef: auxConfig.modelRef,
@@ -100,6 +101,8 @@ function buildSummaryLLMConfig(
     baseUrls: auxConfig.baseUrls,
     baseUrl: auxConfig.baseUrl,
     outputLanguage,
+    // Plan §3.5 rollback switch: false restores the pre-plan capture behavior.
+    durableOnly,
   };
 }
 
@@ -294,6 +297,7 @@ export async function createMemoryServices(
     mergeCandidateMultiplier: config.memory.recall.mergeCandidateMultiplier,
     maxCharsPerMemory: config.memory.recall.maxCharsPerMemory,
     maxTotalRecallChars: config.memory.recall.maxTotalRecallChars,
+    crossSessionWeight: config.memory.recall.crossSessionWeight,
   };
 
   const memoryRetriever = new MemoryRetriever({
@@ -320,6 +324,10 @@ export async function createMemoryServices(
     embeddingRepository,
     embeddingClient,
     embeddingCacheRepo,
+    // Shared connection for the derived writes with no repository of their own:
+    // `memory_sources`, `memories.embedding_status`, and re-queueing the
+    // knowledge pages that cite a memory this writer just changed (§8 S1).
+    db,
     mergeConfig,
     extractionConfig,
     memoryLinkRepo,
@@ -385,7 +393,11 @@ export async function createMemoryServices(
   const approvalRequestRepo = new ApprovalRequestRepository(db);
   const approvalDecisionRepository = new ApprovalDecisionRepository(db);
 
-  const summaryConfig = buildSummaryLLMConfig(auxModelConfig, config.memory.outputLanguage);
+  const summaryConfig = buildSummaryLLMConfig(
+    auxModelConfig,
+    config.memory.outputLanguage,
+    config.memory.capture?.durable_only ?? true,
+  );
 
   // Hot-reload the aux model chain + summary LLM config + merge/summary output
   // language in place. The shared objects are mutated (not replaced) so every
@@ -396,7 +408,14 @@ export async function createMemoryServices(
   // baseUrl+apiKey, so new endpoints get fresh clients automatically.
   configEventBus.onReload((c) => {
     Object.assign(auxModelConfig, buildAuxModelConfig(c));
-    Object.assign(summaryConfig, buildSummaryLLMConfig(auxModelConfig, c.memory.outputLanguage));
+    Object.assign(
+      summaryConfig,
+      buildSummaryLLMConfig(
+        auxModelConfig,
+        c.memory.outputLanguage,
+        c.memory.capture?.durable_only ?? true,
+      ),
+    );
     mergeConfig.outputLanguage = c.memory.outputLanguage;
     if (distillerConfig) distillerConfig.outputLanguage = c.memory.outputLanguage;
     logger.info(

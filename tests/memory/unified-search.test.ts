@@ -199,6 +199,70 @@ describe('unifiedSearch: provenance dedupe', () => {
     expect(result.deduped).toEqual([]);
     expect(result.lanes.memory).toEqual({ hits: 2, dropped: 0 });
   });
+
+  // ── §8 S1: the newer copy wins, not unconditionally the page ──
+
+  it('keeps a memory that was corrected after the page citing it was written', async () => {
+    // The page was written "now"; the memory is corrected a minute later. Before
+    // revision A3 the page won this outright and the stale body reached the
+    // prompt.
+    const corrected = Date.now() + 60_000;
+    const memories: RetrievedMemory[] = seededMemories().map((memory) =>
+      memory.id === MEMORY_CITED ? { ...memory, updatedAt: corrected } : memory,
+    );
+
+    const result = await unifiedSearch({
+      query: 'excel',
+      messages: { db },
+      memories: { retriever: memoryRetriever(memories) },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    const memoryRefs = result.hits.filter((hit) => hit.lane === 'memory').map((hit) => hit.ref);
+    expect(memoryRefs).toContain(MEMORY_CITED);
+    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(false);
+    expect(result.deduped).toEqual([
+      {
+        lane: 'knowledge',
+        ref: expect.any(String),
+        reason: 'superseded_by_cited_memory',
+        pageSlug: 'excel-etl',
+      },
+    ]);
+    expect(result.lanes.knowledge).toMatchObject({ dropped: 1 });
+  });
+
+  it('keeps the page when the memory has no timestamp to compare', async () => {
+    // An unmeasurable memory cannot win: "unknown" is not "newer".
+    const result = await unifiedSearch({
+      query: 'excel',
+      memories: { retriever: memoryRetriever(seededMemories()) },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(true);
+    expect(result.deduped.map((record) => record.reason)).toEqual(['cited_by_knowledge_page']);
+  });
+
+  it('does not drop a page for a citation the search did not return', async () => {
+    // MEMORY_CITED is cited by the page but absent from this result set, so there
+    // is no evidence the page is stale — dropping it would lose both copies.
+    const memories: RetrievedMemory[] = [
+      { ...seededMemories()[1]!, updatedAt: Date.now() + 60_000 },
+    ];
+
+    const result = await unifiedSearch({
+      query: 'excel',
+      memories: { retriever: memoryRetriever(memories) },
+      knowledge: { service: knowledge },
+      perLaneLimit: 5,
+    });
+
+    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(true);
+    expect(result.deduped).toEqual([]);
+  });
 });
 
 describe('unifiedSearch: ordering', () => {

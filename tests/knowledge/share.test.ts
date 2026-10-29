@@ -375,20 +375,27 @@ describe('nightly and share are one write path', () => {
   /**
    * Same fixtures on both sides: two memories about one subject, one page answer.
    * The only difference is which reference each route curates from.
+   *
+   * The two memories carry **different** `scope_key`s on purpose: admission
+   * counts conversations, not rows (§8 S3), so two rows from one conversation
+   * would be a single attestation of the subject and the page would be refused —
+   * which is the correct answer for that fixture and not what this test is about.
    */
   function seedMemories(db: Database.Database): void {
     const insert = db.prepare(
       `INSERT INTO memories (id, scope, scope_key, kind, content, confidence, created_at, updated_at)
-       VALUES (?, 'user', 'user-knowledge', 'fact', ?, 0.9, ?, ?)`,
+       VALUES (?, 'user', ?, 'fact', ?, 0.9, ?, ?)`,
     );
     insert.run(
       'memory-homelab-1',
+      'user-knowledge-1',
       `${SUBJECT} runs restic to the NAS nightly`,
       String(NOW),
       String(NOW),
     );
     insert.run(
       'memory-homelab-2',
+      'user-knowledge-2',
       `${SUBJECT} keeps 30 dailies and 12 monthlies`,
       String(NOW),
       String(NOW),

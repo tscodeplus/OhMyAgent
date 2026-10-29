@@ -80,7 +80,9 @@ describe('memory.worth spec', () => {
     expect(noneOutcome).toEqual({ action: 'none' });
   });
 
-  it('fallback = keep-all (current pre-judge behavior)', () => {
-    expect(memoryWorthSpec.fallback).toEqual({ action: 'keep-all' });
+  it('fallback = none (fail-closed, plan §3.3 point 3)', () => {
+    // The pre-plan value was keep-all, which made a judge outage a full
+    // green-light on the one path that must not flood.
+    expect(memoryWorthSpec.fallback).toEqual({ action: 'none' });
   });
 });

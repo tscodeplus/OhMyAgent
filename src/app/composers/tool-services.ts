@@ -262,6 +262,7 @@ export function registerV4ToolDefinitions(input: {
       embeddingRepository: memory.embeddingRepository,
       embeddingClient: memory.embeddingClient,
       onMemoryChanged,
+      db: memory.database,
     }),
   );
   toolPlatformRegistry.registerDefinition(

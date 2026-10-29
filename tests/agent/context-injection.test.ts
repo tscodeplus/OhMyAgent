@@ -1497,3 +1497,142 @@ describe("knowledge injection in the turn's scope", () => {
     expect(estimateTokensForText(episodic)).toBeLessThanOrEqual(250);
   });
 });
+
+/**
+ * Memory lane inside the shared injection budget (plan §8 S5).
+ *
+ * `<memory_context>` was the one injected block outside the per-turn budget:
+ * it was appended before the pool ran and `RecallConfig`'s char budgets
+ * defaulted to 0, so five recalled memories could add ~10k characters to a turn
+ * the docs call "≤400 tokens". These tests pin the two properties that makes it
+ * accounted for: the block is measured (and can lose), and the lane can still be
+ * capped on its own.
+ */
+describe('memory lane inside the shared injection budget (§8 S5)', () => {
+  let record: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    record = vi.spyOn(memoryObservability, 'record');
+  });
+  afterEach(() => {
+    record.mockRestore();
+  });
+
+  function lastInjectionDetails(): Record<string, any> {
+    const calls = record.mock.calls.filter((call) => call[0] === 'memory.injection');
+    expect(calls.length).toBeGreaterThan(0);
+    return (calls[calls.length - 1]![1] ?? {}) as Record<string, any>;
+  }
+
+  function memoryRetrieverReturning(memories: RetrievedMemory[]): MemoryRetriever {
+    return {
+      retrieveGrouped: async () => memories,
+      retrieve: async () => memories,
+    } as unknown as MemoryRetriever;
+  }
+
+  /** Recalled memories as the snapshot lane sees them: RRF-scale scores. */
+  function recalls(contents: string[]): RetrievedMemory[] {
+    return contents.map((content, index) => ({
+      id: `mem-${index}`,
+      content,
+      scope: 'user',
+      kind: 'fact',
+      // Deliberately the RRF magnitude the real retriever reports (~1/61): the
+      // lane must not be compared on this number against a BM25 score.
+      score: 1 / (61 + index),
+      createdAt: Date.UTC(2026, 9, 1),
+    }));
+  }
+
+  const TITLE: KnowledgeContextItem[] = [
+    { slug: 'topic/excel-etl', title: 'Excel ETL：用 Power Query 替代手工 VLOOKUP' },
+  ];
+  const EXCERPT: EpisodicContextItem[] = [
+    {
+      createdAt: Date.UTC(2026, 9, 8),
+      channel: 'feishu',
+      role: 'user',
+      excerpt: '上次那个 ETL 脚本放在 /srv/etl 下',
+      messageId: 'msg-pool',
+    },
+  ];
+
+  it('counts the memory block in the same pool as the other two lanes', async () => {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'pool-memory-counted',
+      agentId: 'agent-1',
+      injectionBudget: { totalTokens: 10_000 },
+      memoryRetriever: memoryRetrieverReturning(recalls(['偏好简洁回复，不要长篇大论'])),
+      episodicContextProvider: () => EXCERPT,
+      knowledgeContextProvider: () => TITLE,
+    });
+
+    const result = await transform([{ role: 'user', content: RECALL_QUERY }]);
+    const text = joined(result[0]!.content);
+    const details = lastInjectionDetails();
+
+    expect(text).toContain('<memory_context>');
+    // Pre-K5-4 block order is unchanged: memories first, then the other lanes.
+    expect(text.indexOf('<memory_context>')).toBeLessThan(text.indexOf('<recent_conversation>'));
+    expect(details.itemCounts).toEqual({ memories: 1, messages: 1, knowledge: 1 });
+    expect(details.memoryIds).toEqual(['mem-0']);
+    expect(details.estimatedTokens.memories).toBeGreaterThan(0);
+    expect(details.estimatedTokens.total).toBe(
+      details.estimatedTokens.memories +
+        details.estimatedTokens.messages +
+        details.estimatedTokens.knowledge,
+    );
+  });
+
+  it('drops the memory block when the pool is already spent', async () => {
+    // A title-only build, measured with the same estimator the transform uses.
+    const titleOnly = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'pool-measure-title',
+      injectionBudget: { totalTokens: 10_000 },
+      knowledgeContextProvider: () => TITLE,
+    });
+    const titleBlock = textBlocks(
+      (await titleOnly([{ role: 'user', content: RECALL_QUERY }]))[0]!.content,
+    ).find((block) => block.includes('<knowledge_available>'))!;
+    const totalTokens = Math.ceil(estimateTokensForText(titleBlock));
+
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'pool-memory-loses',
+      agentId: 'agent-1',
+      injectionBudget: { totalTokens },
+      memoryRetriever: memoryRetrieverReturning(recalls(['长'.repeat(600)])),
+      knowledgeContextProvider: () => [{ ...TITLE[0]!, score: 1 }],
+    });
+
+    const result = await transform([{ role: 'user', content: RECALL_QUERY }]);
+    const text = joined(result[0]!.content);
+    const details = lastInjectionDetails();
+
+    // The knowledge title fits the pool, the (larger) memory block does not —
+    // before S5 the memory block was appended regardless of any budget.
+    expect(text).toContain('<knowledge_available>');
+    expect(text).not.toContain('<memory_context>');
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 0, knowledge: 1 });
+    expect(details.estimatedTokens.memories).toBe(0);
+    expect(details.estimatedTokens.total).toBeLessThanOrEqual(totalTokens);
+  });
+
+  it('honours a per-lane memory ceiling from configuration', async () => {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey: 'pool-memory-ceiling',
+      agentId: 'agent-1',
+      injectionBudget: { totalTokens: 10_000, memoryTokens: 1 },
+      memoryRetriever: memoryRetrieverReturning(recalls(['偏好简洁回复，不要长篇大论'])),
+      knowledgeContextProvider: () => TITLE,
+    });
+
+    const text = joined((await transform([{ role: 'user', content: RECALL_QUERY }]))[0]!.content);
+
+    expect(text).not.toContain('<memory_context>');
+    expect(text).toContain('<knowledge_available>');
+  });
+});

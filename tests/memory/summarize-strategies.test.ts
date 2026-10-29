@@ -119,6 +119,44 @@ describe('parseSummaryLLMResponse', () => {
     expect(parsed.usedFallback).toBe(true);
     expect(parsed.summary).toBe('Talked about memory.');
     expect(parsed.preferences).toEqual(['User prefers Chinese.']);
+    expect(parsed.dropped).toEqual([]);
+  });
+
+  it('accepts the durable array the §3.2 prompt asks for', () => {
+    const parsed = parseSummaryLLMResponse(
+      JSON.stringify({ summary: 'Setup talk.', durable: ['User prefers pnpm'] }),
+    );
+
+    expect(parsed.preferences).toEqual(['User prefers pnpm']);
+  });
+
+  it('drops non-durable candidates on the degraded PREF: path too', () => {
+    const parsed = parseSummaryLLMResponse(
+      [
+        'SUMMARY: Listed a directory and answered a time question.',
+        'PREF: E:\\Excel 目录下当前有 4 个 Excel 文件。',
+        'PREF: 用户问过"现在是白天还是晚上"（2026-10-08），已告知用户。',
+        'PREF: 用户偏好简洁回复',
+      ].join('\n'),
+    );
+
+    expect(parsed.usedFallback).toBe(true);
+    expect(parsed.preferences).toEqual(['用户偏好简洁回复']);
+    expect(parsed.dropped).toHaveLength(2);
+    expect(parsed.dropped.map((d) => d.reason)).toEqual(['durability', 'shape']);
+  });
+
+  it('passes every candidate through when durable_only is off', () => {
+    const parsed = parseSummaryLLMResponse(
+      JSON.stringify({
+        summary: 'Listed a directory.',
+        durable: ['E:\\Excel 目录下当前有 4 个 Excel 文件。'],
+      }),
+      { durableOnly: false },
+    );
+
+    expect(parsed.preferences).toEqual(['E:\\Excel 目录下当前有 4 个 Excel 文件。']);
+    expect(parsed.dropped).toEqual([]);
   });
 });
 
@@ -350,7 +388,7 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
 
     await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
 
-    expect(capturedPrompt).toContain('Write the summary and extracted preferences in Spanish.');
+    expect(capturedPrompt).toContain('Write the summary and the durable attributes in Spanish.');
     expect(mockMemoryWriter.writeSummary).toHaveBeenCalledWith(
       sessionId,
       'Resumen corto',
@@ -499,6 +537,103 @@ describe('Strategy 2: LLM-driven summarize-session tool', () => {
     expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
       sessionId,
       '用户希望被称呼为"老板"',
+      undefined,
+      null,
+    );
+  });
+
+  it('writes only the durable candidates and leaves volatile ones to session_search', async () => {
+    const sessionId = 'test-session-8';
+    sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
+
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: '叫我 Boss，然后看看 Excel 目录里有什么',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: '好的，Boss。目录下有 4 个文件。',
+    });
+
+    const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
+    const mockMemoryWriter = {
+      writeSummary: vi.fn().mockResolvedValue({ id: 'mem-summary', isDuplicate: false }),
+      writePreference: vi.fn().mockResolvedValue({ id: 'mem-pref', isDuplicate: false }),
+    } as any;
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+      { modelRef: 'test/model' },
+    ) as any;
+
+    summarizer.callLLM = vi.fn(async () =>
+      [
+        'SUMMARY: 用户设定称呼并列了目录内容。',
+        'PREF: 叫我 Boss',
+        'PREF: E:\\Excel 目录下当前有 4 个 Excel 文件。',
+      ].join('\n'),
+    );
+
+    await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
+
+    expect(mockMemoryWriter.writePreference).toHaveBeenCalledTimes(1);
+    expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
+      sessionId,
+      '叫我 Boss',
+      undefined,
+      null,
+    );
+    // The episode records what was actually extracted, not what was refused.
+    expect(episodeRepo.findBySessionId(sessionId)[0].key_points).toBe('["叫我 Boss"]');
+  });
+
+  it('writes every candidate again when memory.capture.durable_only is false', async () => {
+    const sessionId = 'test-session-9';
+    sessionRepo.create({ id: sessionId, chat_id: sessionId, user_id: 'u1' });
+
+    messageRepo.create({
+      id: 'msg-1',
+      session_id: sessionId,
+      role: 'user',
+      content: '看看 Excel 目录里有什么',
+    });
+    messageRepo.create({
+      id: 'msg-2',
+      session_id: sessionId,
+      role: 'assistant',
+      content: '目录下有 4 个文件。',
+    });
+
+    const mockLogger = { info: vi.fn(), debug: vi.fn(), warn: vi.fn() } as any;
+    const mockMemoryWriter = {
+      writeSummary: vi.fn().mockResolvedValue({ id: 'mem-summary', isDuplicate: false }),
+      writePreference: vi.fn().mockResolvedValue({ id: 'mem-pref', isDuplicate: false }),
+    } as any;
+    const summarizer = new MemorySummarizer(
+      messageRepo,
+      episodeRepo,
+      memoryRepo,
+      mockMemoryWriter,
+      mockLogger,
+      { modelRef: 'test/model', durableOnly: false },
+    ) as any;
+
+    summarizer.callLLM = vi.fn(async () =>
+      ['SUMMARY: 用户列了目录内容。', 'PREF: E:\\Excel 目录下当前有 4 个 Excel 文件。'].join('\n'),
+    );
+
+    await summarizer.summarizeSession(sessionId, { maxMessages: 10 });
+
+    expect(mockMemoryWriter.writePreference).toHaveBeenCalledWith(
+      sessionId,
+      'E:\\Excel 目录下当前有 4 个 Excel 文件。',
       undefined,
       null,
     );

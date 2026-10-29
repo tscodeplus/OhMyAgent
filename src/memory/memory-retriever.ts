@@ -66,6 +66,13 @@ export interface RetrievedMemory {
   kind: string;
   score: number;
   createdAt: number;
+  /**
+   * `memories.updated_at` as epoch milliseconds — when the row was last
+   * written, which `createdAt` cannot answer once a memory is corrected in
+   * place. Optional for callers that build a result without loading the row
+   * (`fallback-retriever`); every path inside this class populates it.
+   */
+  updatedAt?: number;
   sourcePool?: string;
 }
 
@@ -138,14 +145,35 @@ export interface RecallConfig {
    * item alone is truncated to fit rather than dropped. Mirrors TDAM's
    * `recall.maxTotalRecallChars`. */
   maxTotalRecallChars: number;
+  /**
+   * Score multiplier for a `scope: 'session'` memory whose `scope_key` is a
+   * *different* session than the one being recalled for.
+   *
+   * Session summaries are written every `summarize_interval` messages and kept
+   * forever, so every past session's narrative used to be a full-weight
+   * candidate in the same-agent pool — the longest possible injection for the
+   * weakest possible claim on the current turn. They are still legitimate
+   * recall (that is what `session_search` does), so they are re-weighted, not
+   * dropped. `1.0` disables the dimension and reproduces the pre-S8 ranking
+   * exactly, which is what makes this rollback-able through config alone.
+   * A caller that passes no session (`retrieveGrouped` without `scopeKey`) has
+   * nothing to compare against and keeps weight 1, i.e. unchanged.
+   */
+  crossSessionWeight: number;
 }
 
 export const DEFAULT_RECALL_CONFIG: RecallConfig = {
   prefilterMultiplier: 5,
   prefilterMin: 20,
   mergeCandidateMultiplier: 3,
-  maxCharsPerMemory: 0,
-  maxTotalRecallChars: 0,
+  // Non-zero by default (plan §8 S5): the memory lane is the one injection
+  // lane that used to be unbudgeted, and a single memory may hold 2000 chars
+  // (`isSafe`). 800/2000 bounds five memories to one context-window page
+  // instead of ~10k chars; 0 still means "no cap" for anyone who wants the
+  // old behaviour back.
+  maxCharsPerMemory: 800,
+  maxTotalRecallChars: 2000,
+  crossSessionWeight: 0.6,
 };
 
 /**
@@ -882,6 +910,7 @@ export class MemoryRetriever {
         kind: memory.kind,
         score: m.score,
         createdAt: parseEpochMs(memory.created_at),
+        updatedAt: parseEpochMs(memory.updated_at),
         sourcePool: m.sourcePool,
       };
     });
@@ -974,6 +1003,7 @@ export class MemoryRetriever {
         kind: memory.kind,
         score: r.normalizedScore,
         createdAt: parseEpochMs(memory.created_at),
+        updatedAt: parseEpochMs(memory.updated_at),
       });
     }
 
@@ -1007,6 +1037,7 @@ export class MemoryRetriever {
           kind: m.kind,
           score: TEXT_FALLBACK_SCORE,
           createdAt: parseEpochMs(m.created_at),
+          updatedAt: parseEpochMs(m.updated_at),
         })),
       this.recallConfig,
     );
@@ -1049,17 +1080,49 @@ export class MemoryRetriever {
     return Math.max(topK * this.recallConfig.prefilterMultiplier, this.recallConfig.prefilterMin);
   }
 
+  /**
+   * Weight for the scope dimension of the agent pools (plan §8 S8).
+   *
+   * Only `scope: 'session'` rows are affected: a `user`/`project`/`global`
+   * memory has no session to belong to, and the same-session summary keeps
+   * today's weight so nothing about the current conversation is discounted.
+   * A caller with no session key cannot make the comparison, so it — like
+   * `crossSessionWeight: 1` — leaves every score untouched.
+   */
+  private sessionScopeWeight(result: RetrievedMemory, currentScopeKey?: string): number {
+    const weight = this.recallConfig.crossSessionWeight;
+    if (weight === 1 || currentScopeKey === undefined) return 1;
+    if (result.scope !== 'session') return 1;
+    if (result.scopeKey === currentScopeKey) return 1;
+    return weight;
+  }
+
   async retrieveGrouped(options: {
     query: string;
     agentId: string;
     topK?: number;
     minScore?: number;
+    /**
+     * `scope_key` of the session being recalled for.
+     *
+     * The pools below split by *agent*, not by session, so without this a
+     * `scope: 'session'` summary written by any past session of the same agent
+     * is a full-weight `current`-pool candidate for every later turn. Supplying
+     * the key lets such a memory be told apart and re-weighted
+     * (`crossSessionWeight`). Omitted means "this caller has no session" — the
+     * recall tool on behalf of an agent — and then nothing is re-weighted,
+     * because there is nothing to compare the row's `scope_key` against.
+     */
+    scopeKey?: string;
   }): Promise<RetrievedMemory[]> {
     // Short-TTL result cache — retrieveGrouped bypasses the per-pool query
     // cache, so repeated identical queries within the TTL window skip the
-    // 3× (vector + FTS + term) synchronous scans entirely.
+    // 3× (vector + FTS + term) synchronous scans entirely. The current
+    // session is part of the key: the same query scores differently once
+    // cross-session summaries are re-weighted.
     const normalizedQuery = options.query.replace(/\s+/g, ' ').trim().toLowerCase();
-    const groupedKey = `${normalizedQuery}::a=${options.agentId}::k=${options.topK ?? ''}::min=${options.minScore ?? ''}`;
+    const currentScopeKey = options.scopeKey;
+    const groupedKey = `${normalizedQuery}::a=${options.agentId}::k=${options.topK ?? ''}::min=${options.minScore ?? ''}::s=${currentScopeKey ?? ''}`;
     const cachedGrouped = this.groupedCache.get(groupedKey);
     if (cachedGrouped) return cachedGrouped;
 
@@ -1100,7 +1163,7 @@ export class MemoryRetriever {
         );
         return results.map((result) => ({
           ...result,
-          score: result.score * weight,
+          score: result.score * weight * this.sessionScopeWeight(result, currentScopeKey),
           sourcePool: pool,
         }));
       }),

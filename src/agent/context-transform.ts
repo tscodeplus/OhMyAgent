@@ -47,6 +47,12 @@
  * promises scores comparable within one result set), so each in-tree provider
  * normalises its relevance onto the same BM25 curve before reporting it, and a
  * provider that reports nothing is ordered by position.
+ *
+ * Since plan §8 S5 the memory lane is in that same pool. `<memory_context>` was
+ * the one injected block outside the per-turn budget — `RecallConfig`'s char
+ * budgets defaulted to 0, so five recalled memories could add ~10k characters
+ * to a turn that was documented as ≤400 tokens. It now competes for the pool
+ * like the other two lanes and is reported in the same telemetry row.
  */
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
@@ -445,6 +451,40 @@ function buildMemoryLines(memories: RetrievedMemory[]): string[] {
 }
 
 /**
+ * What the memory lane offers this build, or `null` when the recalled set is
+ * empty after the read-side filters.
+ *
+ * Retrieval and admission are two steps since plan §8 S5: this produces the
+ * entries, `allocateInjectionCandidates` decides how many of them fit the
+ * per-turn pool the other two lanes also spend from.
+ */
+function memoryLaneCandidates(
+  memories: RetrievedMemory[],
+  query: string,
+): { candidates: InjectionCandidate[]; signature: string } | null {
+  const entries = selectMemoryEntries(memories, query);
+  const lines = buildMemoryLines(entries);
+  if (lines.length === 0) return null;
+  return {
+    candidates: entries.map((memory, rank) => ({
+      lane: 'memories' as const,
+      rank,
+      // No `score`: `RetrievedMemory.score` is an RRF value (~1/61) scaled by a
+      // pool weight, a magnitude with nothing to do with the (0,1] BM25 curve
+      // the other two lanes normalise onto. Reporting it would make this lane
+      // lose every comparison; reporting nothing orders it by position, which
+      // is the honest reading of "the retriever ranked these".
+      text: lines[rank]!,
+      ids: [memory.id],
+      referenceText: memory.content,
+    })),
+    // The full block, before the pool drops anything: only the DeepSeek cache
+    // signature reads it, and it has to be the same text next build.
+    signature: renderInjectedBlock('memories', lines)!,
+  };
+}
+
+/**
  * One message excerpt for the `<recent_conversation>` block.
  *
  * Structured, not pre-formatted: the transform renders the date, collapses
@@ -515,15 +555,17 @@ const KNOWLEDGE_LINE_MAX_CHARS = 80;
 const INJECTION_HEADER_MAX_CHARS = 60;
 
 /**
- * Token budgets for the two injected blocks, as configuration rather than
- * constants: `totalTokens` is the plan's ≤400 G4 ceiling for both blocks
+ * Token budgets for the injected blocks, as configuration rather than
+ * constants: `totalTokens` is the plan's ≤400 G4 ceiling for every block
  * together, and the per-lane ceilings are optional — left unset, a lane may use
  * the whole pool, which is the point of K5-4 (the pool follows relevance, not a
- * fixed 250/150 split). Set a lane ceiling to reserve the other lane's share.
+ * fixed split). Set a lane ceiling to reserve the other lanes' share.
  */
 export interface InjectionBudgetConfig {
-  /** Ceiling for `<recent_conversation>` + `<knowledge_available>`, in tokens. */
+  /** Ceiling for `<memory_context>` + `<recent_conversation>` + `<knowledge_available>`, in tokens. */
   totalTokens?: number;
+  /** Optional ceiling for the memory block alone. */
+  memoryTokens?: number;
   /** Optional ceiling for the episodic block alone. */
   episodicTokens?: number;
   /** Optional ceiling for the knowledge block alone. */
@@ -536,6 +578,7 @@ export interface InjectionBudgetConfig {
 
 interface ResolvedInjectionBudget {
   totalTokens: number;
+  memoryTokens?: number;
   episodicTokens?: number;
   knowledgeTokens?: number;
   episodicMaxItems: number;
@@ -545,6 +588,7 @@ interface ResolvedInjectionBudget {
 function resolveInjectionBudget(config?: InjectionBudgetConfig): ResolvedInjectionBudget {
   return {
     totalTokens: config?.totalTokens ?? EPISODIC_BLOCK_TOKEN_BUDGET + KNOWLEDGE_BLOCK_TOKEN_BUDGET,
+    memoryTokens: config?.memoryTokens,
     episodicTokens: config?.episodicTokens,
     knowledgeTokens: config?.knowledgeTokens,
     episodicMaxItems: config?.episodicMaxItems ?? EPISODIC_MAX_ITEMS,
@@ -763,19 +807,28 @@ function formatEpisodicEntry(item: EpisodicContextItem): string {
  * Render a tagged block from entries, or `null` for an empty lane.
  *
  * Budgets are not enforced here: `allocateInjectionCandidates` owns that, because
- * the two blocks now share one pool and a block is only cheap to rebuild while
+ * the three blocks share one pool and a block is only cheap to rebuild while
  * deciding what fits. An empty tag is never rendered — it is pure cost.
  */
-function renderInjectedBlock(
-  tag: 'recent_conversation' | 'knowledge_available',
-  entries: string[],
-): string | null {
+function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string | null {
   if (entries.length === 0) return null;
-  return `\n\n<${tag}>\n${entries.join('\n')}\n</${tag}>`;
+  const body = entries.join('\n');
+  if (lane === 'memories') {
+    return `\n\n<memory_context>\nRelevant remembered information:\n${body}\n</memory_context>`;
+  }
+  const tag = blockTag(lane);
+  return `\n\n<${tag}>\n${body}\n</${tag}>`;
 }
 
-/** The two lanes that own a labelled block; memories share `<memory_context>`. */
-type InjectedBlockLane = 'messages' | 'knowledge';
+/**
+ * The lanes that own a labelled block, in the order the blocks are appended.
+ *
+ * Declaration order is also the tie-break for equal weights: memories came
+ * first before K5-4 and still do, so an unscored tie never silently demotes the
+ * lane the model has always seen first.
+ */
+type InjectedBlockLane = 'memories' | 'messages' | 'knowledge';
+const INJECTION_LANES: readonly InjectedBlockLane[] = ['memories', 'messages', 'knowledge'];
 
 /** One entry competing for the shared injection budget (plan §6 K5 item 4). */
 interface InjectionCandidate {
@@ -819,23 +872,24 @@ function candidateWeight(candidate: InjectionCandidate): number {
 function compareInjectionCandidates(a: InjectionCandidate, b: InjectionCandidate): number {
   const byWeight = candidateWeight(b) - candidateWeight(a);
   if (byWeight !== 0) return byWeight;
-  // Ties keep the pre-K5-4 order: the episodic block is appended first.
-  if (a.lane !== b.lane) return a.lane === 'messages' ? -1 : 1;
+  // Ties keep the pre-K5-4 order: memories, then the episodic block, then
+  // knowledge.
+  if (a.lane !== b.lane) return INJECTION_LANES.indexOf(a.lane) - INJECTION_LANES.indexOf(b.lane);
   return a.rank - b.rank;
 }
 
 /**
- * One ranking pass over both blocks: decide what fits the shared budget.
+ * One ranking pass over every block: decide what fits the shared budget.
  *
  * Candidates are admitted best-weight first, and each admission is checked
  * against the lane's optional ceiling and the pool as a whole by re-rendering
- * both blocks — an entry that does not fit is dropped whole, never truncated
+ * every block — an entry that does not fit is dropped whole, never truncated
  * mid-line, and a lane that fits nothing renders no block at all. A rejected
  * candidate does not stop the pass: a cheaper entry further down can still fit,
  * and keeping the weaker of two excerpts while dropping the stronger is exactly
  * the outcome the pre-K5-4 tail-drop produced anyway.
  *
- * Work is bounded by the item caps (2 + 2 by default), so the re-render per
+ * Work is bounded by the item caps (5 + 2 + 2 by default), so the re-render per
  * candidate is at most a handful of short strings — no allocation loop can grow
  * with query size.
  */
@@ -846,41 +900,63 @@ function allocateInjectionCandidates(
   kept: Record<InjectedBlockLane, InjectionCandidate[]>;
   blocks: Record<InjectedBlockLane, string | null>;
 } {
-  const kept: Record<InjectedBlockLane, InjectionCandidate[]> = { messages: [], knowledge: [] };
-  const blocks: Record<InjectedBlockLane, string | null> = { messages: null, knowledge: null };
+  const kept: Record<InjectedBlockLane, InjectionCandidate[]> = {
+    memories: [],
+    messages: [],
+    knowledge: [],
+  };
+  const blocks: Record<InjectedBlockLane, string | null> = {
+    memories: null,
+    messages: null,
+    knowledge: null,
+  };
   const laneCeiling: Record<InjectedBlockLane, number> = {
+    memories: budget.memoryTokens ?? budget.totalTokens,
     messages: budget.episodicTokens ?? budget.totalTokens,
     knowledge: budget.knowledgeTokens ?? budget.totalTokens,
   };
 
+  /** Rebuild every block from what is currently kept, and measure the total. */
+  const renderKept = (extra?: { lane: InjectedBlockLane; candidate: InjectionCandidate }) => {
+    const rendered: Record<InjectedBlockLane, string | null> = {
+      memories: null,
+      messages: null,
+      knowledge: null,
+    };
+    let total = 0;
+    for (const lane of INJECTION_LANES) {
+      const entries = kept[lane];
+      const withExtra = extra?.lane === lane ? [...entries, extra.candidate] : entries;
+      const block = renderInjectedBlock(
+        lane,
+        [...withExtra].sort((a, b) => a.rank - b.rank).map((entry) => entry.text),
+      );
+      rendered[lane] = block;
+      if (block) total += estimateTokensForText(block);
+    }
+    return { rendered, total };
+  };
+
   for (const candidate of [...candidates].sort(compareInjectionCandidates)) {
     const lane = candidate.lane;
-    const other: InjectedBlockLane = lane === 'messages' ? 'knowledge' : 'messages';
-    // Rebuilt from scratch per candidate (≤4 candidates × 2 short blocks): the
+    // Rebuilt from scratch per candidate (≤9 candidates × 3 short blocks): the
     // rendered block is what the token estimate is measured on, so deciding on
     // anything else would be measuring a different object than the one injected.
-    const laneEntries = [...kept[lane], candidate]
-      .sort((a, b) => a.rank - b.rank)
-      .map((entry) => entry.text);
-    const otherEntries = [...kept[other]]
-      .sort((a, b) => a.rank - b.rank)
-      .map((entry) => entry.text);
-    const laneBlock = renderInjectedBlock(blockTag(lane), laneEntries);
-    const otherBlock = renderInjectedBlock(blockTag(other), otherEntries);
-    const laneTokens = laneBlock ? estimateTokensForText(laneBlock) : 0;
-    const otherTokens = otherBlock ? estimateTokensForText(otherBlock) : 0;
+    const { rendered, total } = renderKept({ lane, candidate });
+    const laneTokens = rendered[lane] ? estimateTokensForText(rendered[lane]) : 0;
     if (laneTokens > laneCeiling[lane]) continue;
-    if (laneTokens + otherTokens > budget.totalTokens) continue;
+    if (total > budget.totalTokens) continue;
 
     kept[lane].push(candidate);
-    blocks[lane] = laneBlock;
-    blocks[other] = otherBlock;
+    for (const changed of INJECTION_LANES) blocks[changed] = rendered[changed];
   }
 
   return { kept, blocks };
 }
 
-function blockTag(lane: InjectedBlockLane): 'recent_conversation' | 'knowledge_available' {
+function blockTag(
+  lane: Exclude<InjectedBlockLane, 'memories'>,
+): 'recent_conversation' | 'knowledge_available' {
   return lane === 'messages' ? 'recent_conversation' : 'knowledge_available';
 }
 
@@ -1332,6 +1408,19 @@ export function createTransformContext(options?: TransformOptions) {
     // Injection telemetry for this prompt build (plan §6 K0 item 3), emitted
     // once at the single exit below.
     const injection = newTurnInjection();
+    // The memory lane's candidates for this build. Retrieval happens here, but
+    // admission is the shared allocation pass's job (plan §8 S5): the lane used
+    // to append its block unconditionally, outside the per-turn budget.
+    const memoryLane: {
+      candidates: InjectionCandidate[];
+      latencyMs: number;
+      /**
+       * The full (pre-budget) block text, kept only as the DeepSeek cache
+       * signature: it must be compared against the same thing next build, which
+       * a post-allocation block is not.
+       */
+      signature: string | null;
+    } = { candidates: [], latencyMs: 0, signature: null };
 
     // Inject date/time into the last user message so the LLM knows today's
     // date. Precise time is only appended for clearly time-sensitive turns.
@@ -1378,6 +1467,10 @@ export function createTransformContext(options?: TransformOptions) {
                 query,
                 agentId,
                 topK: 5,
+                // The session being recalled for (plan §8 S8): without it a
+                // `scope: 'session'` summary from any past session of this
+                // agent is a full-weight `current`-pool candidate.
+                scopeKey: sessionKey,
               });
               if (snapshotMode === 'first') {
                 snapshotMemoryCache.set(cacheKey, memories);
@@ -1385,47 +1478,23 @@ export function createTransformContext(options?: TransformOptions) {
             }
 
             if (memories.length > 0) {
-              const memoryEntries = selectMemoryEntries(memories, query);
-              const memoryLines = buildMemoryLines(memoryEntries);
-              if (memoryLines.length > 0) {
-                const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
-                const memoryKey = nsSessionKey;
-                const previous = deepseekMemorySignatureBySession.get(memoryKey);
-                const shouldInjectMemory =
-                  cacheProfile !== 'deepseek' ||
-                  previous !== memoryHint ||
-                  isMemoryRelevantRequest(query);
-                if (shouldInjectMemory) {
-                  options?.logger?.debug(
-                    {
-                      count: memoryLines.length,
-                      memories: memoryLines.map((l) => truncate(l, 60)),
-                    },
-                    'Memories injected into context',
-                  );
-                  const idx = result.lastIndexOf(lastUserMsg);
-                  const injectedBlocks = [
-                    ...blocks,
-                    { type: 'text', text: memoryHint, injected: true } as any,
-                  ];
-                  result[idx] = { ...lastUserMsg, content: injectedBlocks };
-                  recordInjectedLane(injection, 'memories', {
-                    offer: memoryEntries.map((m) => ({
-                      id: m.id,
-                      fragments: referenceFragments(m.content),
-                    })),
-                    itemCount: memoryEntries.length,
-                    block: memoryHint,
-                    latencyMs: performance.now() - laneStarted,
-                  });
-                  if (cacheProfile === 'deepseek')
-                    deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
-                } else {
-                  options?.logger?.debug(
-                    { sessionKey: memoryKey, count: memoryLines.length },
-                    'Repeated memory context skipped for DeepSeek cache profile',
-                  );
-                }
+              const lane = memoryLaneCandidates(memories, query);
+              const memoryKey = nsSessionKey;
+              const previous = lane ? deepseekMemorySignatureBySession.get(memoryKey) : undefined;
+              const shouldInjectMemory =
+                lane !== null &&
+                (cacheProfile !== 'deepseek' ||
+                  previous !== lane.signature ||
+                  isMemoryRelevantRequest(query));
+              if (lane && shouldInjectMemory) {
+                memoryLane.candidates = lane.candidates;
+                memoryLane.signature = lane.signature;
+                memoryLane.latencyMs = performance.now() - laneStarted;
+              } else if (lane) {
+                options?.logger?.debug(
+                  { sessionKey: memoryKey, count: lane.candidates.length },
+                  'Repeated memory context skipped for DeepSeek cache profile',
+                );
               }
             }
           } catch {
@@ -1457,40 +1526,23 @@ export function createTransformContext(options?: TransformOptions) {
               });
 
               if (memories.length > 0) {
-                const memoryEntries = selectMemoryEntries(memories, query);
-                const memoryLines = buildMemoryLines(memoryEntries);
-                if (memoryLines.length > 0) {
-                  const memoryHint = `\n\n<memory_context>\nRelevant remembered information:\n${memoryLines.join('\n')}\n</memory_context>`;
-                  const memoryKey = nsSessionKey;
-                  const previous = deepseekMemorySignatureBySession.get(memoryKey);
-                  const shouldInjectMemory =
-                    cacheProfile !== 'deepseek' ||
-                    previous !== memoryHint ||
-                    isMemoryRelevantRequest(query);
-                  if (shouldInjectMemory) {
-                    const idx = result.lastIndexOf(lastUserMsg);
-                    const injectedBlocks = [
-                      ...blocks,
-                      { type: 'text', text: memoryHint, injected: true } as any,
-                    ];
-                    result[idx] = { ...lastUserMsg, content: injectedBlocks };
-                    recordInjectedLane(injection, 'memories', {
-                      offer: memoryEntries.map((m) => ({
-                        id: m.id,
-                        fragments: referenceFragments(m.content),
-                      })),
-                      itemCount: memoryEntries.length,
-                      block: memoryHint,
-                      latencyMs: performance.now() - laneStarted,
-                    });
-                    if (cacheProfile === 'deepseek')
-                      deepseekMemorySignatureBySession.set(memoryKey, memoryHint);
-                  } else {
-                    options?.logger?.debug(
-                      { sessionKey: memoryKey, count: memoryLines.length },
-                      'Repeated memory context skipped for DeepSeek cache profile',
-                    );
-                  }
+                const lane = memoryLaneCandidates(memories, query);
+                const memoryKey = nsSessionKey;
+                const previous = lane ? deepseekMemorySignatureBySession.get(memoryKey) : undefined;
+                const shouldInjectMemory =
+                  lane !== null &&
+                  (cacheProfile !== 'deepseek' ||
+                    previous !== lane.signature ||
+                    isMemoryRelevantRequest(query));
+                if (lane && shouldInjectMemory) {
+                  memoryLane.candidates = lane.candidates;
+                  memoryLane.signature = lane.signature;
+                  memoryLane.latencyMs = performance.now() - laneStarted;
+                } else if (lane) {
+                  options?.logger?.debug(
+                    { sessionKey: memoryKey, count: lane.candidates.length },
+                    'Repeated memory context skipped for DeepSeek cache profile',
+                  );
                 }
               }
             } catch (err) {
@@ -1507,10 +1559,11 @@ export function createTransformContext(options?: TransformOptions) {
     }
 
     // ── K1-4 + K2-6 + K5-4: the two labelled blocks, one shared budget ──
-    // Both providers are consulted first, then ONE ranking pass decides what
-    // fits the plan's ≤400-token budget (K5-4): the blocks keep their labels and
-    // their order in the message — the labels are what the model reads — but a
-    // weak knowledge title can no longer spend budget a stronger excerpt needed.
+    // Every lane is consulted first, then ONE ranking pass decides what fits
+    // the plan's ≤400-token budget (K5-4, plus the memory lane since plan §8
+    // S5): the blocks keep their labels and their order in the message — the
+    // labels are what the model reads — but a weak knowledge title can no
+    // longer spend budget a stronger excerpt needed.
     // Each lane keeps its own failure mode (log + skip, the turn always
     // completes) and its own telemetry fields.
     //
@@ -1519,8 +1572,12 @@ export function createTransformContext(options?: TransformOptions) {
     {
       const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
       const query = lastUserMsg?.content ? getUserQueryText(lastUserMsg.content) : '';
-      const candidates: InjectionCandidate[] = [];
-      const laneLatencyMs: Record<InjectedBlockLane, number> = { messages: 0, knowledge: 0 };
+      const candidates: InjectionCandidate[] = [...memoryLane.candidates];
+      const laneLatencyMs: Record<InjectedBlockLane, number> = {
+        memories: memoryLane.latencyMs,
+        messages: 0,
+        knowledge: 0,
+      };
 
       if (
         options?.episodicContextProvider &&
@@ -1587,7 +1644,7 @@ export function createTransformContext(options?: TransformOptions) {
       if (lastUserMsg?.content && candidates.length > 0) {
         const allocation = allocateInjectionCandidates(candidates, injectionBudget);
         const appendedBlocks: any[] = [];
-        for (const lane of ['messages', 'knowledge'] as const) {
+        for (const lane of INJECTION_LANES) {
           const block = allocation.blocks[lane];
           if (!block) continue;
           appendedBlocks.push({ type: 'text', text: block, injected: true });
@@ -1611,8 +1668,20 @@ export function createTransformContext(options?: TransformOptions) {
             { count: kept.length, tokens: Math.ceil(estimateTokensForText(block)) },
             lane === 'messages'
               ? 'Episodic conversation injected into context'
-              : 'Knowledge titles injected into context',
+              : lane === 'knowledge'
+                ? 'Knowledge titles injected into context'
+                : 'Memories injected into context',
           );
+        }
+        // Only once the lane survived the pool: caching the signature of a block
+        // the budget then dropped would suppress the retry the DeepSeek profile
+        // is supposed to make cheap, not skipped.
+        if (
+          cacheProfile === 'deepseek' &&
+          memoryLane.signature !== null &&
+          allocation.kept.memories.length > 0
+        ) {
+          deepseekMemorySignatureBySession.set(nsSessionKey, memoryLane.signature);
         }
         if (appendedBlocks.length > 0) {
           const idx = result.lastIndexOf(lastUserMsg);
