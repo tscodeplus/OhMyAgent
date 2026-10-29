@@ -20,6 +20,16 @@
 
 import { DEFAULT_MAX_MENTIONS_PER_MEMORY } from './entity-mining.js';
 
+/**
+ * Nodes admitted from mentions per run, most-mentioned first.
+ *
+ * A cap rather than a cursor: the ordering is by mention count, so the cap
+ * keeps the *most representative* names instead of an arbitrary temporal slice,
+ * and it is deterministic across runs. 2000 covers the whole name set of a
+ * phone-sized corpus (379 on the reference device) without a scan of every link.
+ */
+export const DEFAULT_MAX_MENTION_NODES = 2000;
+
 export interface GraphSyncConfig {
   /** Master switch: when false the projector is never registered or run. */
   enabled: boolean;
@@ -31,6 +41,19 @@ export interface GraphSyncConfig {
   mineMentions: boolean;
   /** Upper bound on entities mined from a single memory. */
   maxMentionsPerMemory: number;
+  /**
+   * Project nodes (entities) from mentions, independently of edges.
+   *
+   * A node is not a statement: "this corpus mentions Ubuntu" is exactly what a
+   * `MENTIONED` row asserts, while an *edge* would claim Ubuntu is the subject
+   * of a fact, which the same row cannot support. Coupling the two is what
+   * emptied the graph: measured on a real database, 814 of 868 links were
+   * `MENTIONED`, so refusing them as edges also refused them as nodes and the
+   * `entities` table kept 4 rows while 379 names were attestable.
+   */
+  projectMentionNodes: boolean;
+  /** Upper bound on nodes admitted per run, most-mentioned first. */
+  maxMentionNodes: number;
 }
 
 export const DEFAULT_GRAPH_SYNC_CONFIG: GraphSyncConfig = {
@@ -39,6 +62,8 @@ export const DEFAULT_GRAPH_SYNC_CONFIG: GraphSyncConfig = {
   maxLinksPerRun: 500,
   mineMentions: true,
   maxMentionsPerMemory: DEFAULT_MAX_MENTIONS_PER_MEMORY,
+  projectMentionNodes: true,
+  maxMentionNodes: DEFAULT_MAX_MENTION_NODES,
 };
 
 /** Raw `memory.graph` block; every field is `unknown` because YAML is untyped. */
@@ -48,6 +73,8 @@ export interface RawGraphSyncConfig {
   max_links_per_run?: unknown;
   mine_mentions?: unknown;
   max_mentions_per_memory?: unknown;
+  project_mention_nodes?: unknown;
+  max_mention_nodes?: unknown;
 }
 
 function readBoolean(value: unknown, key: string, fallback: boolean): boolean {
@@ -105,6 +132,16 @@ export function resolveGraphSyncConfig(raw: RawGraphSyncConfig | undefined): Gra
       block.max_mentions_per_memory,
       'max_mentions_per_memory',
       DEFAULT_GRAPH_SYNC_CONFIG.maxMentionsPerMemory,
+    ),
+    projectMentionNodes: readBoolean(
+      block.project_mention_nodes,
+      'project_mention_nodes',
+      DEFAULT_GRAPH_SYNC_CONFIG.projectMentionNodes,
+    ),
+    maxMentionNodes: readCount(
+      block.max_mention_nodes,
+      'max_mention_nodes',
+      DEFAULT_GRAPH_SYNC_CONFIG.maxMentionNodes,
     ),
   };
 }

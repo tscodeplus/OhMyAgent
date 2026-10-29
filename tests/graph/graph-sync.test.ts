@@ -153,20 +153,26 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
     expect(summary.mentionLinksFiltered).toBe(1);
     expect(summary.linksProcessed).toBe(1);
     expect(edges().map((edge) => edge.relation_type)).toEqual(['FOUNDED']);
-    // The mention target gained no node of its own: nothing is derived from a
-    // row the graph refuses to draw.
-    expect(repo.findByName('Power Query')).toBeUndefined();
+    // The mention target gained a node but no edge: "this corpus names Power
+    // Query" is what the row asserts, "Excel founded Power Query" is not.
+    expect(repo.findByName('Power Query')).toBeDefined();
   });
 
-  it('draws nothing at all for a memory whose only rows are MENTIONED', () => {
+  it('admits a node for a memory whose only rows are MENTIONED, but no edge', () => {
     seedMemory('m5');
     seedLink('m5', 'Power Query', { relation: 'MENTIONED', subject: 'Excel' });
 
     const summary = syncGraphFromMemoryLinks(db, repo);
 
     expect(summary.linksProcessed).toBe(0);
-    expect(count('entities')).toBe(0);
+    expect(summary.mentionNodesAdmitted).toBe(2);
     expect(count('entity_edges')).toBe(0);
+    // The whole point of the split: a name the corpus talks about is a node even
+    // when no memory states a fact about it (Ubuntu on the reference device had
+    // 38 mentioning memories and 0 statements).
+    expect(count('entities')).toBe(2);
+    expect(repo.findByName('Power Query')).toBeDefined();
+    expect(repo.findByName('Excel')).toBeDefined();
   });
 
   it('skips rows without a subject instead of guessing one', () => {
@@ -181,15 +187,20 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
     expect(edges()).toHaveLength(1);
   });
 
-  it('draws nothing for a memory whose rows all lack a subject', () => {
+  it('admits a node for a memory whose rows all lack a subject, but no edge', () => {
     seedMemory('m6');
     seedLink('m6', 'Acme Corp', { relation: 'FOUNDED', confidence: 0.95, subject: null });
 
     const summary = syncGraphFromMemoryLinks(db, repo);
 
     expect(summary.linksProcessed).toBe(0);
-    expect(count('entities')).toBe(0);
     expect(count('entity_edges')).toBe(0);
+    // The subject is unknown — which is the truthful answer — but the memory does
+    // name Acme Corp, so the name exists as a node. (`linksWithoutSubject` stays
+    // 0 here: that counter only sees rows inside the edge batch, and a memory
+    // with no edge-eligible row never enters it.)
+    expect(count('entities')).toBe(1);
+    expect(repo.findByName('Acme Corp')).toBeDefined();
   });
 
   it('closes the previous object when a newer memory states a different one', () => {
@@ -248,6 +259,7 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
     const second = syncGraphFromMemoryLinks(db, repo);
 
     expect(second.entitiesCreated).toBe(0);
+    expect(second.mentionNodesCreated).toBe(0);
     expect(second.entitiesMatched).toBe(0);
     expect(second.edgesCreated).toBe(0);
     expect(second.edgesRefreshed).toBe(0);
@@ -302,14 +314,17 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
     expect(first.memoriesProcessed).toBe(2);
     expect(first.edgesCreated).toBe(2);
     expect(repo.findByName('Entity 0')).toBeDefined();
-    expect(repo.findByName('Entity 2')).toBeUndefined();
+    // Nodes are a whole-corpus view, not a per-run window: `limit` bounds the
+    // *links* one run projects, so Entity 2 has a node while still having no
+    // edge. Resumption is about edges, which is what the next assertions check.
+    expect(repo.findByName('Entity 2')).toBeDefined();
+    expect(count('entity_edges')).toBe(2);
 
     // Resumable: the two projected memories drop out of the batch, the next two
     // oldest take their place.
     const second = syncGraphFromMemoryLinks(db, repo, { limit: 2 });
     expect(second.memoriesProcessed).toBe(2);
-    expect(repo.findByName('Entity 2')).toBeDefined();
-    expect(repo.findByName('Entity 3')).toBeDefined();
+    expect(second.edgesCreated).toBe(2);
     expect(count('entity_edges')).toBe(4);
   });
 
@@ -335,6 +350,8 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
       edgesClosed: 0,
       linksWithoutSubject: 0,
       mentionLinksFiltered: 0,
+      mentionNodesAdmitted: 0,
+      mentionNodesCreated: 0,
       skipped: 0,
       memoriesProcessed: 0,
       linksProcessed: 0,
@@ -380,7 +397,20 @@ describe('graph-sync: config gate', () => {
       maxLinksPerRun: 500,
       mineMentions: true,
       maxMentionsPerMemory: 8,
+      projectMentionNodes: true,
+      maxMentionNodes: 2000,
     });
+  });
+
+  it('can be told to keep nodes edge-only, and rejects a non-boolean switch', () => {
+    // The switch exists for an operator who wants the graph to contain only
+    // asserted facts; `resolveGraphSyncConfig` must not silently coerce.
+    expect(resolveGraphSyncConfig({ project_mention_nodes: false }).projectMentionNodes).toBe(
+      false,
+    );
+    expect(() =>
+      resolveGraphSyncConfig({ project_mention_nodes: 'no' as unknown as boolean }),
+    ).toThrow(/project_mention_nodes/);
   });
 
   it('fails fast on values that cannot be honoured', () => {

@@ -103,6 +103,8 @@ function emptyProjectionSummary(): GraphSyncSummary {
     edgesClosed: 0,
     linksWithoutSubject: 0,
     mentionLinksFiltered: 0,
+    mentionNodesAdmitted: 0,
+    mentionNodesCreated: 0,
     skipped: 0,
     memoriesProcessed: 0,
     linksProcessed: 0,

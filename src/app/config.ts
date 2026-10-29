@@ -564,6 +564,10 @@ const configSchema = z.object({
         // (src/graph/entity-mining.ts). No model call, so it is on by default.
         mine_mentions: z.boolean().default(true),
         max_mentions_per_memory: z.coerce.number().int().positive().default(8),
+        // Nodes come from mentions; edges still require an attested relation.
+        // A node says "this corpus talks about X", which a mention proves.
+        project_mention_nodes: z.boolean().default(true),
+        max_mention_nodes: z.coerce.number().int().positive().default(2000),
       })
       .default({}),
     maintenance: z
@@ -1240,6 +1244,8 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         max_links_per_run: env.MEMORY_GRAPH_MAX_LINKS_PER_RUN,
         mine_mentions: envBool(env.MEMORY_GRAPH_MINE_MENTIONS, true),
         max_mentions_per_memory: env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY,
+        project_mention_nodes: envBool(env.MEMORY_GRAPH_PROJECT_MENTION_NODES, true),
+        max_mention_nodes: env.MEMORY_GRAPH_MAX_MENTION_NODES,
       },
     },
     cron: {

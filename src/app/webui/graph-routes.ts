@@ -356,8 +356,14 @@ function loadNodes(db: Database.Database, ids: string[]): GraphNode[] {
 
 /**
  * Overview payload: the busiest entities first, then the edges among them.
- * Degree ordering is what makes an overview legible — the densest cluster is
- * what a user opening "knowledge graph" is looking for.
+ *
+ * Degree is what makes an overview legible — the densest cluster is what a user
+ * opening "knowledge graph" is looking for. The tiebreaker matters just as much
+ * now that nodes come from mentions: most nodes carry no edge at all (a corpus
+ * names `Ubuntu` in 38 memories and states no fact about it), so ordering the
+ * zero-degree group alphabetically would show an arbitrary slice of the
+ * alphabet and hide exactly the names the corpus talks about most. Mentions are
+ * the natural second key: it is the same evidence that admitted the node.
  */
 function loadOverview(db: Database.Database, limit: number, filter: EdgeFilter): GraphPayload {
   const rows = db
@@ -366,6 +372,8 @@ function loadOverview(db: Database.Database, limit: number, filter: EdgeFilter):
        FROM entities e
        ORDER BY (SELECT COUNT(*) FROM entity_edges x
                   WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) DESC,
+                (SELECT COUNT(*) FROM memory_links ml
+                  WHERE ml.target_entity = e.name OR ml.subject_entity = e.name) DESC,
                 e.canonical_name ASC
        LIMIT @limit`,
     )

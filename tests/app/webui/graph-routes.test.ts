@@ -191,6 +191,35 @@ describe('knowledge-graph routes', () => {
       expect(payload.truncated).toBe(true);
     });
 
+    it('orders edge-less nodes by how often the corpus mentions them', async () => {
+      // The shape after nodes came from mentions: most nodes have degree 0, so an
+      // alphabetical tiebreaker shows an arbitrary slice of the alphabet and can
+      // hide the busiest name entirely (`Ubuntu`, 38 mentioning memories, sat
+      // behind `API`…`Android` in a truncated overview).
+      db.prepare(
+        `INSERT INTO memories (id, scope, scope_key, kind, content, status, created_at, updated_at)
+         VALUES ('mem-1', 'user', 'k', 'fact', 'Ubuntu 24.04 on Termux', 'active', 1, 1)`,
+      ).run();
+      for (const name of ['Zeta', 'Ubuntu']) {
+        db.prepare(
+          `INSERT INTO entities (id, name, canonical_name, entity_type, created_at, updated_at)
+           VALUES (?, ?, ?, 'concept', 1, 1)`,
+        ).run(`ent-${name}`, name, name.toLowerCase());
+      }
+      // Ubuntu mentioned twice, Zeta once: same degree (0), different evidence.
+      for (const [index, name] of ['Zeta', 'Ubuntu', 'Ubuntu'].entries()) {
+        db.prepare(
+          `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
+           VALUES (?, 'mem-1', ?, 'MENTIONED', 0.9)`,
+        ).run(`link-${index}`, name);
+      }
+
+      const response = await app.inject({ method: 'GET', url: '/api/memory/graph?limit=50' });
+      const names = response.json().nodes.map((node: { name: string }) => node.name);
+
+      expect(names.indexOf('Ubuntu')).toBeLessThan(names.indexOf('Zeta'));
+    });
+
     it('resolves an entity by id, canonical name and alias', async () => {
       for (const ref of [ids.alice, 'Alice', 'alice', '艾丽丝']) {
         const response = await app.inject({

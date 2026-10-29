@@ -267,12 +267,16 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
     expect(result.projected.linksWithoutSubject).toBe(0);
     expect(result.projected.mentionLinksFiltered).toBe(0);
 
-    // No placeholder node survives, and every real entity does.
+    // No placeholder node survives, and every real entity does — including the
+    // ones the corpus only *mentions* (`GitHub` is named by a memory but is not
+    // the subject of any fact). Nodes are admitted from mentions; edges still
+    // require an attested relation, so this adds a node and no edge.
     expect(entities()).toEqual([
       { name: 'Acme Corp', entity_type: 'organization' },
       { name: 'Alice Smith', entity_type: 'person' },
       { name: 'Excel', entity_type: 'concept' },
       { name: 'Feishu', entity_type: 'concept' },
+      { name: 'GitHub', entity_type: 'concept' },
       { name: 'Redis', entity_type: 'concept' },
       { name: 'SQLite', entity_type: 'concept' },
       { name: 'Telegram', entity_type: 'concept' },

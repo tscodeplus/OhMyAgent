@@ -290,6 +290,20 @@ channels:
 #     enabled: false
 #     # window_days: 7
 #     # min_memories: 5
+#   # Knowledge graph projection (memory_links → entities/entity_edges).
+#   # Descriptors only: each link either describes an entity or states a fact.
+#   graph:
+#     enabled: true
+#     min_confidence: 0.3           # drop weaker links entirely
+#     max_links_per_run: 500        # edges projected per run (the resumable unit)
+#     mine_mentions: true           # also mine entities from memories with no link
+#     max_mentions_per_memory: 8
+#     # Nodes come from mentions, edges require an attested relation. Keep this
+#     # true unless the graph should contain only asserted facts — with it
+#     # false, a name the corpus mentions but never states a fact about
+#     # (Ubuntu in 38 memories) has no node at all.
+#     project_mention_nodes: true
+#     max_mention_nodes: 2000       # nodes admitted per run, most-mentioned first
 #   # Entity/relation extraction out of stored memory text. The deterministic
 #   # pass (mentions only) always runs; this block bounds the model pass that
 #   # types the relations, which is what the knowledge graph is built from.

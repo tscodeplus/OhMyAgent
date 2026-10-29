@@ -14,18 +14,29 @@
  *   `memory_links(subject 'Alice Smith', WORKS_AT, 'Acme Corp', confidence 0.9)`
  *   → `alice smith (person) --WORKS_AT (0.9)--> acme corp (organization)`
  *
- * Two kinds of row deliberately produce nothing:
+ * Two kinds of row produce no **edge** — and every row that names an entity
+ * produces a **node**, which is a different claim:
  *
  *   - **No subject** (`subject_entity IS NULL`) — the keyword extractor in
  *     `src/memory/entity-extractor.ts` assigns its relation keyword to *every*
  *     entity found in the text, so such a row says "this text contains a
  *     founding keyword and names Acme", not "X founded Acme". Picking the
  *     highest-confidence row as the subject is what put `SQLite` at the centre
- *     of a memory about vector search; the row keeps NULL and is skipped.
+ *     of a memory about vector search; the row keeps NULL and is skipped as an
+ *     edge.
  *   - **`MENTIONED`** — co-occurrence is not a statement. Measured on the real
  *     database, 17 of 18 edges were `MENTIONED`, which is why traversing the
  *     graph produced nothing. Such rows stay in `memory_links` (they serve
  *     one-hop recall) and never reach `entity_edges`.
+ *
+ * Both still yield **nodes** through {@link projectMentionNodes}. A node asserts
+ * "this corpus names X", which a mention does prove once the name survives the
+ * same canonicalisation and token-boundary gates; an edge asserts "X is the
+ * subject of this fact", which the same row does not. Coupling the two emptied
+ * the graph: on the reference device 814 of 868 links were `MENTIONED`, so the
+ * `entities` table held 4 leftovers while 379 names — `Ubuntu`, `Termux`,
+ * `飞书` — were attestable. That is the same mistake the admission rules were
+ * meant to prevent, in the other direction.
  *
  * There is no `memory:<id>` placeholder node any more: a memory is not an
  * entity. `LEGACY_PLACEHOLDER_ENTITY_TYPE` survives only so `graph:reset` can
@@ -100,6 +111,10 @@ export interface GraphSyncOptions {
   minConfidence?: number;
   /** Run the whole projection, then roll it back — nothing is written. */
   dryRun?: boolean;
+  /** Admit nodes from mentions, independently of edges. Default true. */
+  projectMentionNodes?: boolean;
+  /** Cap on nodes admitted per call, most-mentioned first. Default 2000. */
+  maxMentionNodes?: number;
   /** Cooperative cancellation between memories (scheduler timeout). */
   signal?: AbortSignal;
   /** Optional sink for per-row diagnostics; silent when absent. */
@@ -121,6 +136,13 @@ export interface GraphSyncSummary {
   linksWithoutSubject: number;
   /** Rows skipped because co-occurrence is not a statement (`MENTIONED`). */
   mentionLinksFiltered: number;
+  /**
+   * Nodes admitted from mentions in this run, i.e. entities that carry no edge
+   * yet (`Ubuntu` is mentioned in 38 memories and states no fact in any of them).
+   */
+  mentionNodesAdmitted: number;
+  /** Of those, the ones that did not exist before this run. */
+  mentionNodesCreated: number;
   /** Rows that could not be projected (blank target, inactive memory, self-loop, low confidence). */
   skipped: number;
   memoriesProcessed: number;
@@ -321,6 +343,102 @@ export function closeContradictedEdges(
 }
 
 /**
+ * Names the link rows name, most-mentioned first.
+ *
+ * `UNION ALL` over both endpoints because a name can be a subject in one memory
+ * and a target in another; the count is the only ordering signal available
+ * without reading memory text, and it is the right one — the busiest names are
+ * the ones a graph should show first.
+ */
+const MENTION_NODE_SQL = `
+SELECT name, MAX(entity_type) AS entity_type, COUNT(*) AS mentions
+FROM (
+  SELECT trim(target_entity) AS name, trim(coalesce(target_entity_type, '')) AS entity_type
+  FROM memory_links
+  WHERE trim(coalesce(target_entity, '')) <> '' AND confidence >= @minConfidence
+  UNION ALL
+  SELECT trim(subject_entity) AS name, trim(coalesce(subject_entity_type, '')) AS entity_type
+  FROM memory_links
+  WHERE trim(coalesce(subject_entity, '')) <> '' AND confidence >= @minConfidence
+)
+GROUP BY name
+ORDER BY mentions DESC, name ASC
+LIMIT @cap
+`;
+
+/** Up to five memories that name a candidate — enough to find one clean mention. */
+const MENTION_EVIDENCE_SQL = `
+SELECT m.content AS content
+FROM memory_links ml
+JOIN memories m ON m.id = ml.source_memory_id
+WHERE m.status = 'active'
+  AND (trim(coalesce(ml.target_entity, '')) = @name OR trim(coalesce(ml.subject_entity, '')) = @name)
+LIMIT @sample
+`;
+
+interface MentionNodeOutcome {
+  admitted: number;
+}
+
+/**
+ * Admit entities from mentions, independently of edges.
+ *
+ * A node is a weaker claim than an edge and needs weaker evidence: the name has
+ * to read as an entity (`isVouchableEntityName`) and to sit on token boundaries
+ * of at least one memory that names it (`isTokenAlignedMention`). No relation, no
+ * subject, no model — a `MENTIONED` row is precisely the assertion "this text
+ * names this", and that is what a node records.
+ *
+ * Runs inside the caller's transaction so a dry run rolls the nodes back with
+ * the edges.
+ */
+function projectMentionNodes(
+  db: Database.Database,
+  repo: EntityRepository,
+  options: { minConfidence: number; cap: number },
+): MentionNodeOutcome {
+  const candidates = db.prepare(MENTION_NODE_SQL).all({
+    minConfidence: options.minConfidence,
+    cap: options.cap,
+  }) as Array<{ name: string; entity_type: string | null; mentions: number }>;
+  if (candidates.length === 0) return { admitted: 0 };
+
+  const evidence = db.prepare(MENTION_EVIDENCE_SQL);
+  let admitted = 0;
+
+  for (const candidate of candidates) {
+    const name = candidate.name.trim();
+    if (!isVouchableEntityName(name)) continue;
+
+    const rows = evidence.all({ name, sample: 5 }) as Array<{ content: string | null }>;
+    if (rows.length === 0) continue;
+    // One clean mention is enough: the gate is about whether this is a name in
+    // *some* context, not about how the corpus spells it everywhere.
+    const attested = rows.some((row) => isTokenAlignedMention(String(row.content ?? ''), name));
+    if (!attested) continue;
+
+    // Reuse an existing node whatever its type: `entities` is unique on
+    // (canonical_name, entity_type), so a mention whose inferred type disagrees
+    // with the one an edge established would otherwise create a *second* node
+    // for the same name — `Alice Smith` twice, once `person` and once `concept`.
+    // The edge's type is the better-informed one (it came from a typed
+    // relation), so it wins by simply already existing.
+    if (repo.findByName(name)) {
+      admitted++;
+      continue;
+    }
+
+    repo.upsertEntity({
+      name,
+      entityType: candidate.entity_type?.trim() || inferEntityType(name),
+    });
+    admitted++;
+  }
+
+  return { admitted };
+}
+
+/**
  * Project subject-bearing `memory_links` rows into the entity graph.
  *
  * Safe to call repeatedly: a second call over unchanged data creates no rows.
@@ -345,6 +463,8 @@ export function syncGraphFromMemoryLinks(
     edgesClosed: 0,
     linksWithoutSubject: 0,
     mentionLinksFiltered: 0,
+    mentionNodesAdmitted: 0,
+    mentionNodesCreated: 0,
     skipped: 0,
     memoriesProcessed: 0,
     linksProcessed: 0,
@@ -453,6 +573,30 @@ export function syncGraphFromMemoryLinks(
       if (projectedHere > 0) summary.memoriesProcessed++;
     }
 
+    // Nodes last, and independently of the loop above: the batch query only
+    // selects memories that carry an edge-eligible link, so a memory whose rows
+    // are all `MENTIONED` (38 of them name `Ubuntu` on the reference device)
+    // never enters the loop at all. Reading the names from `memory_links`
+    // directly is what lets a mentioned-but-never-subject entity exist.
+    //
+    // Counted separately from the edge pass so `entitiesMatched` keeps meaning
+    // "an edge upsert that hit an existing row" — the idempotency property a
+    // caller can rely on. Mention upserts are idempotent too, they are just not
+    // links, and mixing them made a re-run look like it had matched something.
+    const entitiesAfterEdges = countRows(db, 'SELECT COUNT(*) AS cnt FROM entities');
+    if (options.projectMentionNodes !== false) {
+      const nodes = projectMentionNodes(db, repo, {
+        minConfidence,
+        cap: Math.max(
+          1,
+          Math.floor(options.maxMentionNodes ?? DEFAULT_GRAPH_SYNC_CONFIG.maxMentionNodes),
+        ),
+      });
+      summary.mentionNodesAdmitted = nodes.admitted;
+      summary.mentionNodesCreated =
+        countRows(db, 'SELECT COUNT(*) AS cnt FROM entities') - entitiesAfterEdges;
+    }
+
     summary.entitiesCreated =
       countRows(db, 'SELECT COUNT(*) AS cnt FROM entities') - entitiesBefore;
     summary.entitiesMatched = Math.max(0, upsertCalls - summary.entitiesCreated);
@@ -526,6 +670,8 @@ export function createGraphSyncJob(
           dryRun,
           signal,
           logger,
+          projectMentionNodes: config.projectMentionNodes,
+          maxMentionNodes: config.maxMentionNodes,
         });
         const affectedRows =
           summary.edgesCreated +
