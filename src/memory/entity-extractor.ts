@@ -60,13 +60,31 @@ for (const langTerms of Object.values(genericTermsData.terms)) {
 
 // ─── Relation priority (LLM path only) ──────────────────────────────
 
-/** Closed relation vocabulary, used to validate what the model returned. */
+/**
+ * Closed relation vocabulary, used to validate what the model returned.
+ *
+ * It used to be five social/business predicates, which is an ontology for people
+ * and companies. On a technical corpus — Excel, Power Query, excel-mcp, Termux —
+ * the only truthful answer in that vocabulary was `MENTIONED`, and `MENTIONED`
+ * is deliberately not an edge, so the graph was 371 isolated nodes on the
+ * reference device: every entity the corpus talks about, nothing about how they
+ * hang together. `USES`/`DEPENDS_ON`/`PART_OF`/`EXTENDS` are what a tool corpus
+ * actually states, so they are in the vocabulary now and the projector attests
+ * them from the same text (see `RELATION_EVIDENCE` in `src/graph/entity-mining.ts`).
+ *
+ * Ordering only matters when one memory yields several relations: the more
+ * specific, harder-to-earn predicate wins.
+ */
 const RELATION_PRIORITY: Record<string, number> = {
-  FOUNDED: 6,
-  INVESTED: 5,
-  ADVISES: 4,
-  WORKS_AT: 3,
-  ATTENDED: 2,
+  FOUNDED: 10,
+  INVESTED: 9,
+  ADVISES: 8,
+  WORKS_AT: 7,
+  USES: 6,
+  ATTENDED: 5,
+  DEPENDS_ON: 4,
+  PART_OF: 3,
+  EXTENDS: 2,
   MENTIONED: 1,
 };
 
@@ -226,6 +244,13 @@ interface Candidate {
 export interface ExtractOptions {
   scope?: string;
   kind?: string;
+  /**
+   * Called when the model path did not produce entities and the deterministic
+   * extractor answered instead. Without this a caller cannot tell "the model
+   * said nothing worth recording" from "every model call failed", and a run that
+   * wrote zero typed relations looked identical to a run with nothing to do.
+   */
+  onFallback?: (reason: 'llm_error' | 'llm_empty') => void;
 }
 
 export function extractEntities(text: string, options?: ExtractOptions): ExtractedEntity[] {
@@ -311,8 +336,16 @@ export function extractEntities(text: string, options?: ExtractOptions): Extract
 // ─── LLM-driven extraction (primary path) ───────────────────────────
 
 const LLM_EXTRACTION_PROMPT =
-  'Extract person names and organizations from the text. Output ONLY a JSON array:\n' +
-  '[{"entity":"name","type":"PERSON|ORG","relation":"FOUNDED|INVESTED|ADVISES|WORKS_AT|ATTENDED|MENTIONED","confidence":0.9}]\n' +
+  'Extract the named entities from the text: people, organizations, products, tools, ' +
+  'platforms and technical concepts. Relation is how the text connects the entity to ' +
+  'what the sentence is about — USES (a tool/feature is used, called, run or applied), ' +
+  'DEPENDS_ON (requires, needs, only works with), PART_OF (is a part, feature or ' +
+  'component of), EXTENDS (extends, forks, is built on top of), plus the social ones. ' +
+  'Use MENTIONED only when the text names the entity and states nothing about it. ' +
+  'Output ONLY a JSON array:\n' +
+  '[{"entity":"name","type":"PERSON|ORG|PRODUCT|CONCEPT",' +
+  '"relation":"FOUNDED|INVESTED|ADVISES|WORKS_AT|ATTENDED|USES|DEPENDS_ON|PART_OF|EXTENDS|MENTIONED",' +
+  '"confidence":0.9}]\n' +
   'If no entities, output [].';
 
 export async function extractEntitiesLLM(
@@ -330,7 +363,10 @@ export async function extractEntitiesLLM(
       systemPrompt: LLM_EXTRACTION_PROMPT,
       userPrompt: text,
       temperature: 0,
-      maxTokens: 300,
+      // 300 was too small for a reasoning model: the budget went into the
+      // reasoning stream and the JSON never got emitted, so every extraction
+      // fell back to the regex path even though the call itself succeeded.
+      maxTokens: 1000,
       logger: config.logger,
     });
 
@@ -341,6 +377,7 @@ export async function extractEntitiesLLM(
       return entities.filter((e) => e.confidence >= config.minConfidence);
     }
 
+    options?.onFallback?.('llm_empty');
     return extractEntities(text, options);
   } catch (err) {
     memoryObservability.record('memory.entity.failed', {
@@ -349,6 +386,7 @@ export async function extractEntitiesLLM(
       error: errorForObservation(err),
     });
     config.logger.info({ err }, 'LLM entity extraction failed, falling back to regex');
+    options?.onFallback?.('llm_error');
     return extractEntities(text, options);
   }
 }
@@ -401,6 +439,56 @@ function parseEntityJsonValues(response: string): unknown[] {
         });
       }
     }
-    return values;
+    if (values.length > 0) return values;
+    return salvageJsonObjects(response);
   }
+}
+
+/**
+ * Pull every balanced `{...}` out of a response that is not valid JSON as a
+ * whole.
+ *
+ * Measured need: a reasoning model emits its JSON inside the reasoning stream,
+ * and the stream is cut off at `max_tokens`. The truncated tail cannot parse,
+ * but every object before the cut is complete — before this scan, one truncation
+ * meant "the model produced nothing" and the run fell back to the regex path
+ * while the answer was sitting there. Strings are skipped so braces inside a
+ * name cannot unbalance the scan.
+ */
+function salvageJsonObjects(response: string): unknown[] {
+  const values: unknown[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < response.length; index++) {
+    const char = response[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{') {
+      if (depth === 0) start = index;
+      depth++;
+      continue;
+    }
+    if (char === '}' && depth > 0) {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try {
+          values.push(JSON.parse(response.slice(start, index + 1)));
+        } catch {
+          // Not JSON (prose with braces): keep scanning, the next object may be.
+        }
+        start = -1;
+      }
+    }
+  }
+  return values;
 }

@@ -61,12 +61,41 @@ function poolKey(baseUrl: string, apiKey: string): ClientKey {
   return `${baseUrl}::${apiKey.slice(0, 8)}`;
 }
 
-async function getClient(apiKey: string, baseUrl: string) {
+/**
+ * OpenCode's gateway needs a per-conversation routing header and lives under
+ * `/v1`; a plain OpenAI client otherwise gets `MissingSessionID` (or, without
+ * `/v1`, an HTML 404). The agent path gets both from `pi-mono`
+ * (`withOpenCodeSessionHeader`), but the memory aux path builds its own client,
+ * so a `memory_aux_models.primary: opencode-go/...` config silently fell through
+ * its whole fallback chain and the memory layer degraded without saying so.
+ */
+const AUX_SESSION_ID = `oma-aux-${Math.random().toString(36).slice(2, 10)}`;
+
+function isOpenCodeProvider(provider: string, baseUrl: string): boolean {
+  return provider.startsWith('opencode') || /opencode\.ai/.test(baseUrl);
+}
+
+/** `https://opencode.ai/zen/go` → `https://opencode.ai/zen/go/v1`. */
+export function normalizeAuxBaseUrl(provider: string, baseUrl: string): string {
+  if (!isOpenCodeProvider(provider, baseUrl)) return baseUrl;
+  const trimmed = baseUrl.replace(/\/+$/, '');
+  if (/\/v\d+$/.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
+}
+
+async function getClient(apiKey: string, baseUrl: string, provider: string) {
   const key = poolKey(baseUrl, apiKey);
   const cached = clientPool.get(key);
   if (cached) return cached;
   const OpenAI = await getOpenAI();
-  const client = new OpenAI({ apiKey, baseURL: baseUrl, maxRetries: 1 });
+  const client = new OpenAI({
+    apiKey,
+    baseURL: baseUrl,
+    maxRetries: 1,
+    ...(isOpenCodeProvider(provider, baseUrl)
+      ? { defaultHeaders: { 'x-opencode-session': AUX_SESSION_ID } }
+      : {}),
+  });
   clientPool.set(key, client);
   return client;
 }
@@ -100,10 +129,12 @@ export async function auxLLMCall(
   let lastError: string | null = null;
 
   for (const modelRef of modelRefs) {
-    const { modelId, apiKey, baseUrl } = await resolveSummaryModelConnection(
+    const resolved = await resolveSummaryModelConnection(
       { modelRef, apiKeys: config.apiKeys, baseUrls: config.baseUrls, baseUrl: config.baseUrl },
       modelRef,
     );
+    const { modelId, apiKey } = resolved;
+    const baseUrl = normalizeAuxBaseUrl(resolved.provider, resolved.baseUrl);
 
     if (!apiKey) {
       const msg = `No API key resolved for model ${modelRef}`;
@@ -113,7 +144,7 @@ export async function auxLLMCall(
     }
 
     try {
-      const client = await getClient(apiKey, baseUrl);
+      const client = await getClient(apiKey, baseUrl, resolved.provider);
 
       const completion = await client.chat.completions.create({
         model: modelId,

@@ -145,7 +145,7 @@ interface MemoryRow {
 }
 
 /** Why the LLM pass did not run; `null` when it did. */
-type DegradedReason = 'llm_disabled' | 'no_aux_model';
+type DegradedReason = 'llm_disabled' | 'no_aux_model' | 'llm_failed';
 
 /**
  * Memories no producer has ever typed: the memory either has no links at all
@@ -429,6 +429,8 @@ export function createEntityBackfillJob(
       // ── Generation 2: typed relations, budgeted ───────────────────────
       let llmCalls = 0;
       let typedLinksWritten = 0;
+      /** Model calls that fell back to the deterministic extractor. */
+      let llmFailures = 0;
       let rejectedByGates = 0;
       let duplicateTargets = 0;
 
@@ -457,6 +459,9 @@ export function createEntityBackfillJob(
             entities = await extractEntitiesLLM(row.content, llmConfig, {
               scope: row.scope,
               kind: row.kind,
+              onFallback: () => {
+                llmFailures++;
+              },
             });
           } catch (err) {
             // `extractEntitiesLLM` catches model failures itself; this is the
@@ -474,6 +479,12 @@ export function createEntityBackfillJob(
           duplicateTargets += result.duplicates;
         }
       }
+
+      // Every call failed → the run did no model work at all, whatever the
+      // budget said. Reporting `llmAttempted: true` with zero typed links is
+      // what hid a dead aux model: the numbers looked like "nothing to do".
+      const llmFailed = llmCalls > 0 && llmFailures === llmCalls;
+      const effectiveDegraded: DegradedReason | null = llmFailed ? 'llm_failed' : degradedReason;
 
       const linksCreated = mentionLinksWritten + typedLinksWritten;
       return {
@@ -494,16 +505,18 @@ export function createEntityBackfillJob(
           /** Memories this run looked at: the deterministic batch plus the LLM calls made. */
           memoriesConsidered: deterministicRows.length + llmCalls,
           /** True when at least one model extraction was attempted this run. */
-          llmAttempted: llmCalls > 0,
+          llmAttempted: llmCalls > 0 && !llmFailed,
           llmCalls,
+          /** Model calls that produced nothing and fell back to the regex path. */
+          llmFailures,
           /** Hard per-run cap on model calls (`memory.entity_extraction.max_memories_per_run`). */
           llmCallBudget: llmBudget,
           /** Relations the model asserted that the projector would not have projected. */
           rejectedByGates,
           /** Relations dropped because the memory already links that target. */
           duplicateTargets,
-          /** `llm_disabled` | `no_aux_model`, or `null` when the LLM pass was allowed to run. */
-          degradedReason,
+          /** `llm_disabled` | `no_aux_model` | `llm_failed`, or `null` when the LLM pass ran. */
+          degradedReason: effectiveDegraded,
         },
       };
     },

@@ -24,6 +24,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { loadYamlFile } from '../src/app/config-loader.js';
 import { syncGraphFromMemoryLinks } from '../src/graph/graph-sync.js';
+import { selfHealGraph } from '../src/graph/graph-prune.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG } from '../src/graph/graph-config.js';
 import { EntityRepository } from '../src/memory/repositories/entity-repository.js';
 
@@ -143,6 +144,17 @@ function main(): void {
       limit: options.limit,
       dryRun: options.dryRun,
     });
+
+    // The same eviction the scheduled job performs. Without it this CLI and the
+    // 6-hourly job would disagree about what the graph contains, which is the
+    // drift that made "run graph:reset" a documented step in the first place.
+    const healed = selfHealGraph(db, { dryRun: options.dryRun });
+    if (healed.edgesPruned > 0 || healed.nodesMerged > 0) {
+      console.log(
+        `[graph:sync] pruned ${healed.edgesPruned} edge(s) the current rules refuse, ` +
+          `merged ${healed.nodesMerged} duplicate node(s)`,
+      );
+    }
 
     console.log(
       `[graph:sync] entities ${summary.entitiesCreated} created, ${summary.entitiesMatched} matched | ` +

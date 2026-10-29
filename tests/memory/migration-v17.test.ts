@@ -221,7 +221,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       relation: 'COMPARES',
       confidence: 0.7,
     });
-    seedMemory('mem-c', 'SQLite 与 Redis 的写入性能对比');
+    seedMemory('mem-c', 'SQLite 通过 Redis 使用缓存层，写入性能对比明显');
     seedLink({
       id: 'link-c',
       memoryId: 'mem-c',
@@ -251,6 +251,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       orphanEndpointEdges: 1,
       orphanMemoryEdges: 1,
       unattestedEdges: 0,
+      duplicateNodes: 0,
     });
 
     // 2. Subject backfill: the three legacy rows gained a subject. The
@@ -343,6 +344,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 0,
       unattestedEdges: 0,
+      duplicateNodes: 0,
     });
     expect(second.mined.linksCreated).toBe(0);
     expect(second.mined.linksAnnotated).toBe(0);
@@ -490,6 +492,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       orphanEndpointEdges: 0,
       orphanMemoryEdges: 0,
       unattestedEdges: 0,
+      duplicateNodes: 0,
     });
     expect(result.mined).toEqual({
       memoriesMined: 0,
@@ -652,6 +655,7 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
         orphanEndpointEdges: 0,
         orphanMemoryEdges: 0,
         unattestedEdges: 0,
+        duplicateNodes: 0,
       });
       expect(replay.mined.memoriesMined).toBe(0);
       expect(replay.projected.edgesCreated).toBe(0);

@@ -62,6 +62,7 @@ import {
   MENTION_RELATION_TYPE,
   type MemoryLinkMiningSummary,
 } from './entity-mining.js';
+import { duplicateNodePlan as duplicateNodePlanBase, refusedEdgePlan } from './graph-prune.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG } from './graph-config.js';
 import {
   LEGACY_PLACEHOLDER_ENTITY_TYPE,
@@ -94,6 +95,8 @@ export interface LegacyCleanupSummary {
   orphanMemoryEdges: number;
   /** Typed edges deleted because no memory attests the statement or its names. */
   unattestedEdges: number;
+  /** Duplicate nodes deleted after being merged into the better-corroborated row. */
+  duplicateNodes: number;
 }
 
 export interface LegacyGraphCounts {
@@ -174,6 +177,7 @@ export function emptyLegacyCleanupSummary(): LegacyCleanupSummary {
     orphanEndpointEdges: 0,
     orphanMemoryEdges: 0,
     unattestedEdges: 0,
+    duplicateNodes: 0,
   };
 }
 
@@ -317,39 +321,20 @@ function orphanMemoryPlan(db: Database.Database): DeletePlan {
  * Runs as part of `cleanupLegacyGraph`, i.e. the CLI and the migration share it.
  */
 function unattestedEdgePlan(db: Database.Database): DeletePlan {
-  const deleteEdge = db.prepare('DELETE FROM entity_edges WHERE id = ?');
-  const rows = db.prepare(
-    `SELECT e.id AS id, e.relation_type AS relation,
-            s.name AS subject, t.name AS target,
-            m.content AS content
-       FROM entity_edges e
-       JOIN entities s ON s.id = e.source_entity_id
-       JOIN entities t ON t.id = e.target_entity_id
-       LEFT JOIN memories m ON m.id = e.source_memory_id
-      ORDER BY e.created_at, e.id`,
-  );
+  const plan = refusedEdgePlan(db);
   return {
     key: 'unattestedEdges',
-    selectIds: () =>
-      (
-        rows.all() as Array<{
-          id: string;
-          relation: string;
-          subject: string;
-          target: string;
-          content: string | null;
-        }>
-      )
-        .filter((row) => {
-          const text = row.content ?? '';
-          if (!isVouchableEntityName(row.subject)) return true;
-          if (!isVouchableEntityName(row.target)) return true;
-          if (!isTokenAlignedMention(text, row.subject)) return true;
-          if (!isTokenAlignedMention(text, row.target)) return true;
-          return !attestsRelation(text, row.relation, row.subject, row.target);
-        })
-        .map((row) => row.id),
-    deleteBatch: (ids) => ids.reduce((sum, id) => sum + deleteEdge.run(id).changes, 0),
+    selectIds: (limit) => plan.selectIds(limit),
+    deleteBatch: (ids) => plan.deleteBatch(ids),
+  };
+}
+
+function duplicateNodePlan(db: Database.Database): DeletePlan {
+  const plan = duplicateNodePlanBase(db);
+  return {
+    key: 'duplicateNodes',
+    selectIds: (limit) => plan.selectIds(limit),
+    deleteBatch: (ids) => plan.deleteBatch(ids),
   };
 }
 
@@ -389,6 +374,7 @@ export function cleanupLegacyGraph(
     runStep(orphanEndpointPlan(db));
     runStep(orphanMemoryPlan(db));
     runStep(unattestedEdgePlan(db));
+    runStep(duplicateNodePlan(db));
   };
 
   if (!dryRun) {

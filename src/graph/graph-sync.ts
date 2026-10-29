@@ -85,6 +85,7 @@ import {
   type MemoryLinkMiningSummary,
 } from './entity-mining.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
+import { selfHealGraph } from './graph-prune.js';
 
 /** `maintenance_runs.job_name` of the scheduled projector. */
 export const GRAPH_SYNC_JOB_NAME = 'graph_sync';
@@ -679,6 +680,14 @@ export function createGraphSyncJob(
           summary.edgesClosed +
           mined.linksCreated +
           mined.linksAnnotated;
+
+        // The projector never deletes, so an edge the current rules would refuse
+        // (attestation tightened, mention-vs-edge admission split) would sit in
+        // the table forever, and `graph:reset` was the only way to evict it.
+        // Self-heal on every run instead: it is one indexed scan plus one GROUP
+        // BY, and it keeps "did the graph need rebuilding?" from being a question
+        // an operator has to answer.
+        const healed = selfHealGraph(db, { dryRun });
         // Nothing recorded, nothing projected: report it instead of pretending a
         // run happened.
         if (
@@ -698,6 +707,7 @@ export function createGraphSyncJob(
               linksWithoutSubject: summary.linksWithoutSubject,
               mentionLinksFiltered: summary.mentionLinksFiltered,
               mined,
+              healed,
             },
           };
         }
@@ -707,7 +717,7 @@ export function createGraphSyncJob(
           dryRun,
           affectedRows,
           durationMs: Date.now() - start,
-          details: { ...summary, mined },
+          details: { ...summary, mined, healed },
         };
       } catch (err) {
         // Non-fatal by contract: a graph sync failure must never fail the

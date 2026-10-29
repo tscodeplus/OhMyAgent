@@ -217,6 +217,14 @@ const RELATION_EVIDENCE: Record<string, RegExp> = {
   ADVISES: /顾问|指导|咨询|建议|advises|consults|mentors|guides/i,
   WORKS_AT: /在.{1,10}(工作|上班|任职|就职|担任|做)|works at|employed by|works for/i,
   ATTENDED: /参加|参与|出席|去了|在场|attended|participated|went to/i,
+  // The technical predicates. Without these a tool corpus could only ever say
+  // "these two are in the same sentence", so the graph showed every entity and
+  // no relation between them.
+  USES: /使用|用了|用来|用.{0,6}(做|跑|处理|完成|实现)|通过|调用|借助|采用|uses?|using|used by|via |with the help of/i,
+  DEPENDS_ON: /依赖|需要先|必须先|必须安装|才能用|depends? on|requires?|needs?|only works with/i,
+  PART_OF:
+    /属于|一部分|组件|子集|内置|自带|包含在|part of|component of|subset of|included in|built into/i,
+  EXTENDS: /扩展|基于.{0,8}(开发|实现|构建)|继承|二次开发|fork|forks|extends?|built on top of/i,
 };
 
 export function attestsRelation(
@@ -246,6 +254,11 @@ export function attestsRelation(
     pattern.source,
     pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`,
   );
+  interface Hit {
+    start: number;
+    negated: boolean;
+  }
+  const hits: Hit[] = [];
   for (const match of text.matchAll(global)) {
     const start = match.index ?? -1;
     if (start < 0) continue;
@@ -253,14 +266,48 @@ export function attestsRelation(
     // A keyword inside an endpoint's own characters is not evidence about the
     // relation between the two: `穿衣建议` contains 建议.
     if (overlaps(start, end, subjectSpan) || overlaps(start, end, targetSpan)) continue;
-    if (
-      distance(start, subjectSpan) <= RELATION_EVIDENCE_WINDOW &&
-      distance(start, targetSpan) <= RELATION_EVIDENCE_WINDOW
-    ) {
-      return true;
-    }
+    hits.push({ start, negated: isNegated(text, start) });
   }
-  return false;
+  if (hits.length === 0) return false;
+
+  const inWindow = hits.filter(
+    (hit) =>
+      distance(hit.start, subjectSpan) <= RELATION_EVIDENCE_WINDOW &&
+      distance(hit.start, targetSpan) <= RELATION_EVIDENCE_WINDOW,
+  );
+  if (!inWindow.some((hit) => !hit.negated)) return false;
+
+  // A negated predicate can sit closer to an endpoint than the affirmative one
+  // that made the window. Measured: "通过 excel-mcp 使用 Power Query 获取数据，
+  // 明确不要使用 Python" put one affirmative 使用 twenty characters from Python,
+  // so `Python —USES→ excel-mcp` passed even though the clause about Python says
+  // not to use it. The predicate nearest an endpoint is the one that governs it,
+  // so if that one is negated, the pair is not attested.
+  for (const span of [subjectSpan, targetSpan]) {
+    const nearest = hits.reduce((best, hit) =>
+      distance(hit.start, span) < distance(best.start, span) ? hit : best,
+    );
+    if (nearest.negated) return false;
+  }
+  return true;
+}
+
+/** How far before a predicate a negation can sit and still govern it. */
+const NEGATION_WINDOW = 6;
+
+const NEGATION_PATTERN =
+  /不要|不用|不能|不可|不该|不必|无需|无须|禁止|避免|别用|不|没|未|not |n't|never |without |avoid|don't|doesn't|didn't/i;
+
+/**
+ * Is the predicate at `start` negated?
+ *
+ * The window is short on purpose: `不用 Python，改用 Excel` negates only the first
+ * mention, and a sentence-wide "contains 不" test would reject every relation in
+ * a memory that happens to say "不错" somewhere.
+ */
+function isNegated(text: string, start: number): boolean {
+  const before = text.slice(Math.max(0, start - NEGATION_WINDOW), start);
+  return NEGATION_PATTERN.test(before);
 }
 
 interface Span {
