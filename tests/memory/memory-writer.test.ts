@@ -252,69 +252,6 @@ describe('MemoryWriter', () => {
     });
   });
 
-  describe('session summary supersede', () => {
-    it('closes the previous summary of the same session', async () => {
-      const { writer } = createWriter();
-
-      const first = await writer.write({
-        content: '摘要一：老板询问了 Ubuntu 26.04 的发布状态，助手用 curl 检查了官方网站。',
-        scope: 'session',
-        scopeKey: 'cron:W85kvIrS',
-        kind: 'summary',
-        generateEmbedding: false,
-      });
-      const second = await writer.write({
-        content: '摘要二：老板询问了乒乓球平台的部署进度，助手整理了 Nginx 配置。',
-        scope: 'session',
-        scopeKey: 'cron:W85kvIrS',
-        kind: 'summary',
-        generateEmbedding: false,
-      });
-
-      expect(memoryRepo.findById(first.id)!.status).toBe('superseded');
-      expect(memoryRepo.findById(second.id)!.status).toBe('active');
-      // The chain stays readable: the new row names what it replaced.
-      expect(memoryRepo.findById(second.id)!.supersedes_id).toBe(first.id);
-      // Only one active summary remains for the session, which is what keeps
-      // `retrieveGrouped` from spending two context slots on one conversation.
-      const active = db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM memories WHERE scope='session' AND scope_key='cron:W85kvIrS' AND kind='summary' AND status='active'",
-        )
-        .get() as { n: number };
-      expect(active.n).toBe(1);
-    });
-
-    it('leaves another session and other kinds alone', async () => {
-      const { writer } = createWriter();
-
-      const otherSession = await writer.write({
-        content: '摘要：另一个会话的内容，与上面无关。',
-        scope: 'session',
-        scopeKey: 'cron:OTHER',
-        kind: 'summary',
-        generateEmbedding: false,
-      });
-      const preference = await writer.write({
-        content: '用户偏好简短的回答，不需要寒暄。',
-        scope: 'session',
-        scopeKey: 'cron:W85kvIrS',
-        kind: 'preference',
-        generateEmbedding: false,
-      });
-      await writer.write({
-        content: '摘要：本会话的新摘要，应当只取代 summary。',
-        scope: 'session',
-        scopeKey: 'cron:W85kvIrS',
-        kind: 'summary',
-        generateEmbedding: false,
-      });
-
-      expect(memoryRepo.findById(otherSession.id)!.status).toBe('active');
-      expect(memoryRepo.findById(preference.id)!.status).toBe('active');
-    });
-  });
-
   describe('hasSimilarMemory', () => {
     it('returns match when similarity >= threshold (cosine fallback)', async () => {
       const { writer, embeddingClient } = createWriter();

@@ -408,44 +408,9 @@ export class MemoryWriter {
     }
     const memory = outcome.created;
 
-    // 3.05. A session's summaries supersede each other.
-    //
-    // `summarize_interval` mints a new summary of the session every N messages,
-    // and nothing retired the previous one: the device held two `active`
-    // `scope=session` summaries for the same cron session (2319 and 1385 chars,
-    // identical opening), and `retrieveGrouped` admits both — so the per-turn
-    // `<memory_context>` spent its budget quoting the same monitor output twice.
-    // A newer summary of the *same session* is by definition the better
-    // description of it, so the older ones are closed rather than deleted: the
-    // chain stays readable through `supersedes_id`, and `active` is the read
-    // filter everywhere.
-    if (kind === 'summary' && options.scope === 'session' && scopeKey !== '') {
-      try {
-        // Descending, so the pointer ends up on the newest prior summary.
-        const priors = this.memoryRepository
-          .findByScopeAndKind(options.scope, scopeKey, 'summary')
-          .filter((prior) => prior.id !== memory.id);
-        for (const prior of priors) {
-          this.memoryRepository.supersede(prior.id, memory.id);
-        }
-        if (priors.length > 0) {
-          this.mergeConfig?.logger.info(
-            { scopeKey, supersededCount: priors.length, memoryId: memory.id },
-            'Session summary superseded the previous one',
-          );
-        }
-      } catch (err) {
-        memoryObservability.record('memory.write.degraded', {
-          stage: 'summary_supersede',
-          memoryId: memory.id,
-          scope: options.scope,
-          kind,
-          agentId: agentId ?? undefined,
-          error: errorForObservation(err),
-        });
-      }
-    }
-
+    // NOTE: session summaries are incremental (each covers only the messages
+    // since the last episode), so they are windows, not generations — none of
+    // them supersedes another.
     // A memory row exists under this id again, so any page citing the id is
     // citing text that has just been replaced (plan §8 S1). Only a caller that
     // supplied the id (import/backfill) can land here with citations already

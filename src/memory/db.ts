@@ -27,7 +27,7 @@ import { migrateV25 } from './migration-v25.js';
 import { migrateV26 } from './migration-v26.js';
 import { migrateV27 } from './migration-v27.js';
 import { migrateV28 } from './migration-v28.js';
-import { migrateV29 } from './migration-v29.js';
+import { migrateV30 } from './migration-v30.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -396,19 +396,17 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.warn({ err }, '[V28] Credential redaction failed — continuing');
   }
 
-  // V29 repairs the other half of the same pile: a session summarised twice kept
-  // both summaries `active`, and per-turn recall admitted both. Only a session
-  // summarised *again* is repaired by the write path, so the backlog is closed
-  // here — superseded, never deleted.
+  // V30 restores what v29 closed by mistake. Session summaries are *incremental*
+  // (`summarizeSession` only feeds the messages since the last episode), so the
+  // rows v29 called "superseded generations" were disjoint windows of the same
+  // conversation — closing them cost recall instead of saving it.
   try {
-    const v29Result = migrateV29(db);
-    if (v29Result.superseded > 0) {
-      logger.info(
-        `[V29] Closed ${v29Result.superseded} superseded session summar(y/ies) across ${v29Result.sessions} session(s)`,
-      );
+    const v30Result = migrateV30(db);
+    if (v30Result.restored > 0) {
+      logger.warn(`[V30] Restored ${v30Result.restored} incremental session summar(y/ies)`);
     }
   } catch (err) {
-    logger.warn({ err }, '[V29] Session summary supersede failed — continuing');
+    logger.warn({ err }, '[V30] Session summary restore failed — continuing');
   }
 
   // Backfill FTS index for memories that are missing from it (first-time
