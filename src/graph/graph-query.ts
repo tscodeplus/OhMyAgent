@@ -1344,12 +1344,18 @@ function readMaterialisedComponentPage(
     )
     .all({ minSize, limit, offset }) as Array<{ id: string; size: number }>;
 
+  // Counted over the same rows the page query can return — its `comps` CTE joins
+  // `entities` for the representative's name, so a component whose representative row is
+  // gone is not listed and must not be counted either.
   const total = (
     db
       .prepare(
         `SELECT COUNT(*) AS n FROM (
-           SELECT component_id FROM entity_components
-            WHERE component_size >= @minSize GROUP BY component_id
+           SELECT c.component_id
+             FROM entity_components c
+             JOIN entities e ON e.id = c.component_id
+            WHERE c.component_size >= @minSize
+            GROUP BY c.component_id
          )`,
       )
       .get({ minSize }) as { n: number }
@@ -1533,8 +1539,12 @@ export function metricsMaterialised(db: Database.Database): boolean {
   if (!tableExists(db, 'entity_graph_metrics') || !tableExists(db, 'entity_components')) {
     return false;
   }
-  const row = db.prepare('SELECT COUNT(*) AS n FROM entity_graph_metrics').get() as { n: number };
-  return row.n > 0;
+  // `LIMIT 1`, not `COUNT(*)`: this is "is there a snapshot", asked once per read path and
+  // two or three times per request, and a count of the table answers a question nobody
+  // asked at the cost of a full scan of it.
+  const row = db.prepare('SELECT 1 AS present FROM entity_graph_metrics LIMIT 1').get() as
+    { present: number } | undefined;
+  return row !== undefined;
 }
 
 /**
@@ -1631,17 +1641,26 @@ function readMaterialisedStats(db: Database.Database): Omit<GraphStats, 'enabled
   const mentionLinks = tableExists(db, 'memory_links')
     ? (db.prepare('SELECT COUNT(*) AS n FROM memory_links').get() as { n: number }).n
     : 0;
+  // Every component number is counted over the same set the list can print: a component
+  // whose representative no longer has an `entities` row is not listable (`top` joins
+  // entities), and a count that included it would state a total the rows below it cannot
+  // reach. The window is a deletion made outside `graph_sync` — the next sync rewrites the
+  // snapshot — but a panel where the number and the list disagree is exactly the failure
+  // this layer keeps having to relearn.
+  const COMPONENT_SET = `FROM entity_components c
+                           JOIN entities e ON e.id = c.component_id`;
   const componentAgg = db
     .prepare(
-      'SELECT COUNT(DISTINCT component_id) AS n, MAX(component_size) AS largest FROM entity_components',
+      `SELECT COUNT(DISTINCT c.component_id) AS n, MAX(c.component_size) AS largest ${COMPONENT_SET}`,
     )
     .get() as { n: number; largest: number | null };
   const multiNode = (
     db
       .prepare(
         `SELECT COUNT(*) AS n FROM (
-           SELECT component_id FROM entity_components
-            WHERE component_size >= ${COMPONENT_LIST_MIN_SIZE} GROUP BY component_id
+           SELECT c.component_id ${COMPONENT_SET}
+            WHERE c.component_size >= ${COMPONENT_LIST_MIN_SIZE}
+            GROUP BY c.component_id
          )`,
       )
       .get() as { n: number }

@@ -69,6 +69,16 @@ const DDL_COMPONENTS_RANK = `
 CREATE INDEX IF NOT EXISTS idx_entity_components_size
   ON ${COMPONENTS_TABLE}(component_size DESC, component_id)`;
 
+/**
+ * Membership lookup, which the rank index cannot serve: its leading column is
+ * `component_size`, and every "who is in this component" question filters on
+ * `component_id` ("what is the member preview", "how many open edges are inside").
+ * Without this, listing twenty components scanned the whole table twenty times.
+ */
+const DDL_COMPONENTS_MEMBER = `
+CREATE INDEX IF NOT EXISTS idx_entity_components_member
+  ON ${COMPONENTS_TABLE}(component_id)`;
+
 function tableExists(db: Database.Database, table: string): boolean {
   const row = db
     .prepare('SELECT name FROM sqlite_master WHERE type = ? AND name = ?')
@@ -92,6 +102,8 @@ export function migrateV27(db: Database.Database): MigrateV27Result {
   createdIndexes.push('idx_entity_graph_metrics_rank');
   db.exec(DDL_COMPONENTS_RANK);
   createdIndexes.push('idx_entity_components_size');
+  db.exec(DDL_COMPONENTS_MEMBER);
+  createdIndexes.push('idx_entity_components_member');
 
   return { createdTables, createdIndexes };
 }

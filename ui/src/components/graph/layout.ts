@@ -55,8 +55,16 @@ export const LABEL_HARD_MAX_CHARS = 32;
  * Rendering cap. A whole component is drawn or not drawn, so a chain never
  * arrives as two disconnected-looking halves; only the cluster the user opened
  * is cut, and only after the height budget says it cannot fit.
+ *
+ * 80, not 40, and the cap is usually not what decides: a star or a long path is
+ * limited by the ring geometry first (a phone panel draws 16 of 30 spokes with
+ * either cap, because `MIN_ARC` widens the ring until the height budget cuts).
+ * What the cap does decide is the bushy shapes — on a 1440x900 panel an 80-node
+ * tree or three overlapping hubs went from 40 drawn to 80, and at 390x700 a
+ * 46-node cluster went from 40 to 48. Doubling the cap costs nothing where the
+ * geometry already binds and doubles the picture where it did not.
  */
-export const MAX_RENDERED = 40;
+export const MAX_RENDERED = 80;
 /**
  * Above this many edges a relation table stops being readable and the drawing
  * starts being the honest view. Twelve rows is one screen; the canvas is the only
@@ -171,6 +179,50 @@ interface Box {
   padBottom: number;
   originX: number;
   originY: number;
+}
+
+/**
+ * The drawn segment of one edge, and where its label belongs.
+ *
+ * A line goes from the source's rim to the target's rim — drawing it centre to centre
+ * hides the arrowhead under the target circle — so the two trims are NOT symmetric (a
+ * focused hub is fatter than its neighbours). The label therefore anchors on the midpoint
+ * of the segment that is actually drawn, not the midpoint of the two centres: "in the
+ * middle of the line" is the only placement a reader can verify by looking, and the
+ * centre-midpoint version drifts toward the smaller node by half the difference in radii.
+ *
+ * `null` for a degenerate edge (two nodes at the same point): a zero-length line has no
+ * direction to place a label along, and the caller draws nothing rather than a stray
+ * glyph on a node.
+ */
+export interface EdgeGeometry {
+  /** Drawn segment, in panel pixels. */
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Anchor for the relation label: the segment's midpoint. */
+  midX: number;
+  midY: number;
+}
+
+export function edgeGeometry(
+  from: LayoutPoint,
+  to: LayoutPoint,
+  startPad: number,
+  endPad: number,
+): EdgeGeometry | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return null;
+  const ux = dx / length;
+  const uy = dy / length;
+  const x1 = from.x + ux * startPad;
+  const y1 = from.y + uy * startPad;
+  const x2 = to.x - ux * endPad;
+  const y2 = to.y - uy * endPad;
+  return { x1, y1, x2, y2, midX: (x1 + x2) / 2, midY: (y1 + y2) / 2 };
 }
 
 /**

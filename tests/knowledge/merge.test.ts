@@ -502,6 +502,47 @@ describe('knowledge:merge', () => {
       expect(payload.bodyMerged).toBe(false);
     });
 
+    it('drops the materialised graph snapshot when it deletes an entity', () => {
+      const {} = seedPowerQuery();
+      const entity = (id: string, name: string, canonical: string): void => {
+        db.prepare(
+          `INSERT INTO entities (id, name, canonical_name, entity_type, description, created_at, updated_at)
+           VALUES (?, ?, ?, 'concept', NULL, ?, ?)`,
+        ).run(id, name, canonical, NOW, NOW);
+      };
+      entity('ent-survivor', 'Power Query', 'power query');
+      entity('ent-loser', 'power-query-tool', 'power-query-tool');
+      db.prepare(
+        `INSERT INTO entity_edges (
+           id, source_entity_id, target_entity_id, relation_type, confidence,
+           source_memory_id, source_message_id, valid_from, valid_to, created_at
+         ) VALUES ('edge-1', 'ent-survivor', 'ent-loser', 'USES', 0.9, NULL, NULL, ?, NULL, ?)`,
+      ).run(NOW, NOW);
+
+      // A snapshot that describes the graph before the merge.
+      for (const id of ['ent-survivor', 'ent-loser']) {
+        db.prepare(
+          `INSERT INTO entity_graph_metrics
+             (entity_id, degree_out, degree_in, degree_total, degree_live, mention_count, computed_at)
+           VALUES (?, 1, 1, 2, 2, 0, ?)`,
+        ).run(id, NOW);
+        db.prepare(
+          `INSERT INTO entity_components (entity_id, component_id, component_size, computed_at)
+           VALUES (?, 'ent-survivor', 2, ?)`,
+        ).run(id, NOW);
+      }
+
+      const [outcome] = apply(findMergeCandidates(db));
+      if (outcome.status !== 'merged') throw new Error('expected a merge');
+      expect(outcome.repointed.entityLosersDeleted).toEqual(['ent-loser']);
+
+      // The stored degrees described an edge that now ends somewhere else, so they are
+      // dropped rather than served: the read paths take the materialised branch whenever
+      // the table is non-empty.
+      expect(count('SELECT COUNT(*) AS cnt FROM entity_graph_metrics')).toBe(0);
+      expect(count('SELECT COUNT(*) AS cnt FROM entity_components')).toBe(0);
+    });
+
     it('repoints the graph by name and does not resurrect the loser entity', () => {
       const { pageA, pageB } = seedPowerQuery();
       const entity = (id: string, name: string, canonical: string, type: string): void => {

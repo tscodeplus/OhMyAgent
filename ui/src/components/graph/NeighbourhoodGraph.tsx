@@ -7,6 +7,7 @@ import {
   MAX_RENDERED,
   NODE_RADIUS,
   SPARSE_EDGE_LIMIT,
+  edgeGeometry,
   layoutGraph,
   nodeRadius,
 } from './layout';
@@ -155,25 +156,24 @@ export default function NeighbourhoodGraph({
             const from = layout.points.get(edge.source);
             const to = layout.points.get(edge.target);
             if (!from || !to) return null;
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const length = Math.hypot(dx, dy);
-            if (length === 0) return null;
             // Stop at the circles rather than at their centres: a line drawn
-            // under the node also hides its own arrowhead.
-            const startPad = (radii.get(edge.source) ?? NODE_RADIUS) + 1;
-            const endPad = (radii.get(edge.target) ?? NODE_RADIUS) + 2;
-            const ux = dx / length;
-            const uy = dy / length;
-            const midX = from.x + dx / 2;
-            const midY = from.y + dy / 2;
+            // under the node also hides its own arrowhead. `edgeGeometry` returns the
+            // drawn segment plus the midpoint the label anchors on.
+            const geometry = edgeGeometry(
+              from,
+              to,
+              (radii.get(edge.source) ?? NODE_RADIUS) + 1,
+              (radii.get(edge.target) ?? NODE_RADIUS) + 2,
+            );
+            if (!geometry) return null;
+            const { x1, y1, x2, y2, midX, midY } = geometry;
             return (
               <g key={edge.id}>
                 <line
-                  x1={from.x + ux * startPad}
-                  y1={from.y + uy * startPad}
-                  x2={to.x - ux * endPad}
-                  y2={to.y - uy * endPad}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
                   className="stroke-neutral-300 dark:stroke-neutral-700"
                   strokeWidth={1}
                   markerEnd={`url(#${ARROW_MARKER_ID})`}
@@ -182,9 +182,15 @@ export default function NeighbourhoodGraph({
                   strokeDasharray={edge.valid_to !== undefined ? '4 4' : undefined}
                 />
                 {showEdgeLabels && (
+                  // `dy` centres the glyph box on the segment instead of hanging the
+                  // baseline there. Without it the text floats ~0.35em above the line,
+                  // which on a diagonal edge puts it in the upper wedge — a reader then
+                  // attributes the predicate to whichever node is above, which is how
+                  // "USES is not in the middle, it sits next to the node above" happens.
                   <text
                     x={midX}
-                    y={midY - 3}
+                    y={midY}
+                    dy={EDGE_LABEL_SIZE * 0.35}
                     textAnchor="middle"
                     fontSize={EDGE_LABEL_SIZE}
                     strokeWidth={3}

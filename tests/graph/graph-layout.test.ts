@@ -3,6 +3,7 @@ import type { GraphEdge, GraphNode } from '../../ui/src/types/graph';
 import {
   MAX_RENDERED,
   NODE_RADIUS,
+  edgeGeometry,
   layoutGraph,
   type LayoutResult,
 } from '../../ui/src/components/graph/layout';
@@ -195,5 +196,51 @@ describe('graph layout', () => {
 
     expect(result.points.size).toBeLessThanOrEqual(MAX_RENDERED);
     expect(result.hiddenCount).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The relation label sits at the middle of the line the reader can see.
+ *
+ * The line runs rim to rim, and the two pads are not equal (a focused hub draws a 6px
+ * circle, a leaf 4.5px), so the midpoint of the centres is not the midpoint of the
+ * segment. Anchoring on the centre-midpoint — the first version — put the predicate a few
+ * pixels toward the smaller node on every edge, which on a diagonal edge reads as "the
+ * label belongs to the node above it".
+ */
+describe('edge geometry', () => {
+  it('anchors the label on the midpoint of the drawn segment', () => {
+    const from = { x: 100, y: 300 };
+    const to = { x: 100, y: 100 };
+    const geometry = edgeGeometry(from, to, 6 + 1, 4.5 + 2);
+    expect(geometry).not.toBeNull();
+    if (!geometry) return;
+    // Padded endpoints: 7px in from the source, 6.5px in from the target.
+    expect(geometry.y1).toBeCloseTo(293, 5);
+    expect(geometry.y2).toBeCloseTo(106.5, 5);
+    expect(geometry.x1).toBe(100);
+    expect(geometry.x2).toBe(100);
+    // Midpoint of the SEGMENT, which is 0.5px off the midpoint of the centres.
+    expect(geometry.midY).toBeCloseTo((293 + 106.5) / 2, 5);
+    expect(geometry.midY).not.toBeCloseTo(200, 1);
+  });
+
+  it('keeps the anchor on a diagonal, where the drift was visible', () => {
+    const from = { x: 90, y: 183 };
+    const to = { x: 170, y: 137 };
+    const geometry = edgeGeometry(from, to, 7, 6.5);
+    expect(geometry).not.toBeNull();
+    if (!geometry) return;
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    // The anchor is equidistant from both drawn ends — that is the property, not a
+    // coordinate: any pad pair must leave it in the middle of what is drawn.
+    const first = Math.hypot(geometry.midX - geometry.x1, geometry.midY - geometry.y1);
+    const second = Math.hypot(geometry.midX - geometry.x2, geometry.midY - geometry.y2);
+    expect(first).toBeCloseTo(second, 6);
+    expect(first + second).toBeCloseTo(length - 7 - 6.5, 6);
+  });
+
+  it('returns nothing for two nodes at the same point', () => {
+    expect(edgeGeometry({ x: 10, y: 10 }, { x: 10, y: 10 }, 7, 6.5)).toBeNull();
   });
 });

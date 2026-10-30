@@ -91,6 +91,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { hasTable, pickColumn, tableColumns } from '../../graph-export/sqlite-schema.js';
+import { clearGraphMetrics } from '../../graph/graph-metrics.js';
 import { canonicalizeEntityName } from '../repositories/entity-repository.js';
 import { normalizeScope } from './scope.js';
 import { slugify } from './slug.js';
@@ -815,6 +816,16 @@ function repointGraph(
     if (nextSubject === row.subject_entity && nextTarget === row.target_entity) continue;
     rewrite.run(nextSubject, nextTarget, row.id);
     result.memoryLinks += 1;
+  }
+
+  // The derived numbers in `entity_graph_metrics`/`entity_components` describe a graph
+  // this function just changed: edges moved to the survivor and the loser's row may be
+  // gone. Nothing here recomputes them — that is `graph_sync`'s job — so the snapshot is
+  // dropped instead of served. A stale snapshot is worse than a slow read, because the
+  // read paths take the materialised branch whenever the table is non-empty and would
+  // print a degree for an edge that no longer has that endpoint.
+  if (result.entityEdges > 0 || result.entityLosersDeleted.length > 0) {
+    clearGraphMetrics(db);
   }
 
   return result;

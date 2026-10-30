@@ -252,6 +252,36 @@ describe('materialised graph metrics', () => {
     expect(ranked[1]).toBe('ent-fresh'); // degree 1, ahead of every zero
   });
 
+  /**
+   * A component whose representative row is gone must not be counted either.
+   *
+   * The list joins `entities` for the representative's name; the counts used to enumerate
+   * `entity_components` directly, so a representative deleted outside `graph_sync` (the
+   * knowledge merge does exactly this) printed `componentCount: 2` over a page that could
+   * show one row. Deleting the row directly is the only way to reach that state — the
+   * writer recomputes, so the window is "between a deletion and the next sync".
+   */
+  it('counts only the components it can list after a representative row disappears', () => {
+    materializeGraphMetrics(db);
+    const before = readGraphStats(db);
+    expect(before.multiNodeComponents).toBe(1);
+    // One pair plus three lone names; the pair is the only listable component, but the
+    // count is over components, not over listable ones.
+    expect(before.componentCount).toBe(4);
+
+    db.prepare('DELETE FROM entities WHERE id = ?').run('ent-hub');
+
+    const after = readGraphStats(db);
+    const page = readComponentPage(db, { limit: 50 });
+    // The list and the multi-node count are the same set — that is the property. The
+    // plain `componentCount` includes lone names by definition, so it can only drop by
+    // one here: the pair stopped being a component and its survivor is a lone name.
+    expect(after.multiNodeComponents).toBe(0);
+    expect(page.total).toBe(0);
+    expect(page.items).toEqual([]);
+    expect(after.componentCount).toBe(3);
+  });
+
   it('reports zeros instead of throwing on a database with no graph tables', () => {
     const empty = openDatabase(':memory:');
     try {
