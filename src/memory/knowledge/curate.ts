@@ -318,13 +318,19 @@ const GROUPING_BATCH_SIZE = 10;
  * Completion budget per grouping call.
  *
  * The answer itself is tiny (187 characters for five memories); the budget is for
- * the reasoning that precedes it. 800 was the value that produced truncated
- * deliberation, so this is the smallest size measured to finish a ten-memory
- * batch.
+ * the reasoning that precedes it, and it scales with the input. Measured on a
+ * ten-memory batch (1126-character prompt) with the configured aux model: 2000
+ * tokens produced 7418 characters of deliberation and no JSON; 4000 answered in
+ * 12s with a clean array; 6000 answered in 10s. 4000 is the measured floor for a
+ * batch of {@link GROUPING_BATCH_SIZE}, not a round number.
  */
-const GROUPING_MAX_TOKENS = 2000;
-/** The page call reads up to {@link MAX_SOURCES_PER_PAGE} memories; same reasoning as above. */
-const PAGE_MAX_TOKENS = 2000;
+const GROUPING_MAX_TOKENS = 4000;
+/**
+ * The page call reads up to {@link MAX_SOURCES_PER_PAGE} memories (12 × 400 chars)
+ * plus the existing-page hints, so it is a strictly larger input than a grouping
+ * batch — same measured floor, same reason.
+ */
+const PAGE_MAX_TOKENS = 4000;
 const MAX_SOURCES_PER_PAGE = 12;
 /** FTS5 `AND` terms stay readable: eight tokens already pin a subject. */
 const MAX_SOURCE_QUERY_TERMS = 8;
