@@ -1726,6 +1726,7 @@
       "approve": "批准",
       "archive": "归档",
       "approved": "已批准——{{title}} 现已生效",
+      "approvedStaleWarning": "已批准 {{title}}，但该页面引用的记忆已被更新，页面尚未重新策展——正文可能仍未同步，需要重新策展后再审一次",
       "approveError": "批准页面失败",
       "archived": "已归档——{{title}}",
       "archiveError": "归档页面失败",

@@ -110,7 +110,7 @@ import type {
 } from './types.js';
 import { isPageType } from './types.js';
 import { scopeSql } from './scope.js';
-import { KnowledgeRepository } from './repository.js';
+import { KnowledgeRepository, type KnowledgePageRef } from './repository.js';
 import { tokenizeForIndex } from '../fts-tokenizer.js';
 
 // ── Config ──────────────────────────────────────────────────────────────
@@ -1313,7 +1313,30 @@ export class KnowledgeCurator {
       // filter), so the write below becomes an `update` and the recovery the
       // invalidation comment promises actually happens.
       const active = this.deps.knowledgeService.get({ slug, pageType }, { scope });
-      const existing = active?.page ?? this.repository.findBySlug(slug, pageType, scope);
+      let existing = active?.page ?? this.repository.findBySlug(slug, pageType, scope);
+      let address: KnowledgePageRef = { slug, pageType };
+      if (existing?.status === 'archived') {
+        // Damping (impl-review F-3): the merge that archived this row handed
+        // its names to an ACTIVE survivor (`mergedAliases`), so the subject is
+        // already established — re-activating this row would re-pair the two
+        // in the next merge scan and the two features would archive/restore
+        // forever. When a live page under this scope names the subject again —
+        // its own normalized title, this slug, or an absorbed alias equal to
+        // the spelling — the write goes there instead, and the archived row
+        // stays history: no reader filters it back in, and the wikilinks other
+        // bodies hold never lose their target. Exact legs only: the prefix of
+        // `findByTitleOrAlias` would fold "Power" into "Power Query", and a
+        // damping decision must only redirect two spellings of one subject.
+        const survivor = this.repository.findActiveSameSubject(page.title, slug, { scope });
+        if (survivor) {
+          existing = survivor;
+          address = { slug: survivor.slug, pageType: survivor.page_type };
+          this.logger.info(
+            { archivedSlug: slug, survivorSlug: survivor.slug, scope },
+            'knowledge curate: archived address has a live survivor, writing there',
+          );
+        }
+      }
       if (existing) {
         const update: UpdateKnowledgePageInput = {
           title: page.title,
@@ -1328,15 +1351,17 @@ export class KnowledgeCurator {
         if (existing.status !== 'active') {
           // A recovered page takes the status a fresh write would have: shadow
           // keeps it pending (human review still gates it), no shadow puts it
-          // back in the index — and an archived row that the subject is being
-          // re-established for re-enters the same way. Omitted when that equals
-          // the row's own status (a pending page under shadow): the update must
-          // not restamp what it is not changing, and a re-run over a live
-          // pending row must not demote or promote an already-queued page.
+          // back in the index. Omitted when that equals the row's own status
+          // (a pending page under shadow): the update must not restamp what it
+          // is not changing, and a re-run over a live pending row must not
+          // demote or promote an already-queued page. The archived-damping
+          // branch above only redirects when the survivor is already active,
+          // so an archived row reaching this branch has no live namesake and
+          // genuinely re-enters as the subject's page.
           const fresh = this.config.shadow ? 'pending' : 'active';
           if (existing.status !== fresh) update.status = fresh;
         }
-        result = this.deps.knowledgeService.update({ slug, pageType }, update, writeOptions);
+        result = this.deps.knowledgeService.update(address, update, writeOptions);
       } else {
         const create: CreateKnowledgePageInput = {
           pageType,

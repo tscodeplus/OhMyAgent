@@ -230,6 +230,48 @@ export class KnowledgeRepository {
     return this.db.prepare(sql).all(...params) as KnowledgePage[];
   }
 
+  /**
+   * The ACTIVE page the caller's subject already names — the damping lookup
+   * for a re-curated archived address (`curate.ts`). Exact legs only: the
+   * stored normalized title equals the caller's folded title, the slug equals
+   * the derived slug, or one absorbed alias equals the spelling. Not the
+   * prefix of `findByTitleOrAlias` — a damping decision must only redirect
+   * two spellings of one subject, and a prefix would fold "Power" into
+   * "Power Query" and rewrite the wrong page.
+   *
+   * A chat's own page sorts above a global one (`scopeSql`), newest first
+   * after that — the same total order `findBySlug` reads with.
+   */
+  findActiveSameSubject(
+    title: string,
+    slug: string,
+    options?: { pageType?: PageType; scope?: string },
+  ): KnowledgePage | undefined {
+    const normalizedTitle = normalizeMergeName(title);
+    const normalizedSlug = slugify(slug);
+    if (!normalizedTitle && !normalizedSlug) return undefined;
+    const params: unknown[] = [normalizedTitle, normalizedSlug, title];
+    let sql = `
+      SELECT * FROM knowledge_pages p
+      WHERE p.status = 'active'
+        AND (
+          p.normalized_title = ?
+          OR p.slug = ?
+          OR EXISTS (SELECT 1 FROM json_each(p.aliases) WHERE lower(json_each.value) = lower(?))
+        )`;
+    if (options?.scope !== undefined) {
+      const filter = scopeSql('p.scope', options.scope);
+      sql += ` AND ${filter.sql}`;
+      params.push(...filter.params);
+    }
+    if (options?.pageType) {
+      sql += ` AND p.page_type = ?`;
+      params.push(options.pageType);
+    }
+    sql += " ORDER BY (p.scope != 'global') DESC, p.updated_at DESC, p.id ASC LIMIT 1";
+    return this.db.prepare(sql).get(...params) as KnowledgePage | undefined;
+  }
+
   sourcesOf(pageId: string): KnowledgeSource[] {
     return this.db
       .prepare(

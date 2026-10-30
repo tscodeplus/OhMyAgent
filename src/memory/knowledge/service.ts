@@ -415,6 +415,56 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
       patch.sources = sources;
     }
 
+    // Admission runs on the update route too, for the same caller class as
+    // on `create`: since the recovery writes (`curate.ts` addressing a
+    // pending/archived row through this route) made `update` the curator's
+    // main path, the service — not the caller's pre-flight — is the
+    // implementation the module header claims is the only one. Only a
+    // body-bearing write is re-admitted: an append-only status/tags flip
+    // cannot smuggle a new subject past the rule, and ownership rows
+    // (approvals) are the one authority the rule approximates.
+    if (
+      options.enforceAdmission === true &&
+      (patch.content !== undefined || patch.title !== undefined)
+    ) {
+      // The effective title/citations are the row's current ones where the
+      // patch does not replace them — a body-only rewrite is still the same
+      // subject and still carries the page's own citations unless the patch
+      // replaces them. Unresolvable here means `updatePage` below answers
+      // `not_found` for the same reason; refusing on an empty title first
+      // only reorders which rejection the caller sees.
+      const scope = normalizeScope(options.scope);
+      const current =
+        'id' in ref
+          ? repository.findById(ref.id, scope)
+          : repository.findBySlug(ref.slug, ref.pageType, scope);
+      const sources: KnowledgeSourceInput[] =
+        patch.sources !== undefined
+          ? (patch.sources ?? [])
+          : current
+            ? repository
+                .sourcesOf(current.id)
+                .map((source) => ({ kind: source.source_kind, id: source.source_id }))
+            : [];
+      const title = patch.title ?? current?.title;
+      const checks = evaluateAdmission({
+        title: title ?? '',
+        sources,
+        requireSources: Math.max(1, config.requireSources),
+        requested: options.explicitRequest ?? options.actor === 'user',
+      });
+      const failed = checks.filter((check) => !check.passed);
+      const firstFailed = checks.length - failed.length < 2 ? failed[0] : undefined;
+      if (firstFailed) {
+        return {
+          ok: false,
+          code: 'admission_rejected',
+          reason: ADMISSION_REJECTION_REASON[firstFailed.rule],
+          detail: checks.map((check) => `${check.rule}: ${check.detail}`).join('; '),
+        };
+      }
+    }
+
     return toWriteResult(
       repository.updatePage(ref, patch, options.actor, normalizeScope(options.scope)),
     );

@@ -1726,6 +1726,7 @@
       "approve": "Approve",
       "archive": "Archive",
       "approved": "Approved — {{title}} is now active",
+      "approvedStaleWarning": "Approved {{title}}, but a memory it cites has changed and the page has not been re-curated — the body may still be the stale copy and needs another curation pass",
       "approveError": "Failed to approve the page",
       "archived": "Archived — {{title}}",
       "archiveError": "Failed to archive the page",

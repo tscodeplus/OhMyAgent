@@ -141,6 +141,14 @@ export interface KnowledgeStatusChangePayload {
   status: KnowledgePageStatus;
   /** `null` when the page vanished in between, or (for archive) is no longer readable. */
   page: KnowledgePageDetailPayload | null;
+  /**
+   * Approve only, and only for a page still flagged by the write-side
+   * invalidation: the memory it cites has changed and the page has not been
+   * re-curated since, so approving republishes the frozen body. The server's
+   * detail text is developer-facing English; the queue renders its own
+   * bilingual toast and ignores this string.
+   */
+  warning?: string;
 }
 
 /** `indexer.checkConsistency` — `null` in the stats payload means "not checked". */

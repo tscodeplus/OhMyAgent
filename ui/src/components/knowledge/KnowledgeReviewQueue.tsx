@@ -76,22 +76,34 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
     async (page: KnowledgePagePayload, action: 'approve' | 'archive') => {
       setActingId(page.id);
       try {
-        if (action === 'approve') {
-          await approveKnowledgePage(page.id);
-        } else {
-          await archiveKnowledgePage(page.id);
-        }
+        // Approve for a page still flagged by the write-side invalidation
+        // republishes the frozen body — the server attaches a `warning`. That
+        // detail text is developer-facing English, so the toast carries the
+        // bilingual risk instead of the raw string, and lasts long enough to be
+        // read before the page disappears from the queue.
+        const result =
+          action === 'approve'
+            ? await approveKnowledgePage(page.id)
+            : await archiveKnowledgePage(page.id);
         // Both decisions take the page out of `pending`, so the row goes with it
         // instead of staying behind with a new badge.
         setPages((current) => current.filter((entry) => entry.id !== page.id));
         if (previewId === page.id) setPreviewId(null);
         onChanged();
-        showToast(
-          action === 'approve'
-            ? t('knowledge.review.approved', { title: page.title })
-            : t('knowledge.review.archived', { title: page.title }),
-          'success',
-        );
+        if (action === 'approve' && result.warning) {
+          showToast(
+            t('knowledge.review.approvedStaleWarning', { title: page.title }),
+            'warning',
+            8000,
+          );
+        } else {
+          showToast(
+            action === 'approve'
+              ? t('knowledge.review.approved', { title: page.title })
+              : t('knowledge.review.archived', { title: page.title }),
+            'success',
+          );
+        }
       } catch {
         // The server's message here is developer-facing English ("No knowledge
         // page with id …"); the failure a human can act on is "it did not

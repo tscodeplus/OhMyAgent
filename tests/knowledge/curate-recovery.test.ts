@@ -288,7 +288,7 @@ describe('curate recovery: a merged-away page', () => {
     return pageBySlug(slug);
   }
 
-  it('the same subject curates again after the merge — an update, not a version_conflict', async () => {
+  it('the same subject curates into the MERGE SURVIVOR — the two features do not oscillate', async () => {
     seedMergeMemories();
     // One of `powerquery`'s names folds onto the survivor's (`normalized_name`
     // evidence); the survivor keeps the page with more citations.
@@ -300,20 +300,56 @@ describe('curate recovery: a merged-away page', () => {
     const [outcome] = applyMergePlan(db, plan);
     expect(outcome.status).toBe('merged');
 
-    // The loser still owns its address, archived.
+    // The loser still owns its address, archived; its name lives on as an
+    // alias of the survivor (`mergedAliases`).
     const loser = pageBySlug('powerquery');
     expect(loser.status).toBe('archived');
-    expect(pageBySlug('power-query').status).toBe('active');
+    const survivorBefore = pageBySlug('power-query');
+    expect(survivorBefore.status).toBe('active');
 
-    // The subject is being re-established: the curator's deterministic slug for
-    // `PowerQuery` is exactly the archived row — the run must write an update.
+    // The subject is being re-established — the curator's deterministic slug
+    // for `PowerQuery` is exactly the archived row, but a live survivor names
+    // the same subject through the absorbed alias, so damping addresses the
+    // survivor instead: an update there, and the archived row untouched.
     scriptOnePage('PowerQuery ETL, re-established after the merge.', 'PowerQuery');
     const report = await curator().run({ trigger: 'manual' });
 
     expect(report.updated).toBe(1);
     expect(report.rejected.version_conflict).toBeUndefined();
-    const reestablished = pageBySlug('powerquery');
-    expect(reestablished.status).toBe('active');
-    expect(reestablished.content).toContain('re-established');
+    const survivorAfter = pageBySlug('power-query');
+    expect(survivorAfter.status).toBe('active');
+    expect(survivorAfter.version).toBe(survivorBefore.version + 1);
+    expect(survivorAfter.content).toContain('re-established');
+    // The loser stays history — a re-curation does not resurrect it, so the
+    // next merge scan cannot re-pair the two and flip statuses every night.
+    expect(pageBySlug('powerquery').status).toBe('archived');
+    expect(pageBySlug('powerquery').version).toBe(loser.version);
+
+    // A second run over the same subject lands on the survivor again — the
+    // steady state, not an archive/restore cycle.
+    scriptOnePage('PowerQuery ETL, the survivor stays current.', 'PowerQuery');
+    const second = await curator().run({ trigger: 'manual' });
+    expect(second.updated).toBe(1);
+    expect(pageBySlug('powerquery').status).toBe('archived');
+    expect(pageBySlug('power-query').content).toContain('stays current');
+  });
+
+  it('an archived row WITHOUT a live namesake re-enters as its subject page', async () => {
+    seedMergeMemories();
+    createPage('powerquery', 'PowerQuery', 'PowerQuery ETL notes, archived by hand.', 2);
+    // Archived directly (e.g. the review queue rejected the page) — no merge
+    // ran, so no survivor absorbed the name and the address has no successor.
+    const archived = pageBySlug('powerquery');
+    service.setStatus(archived.id, 'archived', 'user');
+    expect(pageBySlug('powerquery').status).toBe('archived');
+
+    scriptOnePage('PowerQuery ETL, re-established after the manual archive.', 'PowerQuery');
+    const report = await curator().run({ trigger: 'manual' });
+
+    expect(report.updated).toBe(1);
+    expect(report.rejected.version_conflict).toBeUndefined();
+    const reentered = pageBySlug('powerquery');
+    expect(reentered.status).toBe('active');
+    expect(reentered.content).toContain('re-established');
   });
 });

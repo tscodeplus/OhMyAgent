@@ -529,6 +529,55 @@ describe('knowledge service', () => {
         slug: 'nope',
       });
     });
+
+    // Fix the drift the impl review (F-1) found: the module header says the
+    // service is the one implementation of admission "for every write the
+    // curator makes", and since the recovery writes made `update` the
+    // curator's main route, a curation update with a new body must pass the
+    // same two-of-three gate here — not only in the caller's pre-flight.
+    it('re-conditions a curation update with a body on the same admission gate', () => {
+      const created = service.create(createInput({ content: '第一版' }), { actor: 'agent' });
+      if (!created.ok) throw new Error('create failed');
+
+      // Rule 2 fails (one source below `requireSources`) → rejected at the
+      // service, identically to a `create` with the same shape. `sources` ride
+      // in the update input, exactly as the curator passes them.
+      const thin = service.update(
+        { slug: 'excel-etl', pageType: 'topic' },
+        {
+          content: '第二版',
+          expectedVersion: 1,
+          sources: [{ kind: 'memory', id: MEMORY_A }],
+        },
+        { actor: 'system', enforceAdmission: true },
+      );
+      expect(thin).toMatchObject({ ok: false, code: 'admission_rejected' });
+      expect(
+        db.prepare("SELECT content FROM knowledge_pages WHERE slug = 'excel-etl'").get(),
+      ).toMatchObject({ content: '第一版' });
+
+      // Rules pass → the update applies and the version advances.
+      const good = service.update(
+        { slug: 'excel-etl', pageType: 'topic' },
+        { content: '第二版', expectedVersion: 1, sources: TWO_MEMORY_SOURCES },
+        { actor: 'system', enforceAdmission: true },
+      );
+      expect(good).toMatchObject({ ok: true, version: 2, created: false });
+    });
+
+    it('does not re-run admission on an update without a new body', () => {
+      const created = service.create(createInput({ content: '第一版' }), { actor: 'agent' });
+      if (!created.ok) throw new Error('create failed');
+
+      // A status/tags flip cannot smuggle a new subject past the rule: the
+      // approve path (setStatus-adjacent writes) must never be gated.
+      const result = service.update(
+        { slug: 'excel-etl', pageType: 'topic' },
+        { tags: ['approved'], expectedVersion: 1 },
+        { actor: 'user', enforceAdmission: true },
+      );
+      expect(result).toMatchObject({ ok: true, created: false });
+    });
   });
 
   describe('list', () => {
