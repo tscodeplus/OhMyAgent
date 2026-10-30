@@ -1596,6 +1596,7 @@
     "showingFirst": "画布画出 {{shown}} 个有关系的实体，另有 {{hidden}} 个超出上限未画",
     "unlinkedCount": "{{count}} 个实体没有关系：",
     "truncated": "接口按上限只返回了 {{count}} 个实体，图谱里还有更多",
+    "reloading": "更新中…",
     "clickHint": "点击节点可切换到该实体",
     "canvasLabel": "实体关系图",
     "nodeAria": "实体 {{name}}",
@@ -1657,7 +1658,9 @@
     "asOfAll": "全部时间",
     "asOfOption": "按某一天的状态查看",
     "wholeGraph": "整张图",
-    "wholeGraphHint": "整张图按服务器的硬上限返回，超出部分仍会被截断；总览默认只取最常出现的实体及其一跳邻居。"
+    "countsOfTotal": "{{nodes}} / 共 {{total}} 个实体 · {{edges}} 条关系",
+    "wholeGraphHint": "整张图把全部 {{total}} 个实体纳入节点集（默认只取最常出现的实体及其一跳邻居）。",
+    "wholeGraphNoEdges": "其中 {{count}} 个实体没有任何关系，所以画布上的连线不会因此变多。"
   },
   "knowledge": {
     "title": "知识库",

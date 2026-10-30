@@ -202,12 +202,48 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                       : 'border-neutral-200 hover:border-neutral-300 dark:border-neutral-800 dark:hover:border-neutral-700'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h3 className="truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
+                  <div className="min-w-0">
+                    {/*
+                      Title and the preview button share a line, and only they do.
+                      The button used to be a sibling of the title *and* the evidence
+                      line, which on a phone left it ~70px wide and wrapped
+                      "查看正文" onto two lines — a control that looks broken exactly
+                      where the row toggle matters most. Up here it gets the title's
+                      line, and the evidence line gets the full width, which it needs:
+                      it carries type, scope, slug, author, time and two counters.
+                      `shrink-0 whitespace-nowrap` is the other half — without them the
+                      label still wraps inside the button instead of pushing back.
+                    */}
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="min-w-0 truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
                         {page.title}
                       </h3>
-                      {/*
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 whitespace-nowrap"
+                        // The row already toggles on click; without this the click
+                        // arrives twice and the body never opens.
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setPreviewId(expanded ? null : page.id);
+                        }}
+                        aria-label={
+                          expanded
+                            ? t('knowledge.review.hidePreview')
+                            : t('knowledge.review.preview')
+                        }
+                        aria-expanded={expanded}
+                      >
+                        {expanded ? <EyeOff size={14} /> : <Eye size={14} />}
+                        <span>
+                          {expanded
+                            ? t('knowledge.review.hidePreview')
+                            : t('knowledge.review.preview')}
+                        </span>
+                      </Button>
+                    </div>
+                    {/*
                         One line for everything a reviewer scans: what kind, whose
                         chat, which slug, who wrote it and when, and how much
                         evidence stands behind it. Evidence moved up here because a
@@ -224,70 +260,48 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                         Defensive `?? 0`: a service worker can serve a cached older
                         bundle against a newer server and vice versa.
                       */}
-                      {(() => {
-                        const evidence = page.sources ?? { total: 0, independent: 0 };
-                        const thin = evidence.independent < requireSources;
-                        return (
-                          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                            <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
-                              {t(`knowledge.pageTypes.${page.pageType}`)}
-                            </span>
-                            {/* The queue is where the scope decides the answer: the
+                    {(() => {
+                      const evidence = page.sources ?? { total: 0, independent: 0 };
+                      const thin = evidence.independent < requireSources;
+                      return (
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                          <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
+                            {t(`knowledge.pageTypes.${page.pageType}`)}
+                          </span>
+                          {/* The queue is where the scope decides the answer: the
                                 same subject curated in two chats is two drafts, and
                                 only one of them belongs here. */}
-                            <KnowledgeScopeBadge scope={page.scope} />
-                            <span className="truncate">{page.slug}</span>
-                            {page.updatedAt && (
-                              <span>
-                                ·{' '}
-                                {t('knowledge.review.written', {
-                                  time: formatRelativeTime(page.updatedAt),
-                                  actor: page.updatedBy || t('knowledge.editor.actorUnknown'),
-                                })}
-                              </span>
-                            )}
+                          <KnowledgeScopeBadge scope={page.scope} />
+                          <span className="truncate">{page.slug}</span>
+                          {page.updatedAt && (
                             <span>
                               ·{' '}
-                              {t('knowledge.review.sourceSummary', {
-                                sources: evidence.total,
-                                conversations: evidence.independent,
+                              {t('knowledge.review.written', {
+                                time: formatRelativeTime(page.updatedAt),
+                                actor: page.updatedBy || t('knowledge.editor.actorUnknown'),
                               })}
                             </span>
-                            {thin && (
-                              <span
-                                title={t('knowledge.review.thinSourcesHint', {
-                                  required: requireSources,
-                                })}
-                                className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
-                              >
-                                {t('knowledge.review.thinSources', { required: requireSources })}
-                              </span>
-                            )}
-                          </p>
-                        );
-                      })()}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      // The row already toggles on click; without this the click
-                      // arrives twice and the body never opens.
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setPreviewId(expanded ? null : page.id);
-                      }}
-                      aria-label={
-                        expanded ? t('knowledge.review.hidePreview') : t('knowledge.review.preview')
-                      }
-                      aria-expanded={expanded}
-                    >
-                      {expanded ? <EyeOff size={14} /> : <Eye size={14} />}
-                      <span>
-                        {expanded
-                          ? t('knowledge.review.hidePreview')
-                          : t('knowledge.review.preview')}
-                      </span>
-                    </Button>
+                          )}
+                          <span>
+                            ·{' '}
+                            {t('knowledge.review.sourceSummary', {
+                              sources: evidence.total,
+                              conversations: evidence.independent,
+                            })}
+                          </span>
+                          {thin && (
+                            <span
+                              title={t('knowledge.review.thinSourcesHint', {
+                                required: requireSources,
+                              })}
+                              className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                            >
+                              {t('knowledge.review.thinSources', { required: requireSources })}
+                            </span>
+                          )}
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   {expanded && (

@@ -109,9 +109,6 @@ export default function GraphView({
   const loadGraph = useCallback(async () => {
     setGraphLoading(true);
     setGraphError(null);
-    // A new payload is a new drawing: unfolding the canvas for one filter must not
-    // keep it unfolded for the next.
-    setExpanded(false);
     const params = new URLSearchParams({ limit: String(DEFAULT_LIMIT) });
     if (component) {
       // `component` wins over `entity` on the server, and the drill-down is the
@@ -146,6 +143,29 @@ export default function GraphView({
   useEffect(() => {
     void loadGraph();
   }, [loadGraph]);
+
+  /**
+   * A new payload is a new drawing, so a canvas unfolded for one filter must not stay
+   * unfolded for the next — otherwise "expand" silently becomes a setting.
+   *
+   * The whole-graph switch is deliberately NOT in this list. It is the one control
+   * whose whole purpose is to see everything, and it now auto-expands; resetting here
+   * would fold away the drawing the reader just asked for.
+   */
+  useEffect(() => {
+    setExpanded(false);
+  }, [asOfMs, component, entityId, types]);
+
+  /**
+   * Asking for the whole graph and then having to click "expand" is the same
+   * intention expressed twice, so checking it unfolds the canvas. Unchecking leaves
+   * the canvas as it is: folding a picture the reader is looking at is not a
+   * consequence of narrowing the node set.
+   */
+  const changeWholeGraph = useCallback((next: boolean) => {
+    setWholeGraph(next);
+    if (next) setExpanded(true);
+  }, []);
 
   // The route owns the entity selection, so arriving at one (a page link, a search
   // hit) has to leave the component drill-down behind instead of drawing it on top.
@@ -211,6 +231,22 @@ export default function GraphView({
   const canvasVisible = edgeCount > 0 && (!sparse || expanded);
   const mentions = graph?.mentions ?? [];
   const shownMentions = mentions.slice(0, MENTION_DISPLAY_LIMIT);
+  /**
+   * Entities in the whole graph, from the unfiltered stats payload. The overview's
+   * default is a budget (a phone-shaped 200), so on any corpus bigger than that the
+   * picture is a slice — and "200 个实体" alone cannot be told apart from "there are
+   * 200". Absent stats means the count stays unqualified rather than invented.
+   */
+  const wholeTotal = stats && stats.enabled !== false ? stats.nodes : undefined;
+  /**
+   * How many of the payload's nodes carry no relation at all.
+   *
+   * This is the sentence the whole-graph switch was missing: those nodes are real,
+   * they are now in the node set, and they still draw nothing — so the canvas can be
+   * identical before and after checking it. Saying so costs one line; leaving it out
+   * reads as a broken control.
+   */
+  const nodesWithoutEdges = (graph?.nodes ?? []).filter((node) => node.degree === 0).length;
 
   const selectEntity = useCallback(
     (id: string | undefined) => {
@@ -257,7 +293,26 @@ export default function GraphView({
                 </h2>
                 {graph && (
                   <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                    {t('graph.counts', { nodes: graph.nodes.length, edges: graph.edges.length })}
+                    {/*
+                      "How much of the graph is in this picture" is the one thing the
+                      whole-graph switch visibly changes, so the count has to say it.
+                      `stats` reports the whole graph and is fetched independently of
+                      the payload, so the pair is `drawn / exists` — the denominator is
+                      present only when there really is something left outside, since
+                      "378 / 378" is noise pretending to be information.
+                    */}
+                    {wholeTotal && wholeTotal > graph.nodes.length
+                      ? t('graph.countsOfTotal', {
+                          nodes: graph.nodes.length,
+                          total: wholeTotal,
+                          edges: graph.edges.length,
+                        })
+                      : t('graph.counts', { nodes: graph.nodes.length, edges: graph.edges.length })}
+                    {graphLoading && (
+                      <span className="ml-1.5 inline-block align-middle text-[10px] text-neutral-400 animate-pulse dark:text-neutral-500">
+                        {t('graph.reloading')}
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -286,7 +341,12 @@ export default function GraphView({
               </div>
             </div>
 
-            {graphLoading ? (
+            {graphLoading && !graph ? (
+              // Only the first load blanks the panel. A reload keeps the previous
+              // drawing on screen (dimmed) because replacing it with this centred
+              // spinner collapses the scroll height, and the browser then clamps
+              // `scrollTop` — the page jumps to the top when a filter is toggled,
+              // which is exactly the moment the reader is looking at something.
               <div className="flex justify-center py-12">
                 <Spinner />
               </div>
@@ -339,7 +399,14 @@ export default function GraphView({
                   asOf={asOf}
                   onAsOfChange={setAsOf}
                   wholeGraph={
-                    isOverview ? { value: wholeGraph, onChange: setWholeGraph } : undefined
+                    isOverview
+                      ? {
+                          value: wholeGraph,
+                          onChange: changeWholeGraph,
+                          total: wholeTotal ?? graph.nodes.length,
+                          noEdgeNodes: wholeGraph ? nodesWithoutEdges : 0,
+                        }
+                      : undefined
                   }
                 />
 

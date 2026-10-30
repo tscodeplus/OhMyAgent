@@ -16,8 +16,20 @@ interface GraphFiltersProps {
   /** `<input type="date">` value (`YYYY-MM-DD`); empty means all time. */
   asOf: string;
   onAsOfChange: (value: string) => void;
-  /** Overview only — the `?whole=1` escape hatch. */
-  wholeGraph?: { value: boolean; onChange: (next: boolean) => void };
+  /**
+   * Overview only — the `?whole=1` escape hatch.
+   *
+   * `total` and `noEdgeNodes` exist because the switch can look inert: it widens the
+   * *node set*, and nodes without a relation draw nothing, so the picture may not
+   * change at all. Printing how many nodes were added and how many of them are
+   * unconnected is what turns "nothing happened" into "nothing had an edge to draw".
+   */
+  wholeGraph?: {
+    value: boolean;
+    onChange: (next: boolean) => void;
+    total: number;
+    noEdgeNodes: number;
+  };
 }
 
 function TypeOption({
@@ -174,8 +186,11 @@ export default function GraphFilters({
       </div>
 
       {wholeGraph?.value && (
-        <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
-          {t('graph.wholeGraphHint')}
+        <p className="mt-1 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+          {t('graph.wholeGraphHint', { total: wholeGraph.total })}
+          {wholeGraph.noEdgeNodes > 0 && (
+            <> {t('graph.wholeGraphNoEdges', { count: wholeGraph.noEdgeNodes })}</>
+          )}
         </p>
       )}
     </div>

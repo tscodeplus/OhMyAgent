@@ -1596,6 +1596,7 @@
     "showingFirst": "{{shown}} connected entities drawn; {{hidden}} more did not fit",
     "unlinkedCount": "{{count}} entities have no relations:",
     "truncated": "The API returned only the first {{count}} entities — the graph holds more",
+    "reloading": "updating…",
     "clickHint": "Click a node to centre it",
     "canvasLabel": "Entity relation graph",
     "nodeAria": "Entity {{name}}",
@@ -1657,7 +1658,9 @@
     "asOfAll": "All time",
     "asOfOption": "Show the graph as it stood on a given day",
     "wholeGraph": "Whole graph",
-    "wholeGraphHint": "The whole graph is served up to the server's hard cap, and anything beyond it is still cut. The overview otherwise takes the busiest entities and their one-hop neighbours."
+    "countsOfTotal": "{{nodes}} of {{total}} entities · {{edges}} relations",
+    "wholeGraphHint": "The whole graph puts all {{total}} entities in the node set (the default takes the busiest entities and their one-hop neighbours).",
+    "wholeGraphNoEdges": "{{count}} of them have no relation at all, so checking it adds no lines to the canvas."
   },
   "knowledge": {
     "title": "Knowledge Pages",
