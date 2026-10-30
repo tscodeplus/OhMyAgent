@@ -1768,7 +1768,10 @@
       "archiveError": "Failed to archive the page",
       "preview": "Show content",
       "hidePreview": "Hide content",
-      "written": "by {{actor}} {{time}}"
+      "written": "by {{actor}} {{time}}",
+      "sourceSummary": "{{sources}} citations · {{conversations}} independent conversations",
+      "thinSources": "single conversation (needs {{required}})",
+      "thinSourcesHint": "Every memory this draft cites comes from the same conversation, so it passed admission on the explicit request rule rather than on recurrence. Judge for yourself whether it is actually reusable."
     }
   }
 }

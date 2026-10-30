@@ -156,6 +156,50 @@ export class KnowledgeRepository {
   }
 
   /**
+   * Citation counts for a set of pages, in one query.
+   *
+   * The review queue needs "how much evidence backs this draft", and the axis that
+   * actually decided admission is *independent conversations*, not rows —
+   * {@link countIndependentSources} in `curate.ts` folds a page's citations to one
+   * per conversation because "the same session summarised twice is one attestation".
+   * The key built here must be that same one (`conversation:<scope_key>` for a
+   * memory, `kind:id` for a citation without a conversation, i.e. a shared message),
+   * otherwise the queue would display a number that disagrees with the rule it is
+   * meant to explain — the reviewer would be reading a different verdict than the
+   * gate applied. `tests/memory/knowledge-review-counts.test.ts` holds the two
+   * definitions together.
+   *
+   * One grouped query for the whole list: the queue shows up to 50 rows, and a
+   * per-row count would be 50 round trips on a phone.
+   */
+  countSourcesByPage(
+    pageIds: readonly string[],
+  ): Map<string, { total: number; independent: number }> {
+    const counts = new Map<string, { total: number; independent: number }>();
+    if (pageIds.length === 0) return counts;
+    const placeholders = pageIds.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT s.page_id AS page_id,
+                COUNT(*) AS total,
+                COUNT(DISTINCT CASE
+                  WHEN s.source_kind = 'memory' AND TRIM(COALESCE(m.scope_key, '')) <> ''
+                    THEN 'conversation:' || m.scope_key
+                  ELSE s.source_kind || ':' || s.source_id
+                END) AS independent
+           FROM knowledge_sources s
+           LEFT JOIN memories m ON m.id = s.source_id AND s.source_kind = 'memory'
+          WHERE s.page_id IN (${placeholders})
+          GROUP BY s.page_id`,
+      )
+      .all(...pageIds) as Array<{ page_id: string; total: number; independent: number }>;
+    for (const row of rows) {
+      counts.set(row.page_id, { total: row.total, independent: row.independent });
+    }
+    return counts;
+  }
+
+  /**
    * Pages whose title starts with `text`, or whose slug / one of whose aliases
    * equals it (case-folded).
    *

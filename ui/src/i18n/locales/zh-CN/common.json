@@ -1768,7 +1768,10 @@
       "archiveError": "归档页面失败",
       "preview": "查看正文",
       "hidePreview": "收起正文",
-      "written": "由 {{actor}} 于 {{time}}"
+      "written": "由 {{actor}} 于 {{time}}",
+      "sourceSummary": "{{sources}} 条引用 · {{conversations}} 个独立会话",
+      "thinSources": "单会话（准入要求 {{required}}）",
+      "thinSourcesHint": "这页引用的记忆全部来自同一个会话，因此是靠「用户明确要求」而非「跨会话复现」通过准入的。批准前请自行判断它是否真的可复用。"
     }
   }
 }

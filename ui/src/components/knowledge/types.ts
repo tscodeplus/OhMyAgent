@@ -100,8 +100,27 @@ export interface KnowledgePageListPayload {
 
 /** `GET /api/knowledge/pending` — the review queue. */
 export interface KnowledgePendingPayload {
-  pages: KnowledgePagePayload[];
+  pages: PendingKnowledgePagePayload[];
   count: number;
+  /**
+   * `knowledge.curate.require_sources` — the threshold each draft's citation count
+   * is compared against. Sent by the server rather than hardcoded here, because
+   * the queue is where a human overrules that threshold and a stale copy would
+   * make a compliant draft look thin.
+   */
+  requireSources: number;
+}
+
+/**
+ * A pending draft with its evidence.
+ *
+ * `independent` counts distinct *conversations*, not rows: the same session
+ * summarised twice is one witness. This is the number admission rule 2 measured,
+ * so it is the one the reviewer should read — `total` is there to show when a
+ * draft's apparent support is a restatement of itself.
+ */
+export interface PendingKnowledgePagePayload extends KnowledgePagePayload {
+  sources: { total: number; independent: number };
 }
 
 /** One full-text hit (`GET /api/knowledge/search`), already trimmed by the server. */

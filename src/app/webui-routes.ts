@@ -268,7 +268,13 @@ export async function registerWebUIRoutes(
   // transaction, the FTS sync and the version check. Registered only while the
   // layer is enabled — see `knowledgeService` above.
   if (knowledgeService) {
-    registerKnowledgeRoutes(app, { db: cfg.db, service: knowledgeService });
+    registerKnowledgeRoutes(app, {
+      db: cfg.db,
+      service: knowledgeService,
+      // Threshold the review queue should measure drafts against — the same number
+      // `curate.require_sources` uses for admission rule 2.
+      requireSources: cfg.getConfig().knowledge.curate.requireSources,
+    });
   }
 
   registerCronRoutes(app, cfg.services.cronService);

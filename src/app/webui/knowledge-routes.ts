@@ -66,6 +66,7 @@ import type {
   KnowledgeWriteResult,
 } from '../../memory/knowledge/service-contract.js';
 import { checkConsistency } from '../../memory/knowledge/indexer.js';
+import { KnowledgeRepository } from '../../memory/knowledge/repository.js';
 import { slugify } from '../../memory/knowledge/slug.js';
 import { INVALIDATION_LOG_MARKER } from '../../memory/knowledge/memory-page-invalidation.js';
 
@@ -91,6 +92,15 @@ export interface KnowledgeRouteConfig {
   db: Database.Database;
   /** Built from `createKnowledgeService` (memory/knowledge/service.ts). */
   service: KnowledgeService;
+  /**
+   * `knowledge.curate.require_sources`, echoed by `GET /pending` so the review
+   * queue can say *why* a draft looks thin instead of only how thin it is. The
+   * number lives in config, and the queue is the one place a human can overrule
+   * it — omitting it would leave the reviewer comparing a count against a
+   * threshold they cannot see. Defaulted to 2 (the config default) so the route
+   * still answers for a caller that does not pass it.
+   */
+  requireSources?: number;
 }
 
 /** A `knowledge_pages` row as the WebUI consumes it. */
@@ -121,6 +131,18 @@ interface KnowledgePagePayload {
   createdAt: number | null;
   updatedAt: number | null;
   updatedBy: string | null;
+}
+
+/**
+ * A pending row as the review queue consumes it: the page plus its evidence.
+ *
+ * `sources.independent` counts *conversations*, mirroring `countIndependentSources`
+ * (curate.ts) — the number admission rule 2 was measured with, not a row count.
+ * A draft with four citations from one chat is one witness, and showing "4" would
+ * tell the reviewer the opposite of what the gate knows.
+ */
+interface PendingKnowledgePagePayload extends KnowledgePagePayload {
+  sources: { total: number; independent: number };
 }
 
 function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
@@ -640,7 +662,20 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
         scope: readScopeParam(query.scope),
         limit,
       });
-      return reply.send({ pages: pages.map(toPagePayload), count: pages.length });
+      // The reviewer's first judgement is "is this corroborated", so the numbers
+      // that decide it travel with the row. One grouped query for the whole list.
+      const counts = new KnowledgeRepository(cfg.db).countSourcesByPage(pages.map((p) => p.id));
+      const rows: PendingKnowledgePagePayload[] = pages.map((page) => ({
+        ...toPagePayload(page),
+        sources: counts.get(page.id) ?? { total: 0, independent: 0 },
+      }));
+      return reply.send({
+        pages: rows,
+        count: rows.length,
+        // Echoed so the queue can compare each draft against the threshold it was
+        // judged by — see `KnowledgeRouteConfig.requireSources`.
+        requireSources: Math.max(1, cfg.requireSources ?? 2),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

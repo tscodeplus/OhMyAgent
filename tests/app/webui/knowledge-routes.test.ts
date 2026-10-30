@@ -40,6 +40,7 @@ import type {
 } from '../../../src/memory/knowledge/types.js';
 import {
   MEMORY_A,
+  MEMORY_B,
   MESSAGE_ID,
   SESSION_ID,
   knowledgeService,
@@ -224,6 +225,60 @@ describe('knowledge routes', () => {
       expect(body.pages[0]).toMatchObject({ status: 'pending' });
       expect(body.pages[0].content).toContain('电池');
       expect(body.count).toBe(1);
+    });
+
+    /**
+     * The reviewer's first judgement is "is this corroborated", and neither number
+     * is visible in the body: a draft can read perfectly and still be one chat
+     * talking to itself. `independent` counts conversations, not rows, because that
+     * is what admission rule 2 measured — see `countIndependentSources`.
+     */
+    it('reports citations and independent conversations per row', async () => {
+      const sameChat = seedPage({
+        pageType: 'topic',
+        slug: 'excel-etl',
+        title: 'Excel ETL',
+        content: 'Excel ETL 走 Power Query',
+        status: 'pending',
+        // Both fixture memories were written in one conversation (`user-knowledge`).
+        sources: [
+          { kind: 'memory', id: MEMORY_A },
+          { kind: 'memory', id: MEMORY_B },
+        ],
+      });
+      const res = await app.inject({ method: 'GET', url: '/api/knowledge/pending' });
+      const body = res.json() as {
+        pages: Array<{ id: string; sources: { total: number; independent: number } }>;
+        requireSources: number;
+      };
+      const row = body.pages.find((page) => page.id === sameChat);
+      expect(row?.sources).toEqual({ total: 2, independent: 1 });
+      // The row that cites one memory reports the same thing it always did.
+      const single = body.pages.find((page) => page.id === SHADOW);
+      expect(single?.sources).toEqual({ total: 1, independent: 1 });
+      expect(body.requireSources).toBe(2);
+    });
+
+    it('echoes the configured threshold instead of a hardcoded one', async () => {
+      const configured = Fastify({ logger: false });
+      registerKnowledgeRoutes(configured, { db, service, requireSources: 5 });
+      await configured.ready();
+      const body = (
+        await configured.inject({ method: 'GET', url: '/api/knowledge/pending' })
+      ).json() as { requireSources: number };
+      expect(body.requireSources).toBe(5);
+      await configured.close();
+
+      // `require_sources: 0` would make every draft look corroborated; the route
+      // clamps to the same floor the curator applies.
+      const zero = Fastify({ logger: false });
+      registerKnowledgeRoutes(zero, { db, service, requireSources: 0 });
+      await zero.ready();
+      const clamped = (
+        await zero.inject({ method: 'GET', url: '/api/knowledge/pending' })
+      ).json() as { requireSources: number };
+      expect(clamped.requireSources).toBe(1);
+      await zero.close();
     });
   });
 

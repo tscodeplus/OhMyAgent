@@ -11,7 +11,7 @@ import {
   archiveKnowledgePage,
   fetchPendingKnowledgePages,
 } from './knowledge-api';
-import type { KnowledgePagePayload } from './types';
+import type { PendingKnowledgePagePayload } from './types';
 import KnowledgeScopeBadge from './KnowledgeScopeBadge';
 
 /** The route's own default; the queue is a review list, not a browsing surface. */
@@ -37,7 +37,9 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
   const { t } = useTranslation('common');
   const { showToast } = useToast();
 
-  const [pages, setPages] = useState<KnowledgePagePayload[]>([]);
+  const [pages, setPages] = useState<PendingKnowledgePagePayload[]>([]);
+  /** The threshold the server judges recurrence by; only meaningful with `pages`. */
+  const [requireSources, setRequireSources] = useState(2);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notEnabled, setNotEnabled] = useState(false);
@@ -53,6 +55,7 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
       .then((payload) => {
         if (cancelled) return;
         setPages(payload.pages);
+        setRequireSources(payload.requireSources);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -73,7 +76,7 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
   }, [refreshKey, reloadToken, t]);
 
   const decide = useCallback(
-    async (page: KnowledgePagePayload, action: 'approve' | 'archive') => {
+    async (page: PendingKnowledgePagePayload, action: 'approve' | 'archive') => {
       setActingId(page.id);
       try {
         // Approve for a page still flagged by the write-side invalidation
@@ -193,15 +196,44 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                             })}
                           </span>
                         )}
-                        {page.confidence !== null && (
-                          <span>
-                            ·{' '}
-                            {t('knowledge.confidence', {
-                              value: Math.round(page.confidence * 100),
-                            })}
-                          </span>
-                        )}
                       </p>
+                      {/*
+                        Evidence, because it is the one judgement a reviewer cannot
+                        make from the body: a draft can read perfectly and still be
+                        one chat talking to itself. `independent` is the number
+                        admission rule 2 was measured with (distinct conversations),
+                        so a draft below `requireSources` passed on rule 3 — "the user
+                        asked for it" — and has never been corroborated. Confidence is
+                        not shown: every curated draft carries the mean source
+                        confidence, i.e. the same 100%, and a number that never varies
+                        invites a judgement it cannot support.
+                        Defensive `?? 0`: a service worker can serve a cached older
+                        bundle against a newer server and vice versa.
+                      */}
+                      {(() => {
+                        const evidence = page.sources ?? { total: 0, independent: 0 };
+                        const thin = evidence.independent < requireSources;
+                        return (
+                          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                            <span>
+                              {t('knowledge.review.sourceSummary', {
+                                sources: evidence.total,
+                                conversations: evidence.independent,
+                              })}
+                            </span>
+                            {thin && (
+                              <span
+                                title={t('knowledge.review.thinSourcesHint', {
+                                  required: requireSources,
+                                })}
+                                className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                              >
+                                {t('knowledge.review.thinSources', { required: requireSources })}
+                              </span>
+                            )}
+                          </p>
+                        );
+                      })()}
                     </div>
                     <Button
                       variant="ghost"
