@@ -174,7 +174,7 @@ export default function NeighbourhoodGraph({
       )}
 
       {layout.unlinked.length > 0 && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="text-xs text-neutral-500 dark:text-neutral-400">
             {t('graph.unlinkedCount', { count: layout.unlinked.length })}
           </span>

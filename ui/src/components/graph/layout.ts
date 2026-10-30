@@ -56,10 +56,19 @@ const MIN_ARC = 26;
 /** Space kept between two neighbouring labels on the same ring. */
 const LABEL_GAP = 6;
 /**
- * Gap between two packed components. Wide enough that a name in one column does
- * not have to stop at the next: the columns share the canvas, not the edge.
+ * Gap between two packed components across the canvas. Wide enough that a name in
+ * one column does not have to stop at the next: the columns share the canvas, not
+ * the edge.
  */
-const COMPONENT_GAP = 46;
+const COMPONENT_GAP_X = 46;
+/**
+ * Gap between two packed rows, which is a much smaller number for the same visual
+ * distance: a box already carries `PAD_TOP` above its topmost node and
+ * `PAD_BOTTOM` below its lowest label, so a row gap of 46 opened ~76px of empty
+ * band between one row's labels and the next row's nodes — the drawing read as
+ * sparse while the caption underneath it had 4px.
+ */
+const COMPONENT_GAP_Y = 18;
 /**
  * A component reserves its own label half-widths (`Box.padX`), so a packed column
  * keeps room for what it prints instead of a fixed 26px guess: with a 10px font a
@@ -387,7 +396,7 @@ function packComponents(
   for (const box of ordered) {
     if (cursorX > 0 && cursorX + box.width > available) {
       cursorX = 0;
-      cursorY += rowHeight + COMPONENT_GAP;
+      cursorY += rowHeight + COMPONENT_GAP_Y;
       rowHeight = 0;
     }
     const shiftX = cursorX + box.padX - box.originX;
@@ -395,8 +404,8 @@ function packComponents(
     for (const [id, point] of box.positions) {
       points.set(id, { x: point.x + shiftX, y: point.y + shiftY });
     }
-    cursorX += box.width + COMPONENT_GAP;
-    usedWidth = Math.max(usedWidth, cursorX - COMPONENT_GAP);
+    cursorX += box.width + COMPONENT_GAP_X;
+    usedWidth = Math.max(usedWidth, cursorX - COMPONENT_GAP_X);
     rowHeight = Math.max(rowHeight, box.height);
   }
   return { points, width: usedWidth, height: cursorY + rowHeight };
