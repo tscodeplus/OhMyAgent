@@ -22,7 +22,7 @@
 
 import type Database from 'better-sqlite3';
 import { MENTION_RELATION_TYPE } from './entity-mining.js';
-import { graphTablesPresent } from './graph-query.js';
+import { graphTablesPresent, metricsMaterialised } from './graph-query.js';
 
 /** Entity columns the roster can order by. */
 export type EntityRosterSort = 'degree' | 'mentions' | 'name' | 'updated';
@@ -162,6 +162,23 @@ function tableExists(db: Database.Database, name: string): boolean {
  * (migration-v26) makes cheap in both directions.
  */
 function entityRosterBase(db: Database.Database, withMentions: boolean): string {
+  // Same source as the overview and the statistics panel: when `graph_sync` has written a
+  // snapshot, the roster reads it rather than deriving a second set of numbers that could
+  // disagree inside the same sync window. COALESCE covers a row the snapshot has not
+  // reached yet — a missing metric must read as zero, not as NULL in a filter.
+  if (metricsMaterialised(db)) {
+    return `WITH base AS (
+              SELECT e.id, e.name, e.canonical_name, e.entity_type, e.updated_at,
+                     COALESCE(m.degree_out, 0) AS degree_out,
+                     COALESCE(m.degree_in, 0) AS degree_in,
+                     COALESCE(m.degree_total, 0) AS degree_total,
+                     COALESCE(m.degree_live, 0) AS degree_live,
+                     COALESCE(m.mention_count, 0) AS mention_count
+                FROM entities e
+                LEFT JOIN entity_graph_metrics m ON m.entity_id = e.id
+            )`;
+  }
+
   const mentions = withMentions
     ? `, mentions AS (
          SELECT e2.id AS id, COUNT(*) AS n

@@ -599,6 +599,10 @@ describe('knowledge-graph routes', () => {
         // order; the roster's type filter offers exactly this list rather than a
         // hard-coded enum that starts lying when a producer asserts a new type.
         entityTypes: ['concept', 'person', 'organization', 'place', 'region'],
+        // No `graph_sync` ran in this test, so these numbers are computed live — which
+        // is exactly what the flag is for: a snapshot that is minutes old must not
+        // pretend to be real-time.
+        materialized: false,
       });
     });
 

@@ -683,6 +683,16 @@ export interface GraphStats {
   danglingLinks?: number;
   /** Pages bound to one conversation rather than `global`. */
   scopedPages?: number;
+  /**
+   * Whether these numbers came from the materialised snapshot (`graph_sync`) or were
+   * computed live for this request.
+   *
+   * A panel must say which: a snapshot can be minutes old, and a number that pretends to
+   * be real-time while it is not is the kind of quiet wrongness the panel exists to avoid.
+   */
+  materialized: boolean;
+  /** When the snapshot was written (epoch ms); absent on the live path. */
+  computedAt?: number;
 }
 
 /** One entity, as connectivity needs it: identity, a stable ordering key, degree. */
@@ -1008,6 +1018,12 @@ function collectComponentGroups(structure: GraphStructure): ComponentGroup[] {
  * sentence that explains a sparse graph, and it has to be true.
  */
 export function readGraphStats(db: Database.Database): Omit<GraphStats, 'enabled'> {
+  // The snapshot first: it is the whole reason this function stopped being O(entities +
+  // edges) per request. Its absence is a normal state (never synced, just reset) and the
+  // live branch below is the same answer, only slower.
+  const materialised = readMaterialisedStats(db);
+  if (materialised) return materialised;
+
   const structure = readGraphStructure(db);
   const { names: mentionedNames, links: mentionLinks } = readMentionEvidence(db);
 
@@ -1050,6 +1066,7 @@ export function readGraphStats(db: Database.Database): Omit<GraphStats, 'enabled
     })),
     relationTypes: readRelationVocabulary(db),
     entityTypes: readEntityTypeVocabulary(db),
+    materialized: false,
   };
 
   // The knowledge layer's own health belongs in the same panel — a dangling link
@@ -1241,4 +1258,292 @@ export function readComponentPage(db: Database.Database, query: ComponentPageQue
     total: groups.length,
     nextCursor: offset + limit < groups.length ? encodeComponentCursor(offset + limit) : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Materialised metrics (plan §4.3)
+//
+// Two read paths were "computed from the whole graph, per request": the overview's seed
+// ranking (a `memory_links` scan per entity — 43 ms of a 55 ms request on the device) and
+// `/stats` (every entity and edge read into JavaScript, union-find, on every mount of the
+// graph tab). Both now read tables `graph_sync` maintains, and both keep the live
+// algorithm as the fallback: an install that has not synced yet — or one whose tables
+// were just cleared — must still answer correctly, only slower. A fast blank graph would
+// be a worse trade than a slow correct one.
+// ---------------------------------------------------------------------------
+
+export interface EntityMetricRow {
+  entityId: string;
+  degreeOut: number;
+  degreeIn: number;
+  degreeTotal: number;
+  degreeLive: number;
+  mentionCount: number;
+}
+
+/**
+ * Every entity's degree and mention numbers, computed once per sync.
+ *
+ * The writer's half, so it is deliberately the whole table: the readers it replaces
+ * derived exactly these numbers per request. The mention predicate is the one the ranking
+ * and the roster use (exact name, both columns) — `mention_count` and `mention_links`
+ * answer different questions and must not borrow each other's comparison.
+ */
+export function readEntityMetricRows(db: Database.Database): EntityMetricRow[] {
+  // The degree CTEs read `entity_edges`; a database that has entities but not that table
+  // (a pre-v10 file, a hand-built fixture) must get an empty answer, not an exception.
+  if (!graphTablesPresent(db)) return [];
+  const hasLinks = tableExists(db, 'memory_links');
+  const mentions = hasLinks
+    ? `, mentions AS (
+         SELECT e2.id AS id, COUNT(*) AS n
+           FROM entities e2
+           JOIN memory_links ml
+             ON ml.target_entity = e2.name OR ml.subject_entity = e2.name
+          GROUP BY e2.id
+       )`
+    : '';
+  const mentionJoin = hasLinks ? ' LEFT JOIN mentions m ON m.id = e.id' : '';
+  const mentionColumn = hasLinks ? 'COALESCE(m.n, 0)' : '0';
+  return db
+    .prepare(
+      `WITH dout AS (
+         SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
+       ), din AS (
+         SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
+       ), dout_live AS (
+         SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges
+          WHERE valid_to IS NULL GROUP BY 1
+       ), din_live AS (
+         SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges
+          WHERE valid_to IS NULL GROUP BY 1
+       )${mentions}
+       SELECT e.id AS entityId,
+              COALESCE(dout.n, 0) AS degreeOut,
+              COALESCE(din.n, 0) AS degreeIn,
+              COALESCE(dout.n, 0) + COALESCE(din.n, 0) AS degreeTotal,
+              COALESCE(dout_live.n, 0) + COALESCE(din_live.n, 0) AS degreeLive,
+              ${mentionColumn} AS mentionCount
+         FROM entities e
+         LEFT JOIN dout ON dout.id = e.id
+         LEFT JOIN din ON din.id = e.id
+         LEFT JOIN dout_live ON dout_live.id = e.id
+         LEFT JOIN din_live ON din_live.id = e.id${mentionJoin}`,
+    )
+    .all() as EntityMetricRow[];
+}
+
+export interface ComponentMembershipRow {
+  entityId: string;
+  componentId: string;
+  componentSize: number;
+}
+
+/**
+ * Every entity's component, with the same representative the panel prints.
+ *
+ * Size-1 components are included (representative = themselves): "which component is this
+ * entity in" has an answer for an isolated name too, and leaving it NULL would make every
+ * consumer handle a third case.
+ */
+export function readComponentMembership(db: Database.Database): ComponentMembershipRow[] {
+  const structure = readGraphStructure(db);
+  const rows: ComponentMembershipRow[] = [];
+  for (const memberIds of structure.membersOf.values()) {
+    const members = orderedMembers(structure, memberIds);
+    const componentId = members[0].id;
+    for (const member of members) {
+      rows.push({ entityId: member.id, componentId, componentSize: members.length });
+    }
+  }
+  return rows;
+}
+
+/** True when the materialised tables hold a snapshot at all. */
+export function metricsMaterialised(db: Database.Database): boolean {
+  if (!tableExists(db, 'entity_graph_metrics') || !tableExists(db, 'entity_components')) {
+    return false;
+  }
+  const row = db.prepare('SELECT COUNT(*) AS n FROM entity_graph_metrics').get() as { n: number };
+  return row.n > 0;
+}
+
+/**
+ * Entities in overview order — degree desc, mentions desc, canonical name asc.
+ *
+ * Materialised: a read of a table already ordered for this question. Live: the
+ * correlated-subquery form whose cost is O(entities × links) — the term the plan measured
+ * at 43 ms for 378 entities and projected to minutes at 20k.
+ */
+export function readSeedRanking(db: Database.Database): string[] {
+  if (!tableExists(db, 'entities')) return [];
+  if (metricsMaterialised(db)) {
+    return (
+      db
+        .prepare(
+          `SELECT m.entity_id AS id
+             FROM entity_graph_metrics m
+             JOIN entities e ON e.id = m.entity_id
+            ORDER BY m.degree_total DESC, m.mention_count DESC, e.canonical_name ASC`,
+        )
+        .all() as Array<{ id: string }>
+    ).map((row) => row.id);
+  }
+
+  return (
+    db
+      .prepare(
+        `SELECT e.id
+           FROM entities e
+          ORDER BY (SELECT COUNT(*) FROM entity_edges x
+                     WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) DESC,
+                   (SELECT COUNT(*) FROM memory_links ml
+                     WHERE ml.target_entity = e.name OR ml.subject_entity = e.name) DESC,
+                   e.canonical_name ASC`,
+      )
+      .all() as Array<{ id: string }>
+  ).map((row) => row.id);
+}
+
+/**
+ * The statistics panel's numbers, read from the materialised tables.
+ *
+ * `undefined` when the snapshot is missing or empty, which sends `readGraphStats` back to
+ * the live algorithm. Everything here is still exact: the tables store counts, not
+ * samples, and the one number that must not drift — a component's size — comes from the
+ * same union-find the drill-down walks.
+ */
+function readMaterialisedStats(db: Database.Database): Omit<GraphStats, 'enabled'> | undefined {
+  if (!metricsMaterialised(db)) return undefined;
+
+  const computed = db.prepare('SELECT MAX(computed_at) AS at FROM entity_graph_metrics').get() as {
+    at: number | null;
+  };
+  const nodes = (db.prepare('SELECT COUNT(*) AS n FROM entities').get() as { n: number }).n;
+  const edgeAgg = db
+    .prepare(
+      `SELECT COUNT(*) AS edges,
+              SUM(CASE WHEN valid_to IS NULL THEN 0 ELSE 1 END) AS retracted
+         FROM entity_edges
+        WHERE upper(trim(relation_type)) <> @mentionRelation`,
+    )
+    .get({ mentionRelation: MENTION_RELATION_TYPE }) as {
+    edges: number;
+    retracted: number | null;
+  };
+  const isolated = (
+    db.prepare('SELECT COUNT(*) AS n FROM entity_graph_metrics WHERE degree_live = 0').get() as {
+      n: number;
+    }
+  ).n;
+  const mentionOnly = (
+    db
+      .prepare(
+        'SELECT COUNT(*) AS n FROM entity_graph_metrics WHERE degree_live = 0 AND mention_count > 0',
+      )
+      .get() as { n: number }
+  ).n;
+  const mentionLinks = tableExists(db, 'memory_links')
+    ? (db.prepare('SELECT COUNT(*) AS n FROM memory_links').get() as { n: number }).n
+    : 0;
+  const componentAgg = db
+    .prepare(
+      'SELECT COUNT(DISTINCT component_id) AS n, MAX(component_size) AS largest FROM entity_components',
+    )
+    .get() as { n: number; largest: number | null };
+  const multiNode = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT component_id FROM entity_components
+            WHERE component_size >= 2 GROUP BY component_id
+         )`,
+      )
+      .get() as { n: number }
+  ).n;
+
+  const top = db
+    .prepare(
+      `SELECT component_id AS id, component_size AS size
+         FROM entity_components
+        WHERE component_size >= 2
+        GROUP BY component_id
+        ORDER BY component_size DESC, component_id
+        LIMIT ${COMPONENT_LIST_CAP}`,
+    )
+    .all() as Array<{ id: string; size: number }>;
+
+  const memberPreview = db.prepare(
+    `SELECT c.entity_id AS id, e.name AS name
+       FROM entity_components c
+       JOIN entities e ON e.id = c.entity_id
+       LEFT JOIN entity_graph_metrics m ON m.entity_id = c.entity_id
+      WHERE c.component_id = @componentId
+      ORDER BY COALESCE(m.degree_total, 0) DESC, e.canonical_name ASC, e.id ASC
+      LIMIT ${COMPONENT_MEMBER_PREVIEW}`,
+  );
+  const liveEdgesIn = db.prepare(
+    `SELECT COUNT(*) AS n
+       FROM entity_edges x
+       JOIN entity_components s
+         ON s.entity_id = x.source_entity_id AND s.component_id = @componentId
+       JOIN entity_components t
+         ON t.entity_id = x.target_entity_id AND t.component_id = @componentId
+      WHERE x.valid_to IS NULL AND upper(trim(x.relation_type)) <> @mentionRelation`,
+  );
+
+  const stats: Omit<GraphStats, 'enabled'> = {
+    nodes,
+    edges: edgeAgg.edges,
+    retractedEdges: Number(edgeAgg.retracted ?? 0),
+    isolated,
+    mentionOnly,
+    mentionLinks,
+    componentCount: componentAgg.n,
+    multiNodeComponents: multiNode,
+    largestComponentPct: nodes === 0 ? 0 : Number(((componentAgg.largest ?? 0) / nodes).toFixed(3)),
+    components: top.map((component) => ({
+      id: component.id,
+      size: component.size,
+      edgeCount: Number(
+        (
+          liveEdgesIn.get({
+            componentId: component.id,
+            mentionRelation: MENTION_RELATION_TYPE,
+          }) as { n: number }
+        ).n,
+      ),
+      nodes: (
+        memberPreview.all({ componentId: component.id }) as Array<{ id: string; name: string }>
+      ).map((member) => ({ id: member.id, name: member.name })),
+    })),
+    relationTypes: readRelationVocabulary(db),
+    entityTypes: readEntityTypeVocabulary(db),
+    materialized: true,
+    ...(computed.at === null ? {} : { computedAt: computed.at }),
+  };
+
+  // The knowledge layer's health belongs in the same panel — a dangling wikilink and an
+  // isolated entity are two halves of "why is nothing connected" — and these two counts
+  // stay live because they cost one indexed count each and are not part of the graph's
+  // own structure.
+  if (tableExists(db, 'knowledge_links') && tableExists(db, 'knowledge_pages')) {
+    const dangling = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+           FROM knowledge_links l
+           LEFT JOIN knowledge_pages p ON p.id = l.to_page_id
+          WHERE p.id IS NULL OR p.status <> 'active'`,
+      )
+      .get() as { n: number };
+    stats.danglingLinks = Number(dangling.n);
+  }
+  if (tableExists(db, 'knowledge_pages')) {
+    const scoped = db
+      .prepare("SELECT COUNT(*) AS n FROM knowledge_pages WHERE scope <> 'global'")
+      .get() as { n: number };
+    stats.scopedPages = Number(scoped.n);
+  }
+
+  return stats;
 }

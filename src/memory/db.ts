@@ -25,6 +25,7 @@ import { migrateV23 } from './migration-v23.js';
 import { migrateV24 } from './migration-v24.js';
 import { migrateV25 } from './migration-v25.js';
 import { migrateV26 } from './migration-v26.js';
+import { migrateV27 } from './migration-v27.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -365,6 +366,17 @@ export function openDatabase(dbPath: string): Database.Database {
   const v26Result = migrateV26(db);
   if (v26Result.createdIndexes.length > 0) {
     logger.info(`[V26] Graph migration: ensured ${v26Result.createdIndexes.join(', ')}`);
+  }
+
+  // V27 stores the numbers the graph reads instead of recomputing them per request:
+  // `entity_graph_metrics` (degrees + mention counts) and `entity_components`
+  // (membership). Written only by `graph_sync`; read paths fall back to the live
+  // algorithm while they are empty, so an install that has not synced yet still
+  // answers correctly. After applySchema like v10/v14 because `schema.ts` declares
+  // neither table.
+  const v27Result = migrateV27(db);
+  if (v27Result.createdTables.length > 0) {
+    logger.info(`[V27] Graph metrics tables: ${v27Result.createdTables.join(', ')}`);
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

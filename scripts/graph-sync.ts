@@ -25,6 +25,7 @@ import Database from 'better-sqlite3';
 import { loadYamlFile } from '../src/app/config-loader.js';
 import { syncGraphFromMemoryLinks } from '../src/graph/graph-sync.js';
 import { selfHealGraph } from '../src/graph/graph-prune.js';
+import { materializeGraphMetrics } from '../src/graph/graph-metrics.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG } from '../src/graph/graph-config.js';
 import { EntityRepository } from '../src/memory/repositories/entity-repository.js';
 
@@ -156,6 +157,16 @@ function main(): void {
           `dropped ${healed.nodesPruned} isolated node(s) with a refused name`,
       );
     }
+
+    // The derived numbers the WebUI's graph tab reads. Recomputed here for the same reason
+    // the eviction above runs here: this CLI and the scheduled job must not disagree about
+    // the graph.
+    const materialized = materializeGraphMetrics(db, { dryRun: options.dryRun });
+    console.log(
+      `[graph:sync] derived ${materialized.metrics} entity metric(s), ` +
+        `${materialized.components} component row(s)` +
+        (options.dryRun ? ' (dry run, nothing written)' : ''),
+    );
 
     console.log(
       `[graph:sync] entities ${summary.entitiesCreated} created, ${summary.entitiesMatched} matched | ` +

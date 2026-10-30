@@ -115,6 +115,7 @@ import { ENTITY_LINK_REFUSALS_TABLE } from '../memory/migration-v23.js';
 import { discoverAliases } from './alias-discovery.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
 import { selfHealGraph } from './graph-prune.js';
+import { materializeGraphMetrics } from './graph-metrics.js';
 
 /** `maintenance_runs.job_name` of the scheduled projector. */
 export const GRAPH_SYNC_JOB_NAME = 'graph_sync';
@@ -959,6 +960,12 @@ export function createGraphSyncJob(
         // BY, and it keeps "did the graph need rebuilding?" from being a question
         // an operator has to answer.
         const healed = selfHealGraph(db, { dryRun });
+        // The numbers the read paths consume — degrees, mention counts, component
+        // membership — are recomputed here, where the graph was just walked, instead of on
+        // every WebUI request (the ranking was 43 ms of a 55 ms request, and /stats read
+        // the whole graph on every mount). A dry run computes and discards the same rows so
+        // its counts still mean something.
+        const materialized = materializeGraphMetrics(db, { dryRun });
         // Nothing recorded, nothing projected: report it instead of pretending a
         // run happened.
         if (
@@ -985,6 +992,7 @@ export function createGraphSyncJob(
               mentionLinksFiltered: summary.mentionLinksFiltered,
               mined,
               healed,
+              materialized,
             },
           };
         }
@@ -994,7 +1002,7 @@ export function createGraphSyncJob(
           dryRun,
           affectedRows,
           durationMs: Date.now() - start,
-          details: { ...summary, mined, healed },
+          details: { ...summary, mined, healed, materialized },
         };
       } catch (err) {
         // Non-fatal by contract: a graph sync failure must never fail the

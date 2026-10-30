@@ -51,6 +51,7 @@ import {
   queryEntityGraph,
   readComponentPage,
   readGraphStats,
+  readSeedRanking,
   type GraphEdgeFilter,
   type GraphMentionNeighbour,
   type GraphQueryEdge,
@@ -334,17 +335,11 @@ function loadOverview(
   enabled: boolean,
   whole: boolean,
 ): GraphPayload {
-  const ranked = db
-    .prepare(
-      `SELECT e.id
-       FROM entities e
-       ORDER BY (SELECT COUNT(*) FROM entity_edges x
-                  WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) DESC,
-                (SELECT COUNT(*) FROM memory_links ml
-                  WHERE ml.target_entity = e.name OR ml.subject_entity = e.name) DESC,
-                e.canonical_name ASC`,
-    )
-    .all() as Array<{ id: string }>;
+  // The ranking is the expensive half of this request (43 ms of 55 on the device, and
+  // quadratic in the corpus), so it comes from `readSeedRanking`, which reads the
+  // materialised table when `graph_sync` has written one and falls back to the live
+  // correlated-subquery form otherwise.
+  const ranked = readSeedRanking(db).map((id) => ({ id }));
   const rankOf = new Map(ranked.map((row, index) => [row.id, index]));
 
   // `whole` spends the budget on seeds instead of leaves — every node is a seed,

@@ -52,6 +52,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { clearGraphMetrics } from './graph-metrics.js';
 import type { Logger } from 'pino';
 import { EntityRepository } from '../memory/repositories/entity-repository.js';
 import {
@@ -381,6 +382,16 @@ export function cleanupLegacyGraph(
 
   if (!dryRun) {
     runAll();
+    // The stored degrees and component membership describe the edges this pass just
+    // deleted. They are derived data with a single writer, so leaving a stale snapshot
+    // behind would make the read paths serve a graph that no longer exists — they take
+    // the materialised branch for as long as the table is non-empty.
+    const cleared = clearGraphMetrics(db);
+    if (cleared.metrics > 0 || cleared.components > 0) {
+      log?.(
+        `[legacy-cleanup] cleared ${cleared.metrics} metric rows, ${cleared.components} component rows`,
+      );
+    }
     return summary;
   }
 
