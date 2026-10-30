@@ -634,7 +634,11 @@ export interface GraphComponent {
 export interface GraphStats {
   enabled: boolean;
   nodes: number;
-  /** Typed edges that are still true — `MENTIONED` never counts. */
+  /**
+   * Typed edges ever projected, `valid_to`-closed ones **included** — this is the
+   * denominator `retractedEdges` counts into, so live edges are
+   * `edges - retractedEdges`. `MENTIONED` never counts.
+   */
   edges: number;
   /** How many of `edges` are closed by `valid_to`: history, not connectivity. */
   retractedEdges: number;
