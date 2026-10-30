@@ -164,22 +164,39 @@ describe('knowledge-graph routes', () => {
       }
     });
 
-    it('overviews the busiest entities first and only the edges between them', async () => {
-      const response = await app.inject({ method: 'GET', url: '/api/memory/graph?limit=5' });
-      expect(response.statusCode).toBe(200);
-      const payload = response.json();
+    it('draws a hub together with its spokes, not just the busiest names', async () => {
+      // The fixture for the defect the old top-N rule had: five degree-1 spokes rank
+      // below every seeded entity by canonical name, so a top-6 list contains none
+      // of them and the hub (degree 5) draws as a bare name whose every edge points
+      // outside the picture. Selection is now a BFS from the seeds, so the spokes
+      // travel with the hub they belong to.
+      const hubId = 'ent-hub';
+      const spokeIds = [1, 2, 3, 4, 5].map((n) => `ent-spoke-${n}`);
+      const insertEntity = db.prepare(
+        `INSERT INTO entities (id, name, canonical_name, entity_type, created_at, updated_at)
+         VALUES (?, ?, ?, 'concept', 1, 1)`,
+      );
+      insertEntity.run(hubId, 'Hub', 'hub');
+      for (const [index, spokeId] of spokeIds.entries()) {
+        insertEntity.run(spokeId, `Spoke ${index + 1}`, `spoke-${index + 1}`);
+        repo.linkEntities({ sourceId: hubId, targetId: spokeId, relationType: 'uses' });
+      }
 
-      expect(payload.truncated).toBe(false);
-      // alice: works_at + knows + was_at = 3 → first; the 2-degree pair is
-      // ordered by canonical name (berlin before bob).
-      expect(payload.nodes.map((node: { id: string }) => node.id)).toEqual([
-        ids.alice,
-        ids.berlin,
-        ids.bob,
-        ids.acme,
-        ids.emea,
-      ]);
-      expect(payload.nodes[0]).toEqual({
+      // `limit` is still the NODE budget: six nodes buy the two busiest names as
+      // seeds and four of the hub's spokes — the spokes are in, and `EMEA`, which
+      // the old rule would have drawn instead, is not.
+      const budgeted = (
+        await app.inject({ method: 'GET', url: '/api/memory/graph?limit=6' })
+      ).json();
+      const budgetedIds = budgeted.nodes.map((node: { id: string }) => node.id);
+
+      expect(budgetedIds).toHaveLength(6);
+      expect(budgetedIds.slice(0, 2)).toEqual([hubId, ids.alice]);
+      expect(budgetedIds).toContain(spokeIds[0]);
+      expect(budgetedIds).not.toContain(ids.emea);
+      expect(budgeted.truncated).toBe(true);
+      // The node shape the UI draws is unchanged by the new selection rule.
+      expect(budgeted.nodes[1]).toEqual({
         id: ids.alice,
         name: 'Alice',
         canonical_name: 'alice',
@@ -188,15 +205,21 @@ describe('knowledge-graph routes', () => {
         degree: 3,
       });
 
-      // Every edge has both endpoints in the node list.
-      const nodeIds = new Set(payload.nodes.map((node: { id: string }) => node.id));
-      for (const edge of payload.edges) {
-        expect(nodeIds.has(edge.source)).toBe(true);
-        expect(nodeIds.has(edge.target)).toBe(true);
+      // A budget that fits the spokes keeps every one of them, and the edge list is
+      // complete: five hub→spoke edges, alice's three, and bob→berlin. Those nine
+      // exceed the node budget, so an edge cap shared with the node budget would
+      // have dropped the tail of the list.
+      const wider = (await app.inject({ method: 'GET', url: '/api/memory/graph?limit=10' })).json();
+      const widerIds = new Set(wider.nodes.map((node: { id: string }) => node.id));
+      for (const spokeId of spokeIds) expect(widerIds.has(spokeId)).toBe(true);
+      expect(wider.edges).toHaveLength(9);
+
+      // Payload closure: no edge names a node outside the payload.
+      for (const edge of wider.edges) {
+        expect(widerIds.has(edge.source)).toBe(true);
+        expect(widerIds.has(edge.target)).toBe(true);
         expect(typeof edge.confidence).toBe('number');
       }
-      // All five edges, the retracted one included (no asOf filter).
-      expect(payload.edges).toHaveLength(5);
     });
 
     it('reports truncation instead of returning an unbounded overview', async () => {
@@ -205,6 +228,26 @@ describe('knowledge-graph routes', () => {
 
       expect(payload.nodes).toHaveLength(2);
       expect(payload.truncated).toBe(true);
+    });
+
+    it('draws the whole graph on request instead of the phone-shaped budget', async () => {
+      const whole = (await app.inject({ method: 'GET', url: '/api/memory/graph?whole=1' })).json();
+
+      // `limit` is a default for a phone, not a claim about the data: `whole=1`
+      // spends the hard cap, so every node and every typed edge among them is here.
+      expect(whole.nodes).toHaveLength(5);
+      expect(whole.edges).toHaveLength(5);
+      expect(whole.truncated).toBe(false);
+
+      // `types` (and `asOf`) still apply — the escape hatch is about size, not about
+      // switching the filters off.
+      const typed = (
+        await app.inject({ method: 'GET', url: '/api/memory/graph?whole=1&types=works_at' })
+      ).json();
+      expect(typed.nodes).toHaveLength(5);
+      expect(typed.edges.map((edge: { relation_type: string }) => edge.relation_type)).toEqual([
+        'works_at',
+      ]);
     });
 
     it('orders edge-less nodes by how often the corpus mentions them', async () => {
@@ -340,6 +383,292 @@ describe('knowledge-graph routes', () => {
         const response = await shared.inject({ method: 'GET', url: '/api/memory/graph' });
         expect(response.json()).not.toEqual({ shadowed: true });
         expect(response.json().nodes.length).toBeGreaterThan(0);
+      } finally {
+        await shared.close();
+      }
+    });
+
+    // ─── S2: the asserting memory travels with the edge ────────────────────
+
+    it('carries the asserting memory on an edge, and omits it where there is none', async () => {
+      new MemoryRepository(db).create({
+        id: 'mem-assert',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'fact',
+        content: 'Alice knows Bob',
+      });
+      repo.linkEntities({
+        sourceId: ids.alice,
+        targetId: ids.bob,
+        relationType: 'knows',
+        sourceMemoryId: 'mem-assert',
+      });
+
+      const payload = (
+        await app.inject({ method: 'GET', url: `/api/memory/graph?entity=${ids.alice}` })
+      ).json();
+
+      const knows = payload.edges.find((edge: { relation_type: string }) => {
+        return edge.relation_type === 'knows';
+      });
+      // The panel opens this id, so it has to name a memory that exists.
+      expect(knows.source_memory_id).toBe('mem-assert');
+
+      // A row without provenance keeps the key absent (migration-v10 made the
+      // column nullable), so the UI shows no evidence link rather than a dead one.
+      const worksAt = payload.edges.find((edge: { relation_type: string }) => {
+        return edge.relation_type === 'works_at';
+      });
+      expect(worksAt).toBeDefined();
+      expect(worksAt).not.toHaveProperty('source_memory_id');
+    });
+
+    // ─── S6: the mention tier reaches the WebUI ────────────────────────────
+
+    it('sends mentions with the neighbourhood and never with the overview', async () => {
+      new MemoryRepository(db).create({
+        id: 'mem-co',
+        scope: 'user',
+        scope_key: 'user-1',
+        kind: 'fact',
+        content: 'Alice and Bob met Zeta',
+      });
+      for (const [index, name] of ['Alice', 'Bob', 'Zeta'].entries()) {
+        db.prepare(
+          `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
+           VALUES (?, 'mem-co', ?, 'MENTIONED', 0.9)`,
+        ).run(`co-${index}`, name);
+      }
+
+      const overview = (await app.inject({ method: 'GET', url: '/api/memory/graph' })).json();
+      // The frozen contract: an overview has no origin, so a per-origin mention
+      // list has no meaning there — the key is absent, not empty.
+      expect(overview).not.toHaveProperty('mentions');
+      expect(overview).not.toHaveProperty('mentions_truncated');
+
+      const neighbourhood = (
+        await app.inject({ method: 'GET', url: `/api/memory/graph?entity=${ids.alice}` })
+      ).json();
+      const byName = new Map(
+        neighbourhood.mentions.map((mention: { name: string }) => [mention.name, mention]),
+      );
+      // Bob is in the payload because a STATEMENT put it there (`Alice —knows→ Bob`),
+      // so it is not also advertised as a mere co-mention: the block's caption is
+      // "mentioned together, but not related", and Bob is exactly the name that would
+      // make it false. The mention tier explains only what the walk did not reach.
+      expect(byName.has('Bob')).toBe(false);
+      // Zeta was only ever mentioned, so it comes back without an id rather than
+      // with an invented one.
+      expect(byName.get('Zeta')).toMatchObject({ memories: 1 });
+      expect(byName.get('Zeta')).not.toHaveProperty('entity_id');
+      expect(neighbourhood.mentions_truncated).toBe(false);
+
+      // The mention tier is still not connectivity: no edge, no node.
+      expect(
+        neighbourhood.edges.some((edge: { relation_type: string }) => {
+          return edge.relation_type === 'MENTIONED';
+        }),
+      ).toBe(false);
+      expect(neighbourhood.nodes.map((node: { id: string }) => node.id)).not.toContain('Zeta');
+    });
+
+    // ─── S4: component drill-down ────────────────────────
+
+    it('drills into one component and stops at its boundary', async () => {
+      db.prepare(
+        `INSERT INTO entities (id, name, canonical_name, entity_type, created_at, updated_at)
+         VALUES ('ent-isolated', 'Isolated', 'isolated', 'concept', 1, 1)`,
+      ).run();
+
+      const payload = (
+        await app.inject({ method: 'GET', url: `/api/memory/graph?component=${ids.berlin}` })
+      ).json();
+      const nodeIds = payload.nodes.map((node: { id: string }) => node.id);
+
+      // The clicked entity leads (nodes[0] is the layout centre), and the whole
+      // component follows: depth does not apply to a component.
+      expect(nodeIds[0]).toBe(ids.berlin);
+      expect(nodeIds).toEqual(expect.arrayContaining([ids.alice, ids.bob, ids.acme, ids.emea]));
+      expect(nodeIds).toHaveLength(5);
+      expect(nodeIds).not.toContain('ent-isolated');
+      expect(payload.truncated).toBe(false);
+      expect(payload).not.toHaveProperty('mentions');
+
+      // An isolated entity's own component is itself.
+      const alone = (
+        await app.inject({ method: 'GET', url: '/api/memory/graph?component=ent-isolated' })
+      ).json();
+      expect(alone.nodes).toHaveLength(1);
+      expect(alone.edges).toEqual([]);
+    });
+
+    it('404s when the component reference names nothing', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/memory/graph?component=nobody',
+      });
+      expect(response.statusCode).toBe(404);
+    });
+  });
+
+  // ─── GET /api/memory/graph/stats ────────────────────────
+
+  describe('GET /api/memory/graph/stats', () => {
+    /** `Ubuntu` is mentioned and connected to nothing: the sparse-graph case. */
+    function seedStatsExtras(): void {
+      db.prepare(
+        `INSERT INTO entities (id, name, canonical_name, entity_type, created_at, updated_at)
+         VALUES ('ent-isolated', 'Isolated', 'isolated', 'concept', 1, 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO entities (id, name, canonical_name, entity_type, created_at, updated_at)
+         VALUES ('ent-ubuntu', 'Ubuntu', 'ubuntu', 'concept', 1, 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO memories (id, scope, scope_key, kind, content, status, created_at, updated_at)
+         VALUES ('mem-ubuntu', 'user', 'k', 'fact', 'Ubuntu 24.04 on Termux', 'active', 1, 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
+         VALUES ('link-ubuntu', 'mem-ubuntu', 'Ubuntu', 'MENTIONED', 0.9)`,
+      ).run();
+    }
+
+    it('reports connectivity, mentions and components from the stored graph', async () => {
+      seedStatsExtras();
+      // One page bound to a conversation, linking to an archived one: a link a
+      // reader cannot follow, which is what `danglingLinks` counts.
+      db.prepare(
+        `INSERT INTO knowledge_pages
+           (id, page_type, slug, title, content, version, status, scope, created_at, updated_at)
+         VALUES ('p-scoped', 'topic', 'scoped', 'Scoped', 'body', 1, 'active', 'channel:c1', 1, 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO knowledge_pages
+           (id, page_type, slug, title, content, version, status, scope, created_at, updated_at)
+         VALUES ('p-gone', 'topic', 'gone', 'Gone', 'body', 1, 'archived', 'global', 1, 1)`,
+      ).run();
+      db.prepare(
+        `INSERT INTO knowledge_links (from_page_id, to_page_id, created_at)
+         VALUES ('p-scoped', 'p-gone', 1)`,
+      ).run();
+
+      const response = await app.inject({ method: 'GET', url: '/api/memory/graph/stats' });
+      expect(response.statusCode).toBe(200);
+
+      expect(response.json()).toEqual({
+        enabled: true,
+        nodes: 7,
+        // Five typed rows, so the number matches a direct SQL count; the retracted
+        // was_at is reported as one of them, not as connectivity.
+        edges: 5,
+        retractedEdges: 1,
+        isolated: 2,
+        // One of the isolated entities is named by a memory, so it is not invisible:
+        // this is the number that explains a sparse graph.
+        mentionOnly: 1,
+        mentionLinks: 1,
+        componentCount: 3,
+        largestComponentPct: 0.714,
+        components: [
+          {
+            id: ids.alice,
+            size: 5,
+            edgeCount: 4,
+            nodes: [
+              { id: ids.alice, name: 'Alice' },
+              { id: ids.berlin, name: 'Berlin' },
+              { id: ids.bob, name: 'Bob' },
+              { id: ids.acme, name: 'Acme' },
+              { id: ids.emea, name: 'EMEA' },
+            ],
+          },
+        ],
+        danglingLinks: 1,
+        scopedPages: 1,
+        // Alphabetical among equal counts: every seeded relation type has one row,
+        // and the retracted `was_at` still counts as vocabulary — it is a relation
+        // a caller may legitimately ask about with `asOf`.
+        relationTypes: ['knows', 'lives_in', 'part_of', 'was_at', 'works_at'],
+      });
+    });
+
+    it('reports the projection switch instead of pretending the graph is empty', async () => {
+      const off = Fastify({ logger: false });
+      registerGraphRoutes(off, { db, graphEnabled: () => false });
+      await off.ready();
+
+      try {
+        const payload = (
+          await off.inject({ method: 'GET', url: '/api/memory/graph/stats' })
+        ).json();
+        expect(payload.enabled).toBe(false);
+        // The numbers still describe what is stored — the flag says whether the
+        // projection maintains it, which is a different fact.
+        expect(payload.nodes).toBe(5);
+      } finally {
+        await off.close();
+      }
+    });
+
+    it('answers zeroes on a database that has no graph tables', async () => {
+      const bare = openDatabase(':memory:');
+      bare.exec('DROP TABLE entity_edges; DROP TABLE entity_aliases; DROP TABLE entities');
+      const bareApp = Fastify({ logger: false });
+      registerGraphRoutes(bareApp, { db: bare });
+      await bareApp.ready();
+
+      try {
+        const response = await bareApp.inject({ method: 'GET', url: '/api/memory/graph/stats' });
+        // A pre-v10 database is an answer, not a 500: the UI shows a real empty state.
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          enabled: true,
+          nodes: 0,
+          edges: 0,
+          retractedEdges: 0,
+          isolated: 0,
+          mentionOnly: 0,
+          mentionLinks: 0,
+          componentCount: 0,
+          largestComponentPct: 0,
+          components: [],
+        });
+      } finally {
+        await bareApp.close();
+        bare.close();
+      }
+    });
+
+    it('omits the knowledge diagnostics when those tables do not exist', async () => {
+      db.exec('DROP TABLE knowledge_links; DROP TABLE knowledge_pages');
+
+      const payload = (await app.inject({ method: 'GET', url: '/api/memory/graph/stats' })).json();
+
+      // Absent, not zero: an install without the knowledge layer has no answer to
+      // give, and "0 dangling links" would be a claim it cannot make.
+      expect(payload).not.toHaveProperty('danglingLinks');
+      expect(payload).not.toHaveProperty('scopedPages');
+      expect(payload.nodes).toBe(5);
+    });
+
+    it('is not shadowed by /api/memory/:id or by /api/memory/graph', async () => {
+      const shared = Fastify({ logger: false });
+      shared.get('/api/memory/:id', async (_request, reply) => reply.send({ shadowed: true }));
+      registerGraphRoutes(shared, { db });
+      await shared.ready();
+
+      try {
+        const stats = await shared.inject({ method: 'GET', url: '/api/memory/graph/stats' });
+        expect(stats.statusCode).toBe(200);
+        expect(stats.json()).toMatchObject({ enabled: true, nodes: 5 });
+
+        // ...and registering it did not take the overview's path away.
+        const graph = await shared.inject({ method: 'GET', url: '/api/memory/graph' });
+        expect(graph.statusCode).toBe(200);
+        expect(graph.json()).toMatchObject({ enabled: true, truncated: false });
+        expect(graph.json().nodes.length).toBeGreaterThan(0);
       } finally {
         await shared.close();
       }

@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { GraphEdge, GraphNode } from '../../types/graph';
-import { FOCUS_RADIUS, LABEL_SIZE, MAX_RENDERED, NODE_RADIUS, layoutGraph } from './layout';
+import {
+  FOCUS_RADIUS,
+  LABEL_SIZE,
+  MAX_RENDERED,
+  NODE_RADIUS,
+  SPARSE_EDGE_LIMIT,
+  layoutGraph,
+  nodeRadius,
+} from './layout';
 
 /** Width before the panel has been measured (a phone column is ~344px). */
 const FALLBACK_WIDTH = 360;
@@ -10,6 +18,15 @@ const HEIGHT_FRACTION = 0.6;
 const MIN_HEIGHT_BUDGET = 200;
 /** Names listed under the canvas before the list is cut with a "+N". */
 const CHIP_LIMIT = 14;
+/**
+ * Predicate text on an edge is a size smaller than a node label: it sits on the
+ * line between two nodes, where a node label's size would collide with them.
+ */
+const EDGE_LABEL_SIZE = 9;
+/** Arrowhead marker id — one canvas is mounted at a time, so one id suffices. */
+const ARROW_MARKER_ID = 'graph-edge-arrow';
+/** `organization` is drawn as a ring instead of a dot; everything else is solid. */
+const RING_ENTITY_TYPE = 'organization';
 
 interface PanelSize {
   width: number;
@@ -52,12 +69,25 @@ function usePanelSize(host: React.RefObject<HTMLDivElement | null>): PanelSize {
   return size;
 }
 
+/** Radius set for every node, so an edge can stop at the circle it points at. */
+function radiiOf(nodes: GraphNode[]): Map<string, number> {
+  return new Map(nodes.map((node) => [node.id, nodeRadius(node.degree)]));
+}
+
 interface NeighbourhoodGraphProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** The entity the layout is centred on; its node is drawn emphasised. */
   focusId?: string;
   onSelect: (entityId: string) => void;
+  /**
+   * Whether nodes without an edge are listed as chips under the drawing.
+   *
+   * The overview turns this off: with hundreds of disconnected names the chip
+   * list is a truncation artefact, and the count line is the whole truth. A
+   * neighbourhood keeps it, because there "named but unrelated" is the answer.
+   */
+  showUnlinked?: boolean;
 }
 
 export default function NeighbourhoodGraph({
@@ -65,6 +95,7 @@ export default function NeighbourhoodGraph({
   edges,
   focusId,
   onSelect,
+  showUnlinked = true,
 }: NeighbourhoodGraphProps) {
   const { t } = useTranslation('common');
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -83,7 +114,11 @@ export default function NeighbourhoodGraph({
     [nodes, edges, focusId, size.width, size.maxHeight],
   );
 
+  const radii = useMemo(() => radiiOf(nodes), [nodes]);
   const visible = layout.rendered;
+  // A predicate on every line is the point of a typed edge, and above the sparse
+  // threshold it is unreadable clutter: twelve labels fit, two hundred do not.
+  const showEdgeLabels = edges.length <= SPARSE_EDGE_LIMIT;
 
   return (
     <div ref={hostRef} className="w-full">
@@ -96,33 +131,93 @@ export default function NeighbourhoodGraph({
           role="img"
           aria-label={t('graph.canvasLabel')}
         >
+          <defs>
+            {/* `currentColor` so the head follows the line's theme colour instead
+                of hard-coding a second palette next to the stroke classes. */}
+            <marker
+              id={ARROW_MARKER_ID}
+              viewBox="0 0 10 10"
+              refX="10"
+              refY="5"
+              markerWidth="4"
+              markerHeight="4"
+              markerUnits="strokeWidth"
+              orient="auto"
+            >
+              <path
+                d="M 0 0 L 10 5 L 0 10 z"
+                fill="currentColor"
+                className="text-neutral-300 dark:text-neutral-700"
+              />
+            </marker>
+          </defs>
           {edges.map((edge) => {
             const from = layout.points.get(edge.source);
             const to = layout.points.get(edge.target);
             if (!from || !to) return null;
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const length = Math.hypot(dx, dy);
+            if (length === 0) return null;
+            // Stop at the circles rather than at their centres: a line drawn
+            // under the node also hides its own arrowhead.
+            const startPad = (radii.get(edge.source) ?? NODE_RADIUS) + 1;
+            const endPad = (radii.get(edge.target) ?? NODE_RADIUS) + 2;
+            const ux = dx / length;
+            const uy = dy / length;
+            const midX = from.x + dx / 2;
+            const midY = from.y + dy / 2;
             return (
-              <line
-                key={edge.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                className="stroke-neutral-300 dark:stroke-neutral-700"
-                strokeWidth={1}
-                // Retracted facts stay visible but dashed: the relation is
-                // history, not a current truth.
-                strokeDasharray={edge.valid_to !== undefined ? '4 4' : undefined}
-              />
+              <g key={edge.id}>
+                <line
+                  x1={from.x + ux * startPad}
+                  y1={from.y + uy * startPad}
+                  x2={to.x - ux * endPad}
+                  y2={to.y - uy * endPad}
+                  className="stroke-neutral-300 dark:stroke-neutral-700"
+                  strokeWidth={1}
+                  markerEnd={`url(#${ARROW_MARKER_ID})`}
+                  // Retracted facts stay visible but dashed: the relation is
+                  // history, not a current truth.
+                  strokeDasharray={edge.valid_to !== undefined ? '4 4' : undefined}
+                />
+                {showEdgeLabels && (
+                  <text
+                    x={midX}
+                    y={midY - 3}
+                    textAnchor="middle"
+                    fontSize={EDGE_LABEL_SIZE}
+                    strokeWidth={3}
+                    paintOrder="stroke"
+                    className="pointer-events-none fill-neutral-500 stroke-white dark:fill-neutral-400 dark:stroke-neutral-900"
+                  >
+                    {edge.relation_type}
+                  </text>
+                )}
+              </g>
             );
           })}
           {visible.map((node) => {
             const position = layout.points.get(node.id);
             if (!position) return null;
             const isFocus = node.id === focusId;
-            const radius = isFocus ? FOCUS_RADIUS : NODE_RADIUS;
+            // Degree is a second channel beside the label: a hub has to be visible
+            // as a hub, not just as a name with more lines around it.
+            const radius = Math.max(isFocus ? FOCUS_RADIUS : NODE_RADIUS, nodeRadius(node.degree));
             // Empty when even one character plus an ellipsis would collide; the
             // node keeps its `<title>` tooltip either way.
             const label = layout.labels.get(node.id) ?? '';
+            // A ring, not a hue: `inferEntityType` only ever produced
+            // `organization` and `concept`, so colour would separate nothing and
+            // the fill pattern keeps the two readable in any palette.
+            const ring = node.entity_type === RING_ENTITY_TYPE;
+            const dotClass = isFocus
+              ? ring
+                ? 'fill-white stroke-blue-500 dark:fill-neutral-900 dark:stroke-blue-400'
+                : 'fill-blue-500 stroke-blue-600 dark:fill-blue-400 dark:stroke-blue-300'
+              : ring
+                ? 'fill-white stroke-neutral-500 dark:fill-neutral-900 dark:stroke-neutral-400'
+                : 'fill-neutral-300 stroke-neutral-400 dark:fill-neutral-600 dark:stroke-neutral-500';
             return (
               <g
                 key={node.id}
@@ -145,12 +240,8 @@ export default function NeighbourhoodGraph({
                   cx={position.x}
                   cy={position.y}
                   r={radius}
-                  className={
-                    isFocus
-                      ? 'fill-blue-500 stroke-blue-600 dark:fill-blue-400 dark:stroke-blue-300'
-                      : 'fill-neutral-300 stroke-neutral-400 dark:fill-neutral-600 dark:stroke-neutral-500'
-                  }
-                  strokeWidth={1}
+                  className={dotClass}
+                  strokeWidth={ring ? 1.75 : 1}
                 />
                 <text
                   x={position.x}
@@ -178,27 +269,28 @@ export default function NeighbourhoodGraph({
           <span className="text-xs text-neutral-500 dark:text-neutral-400">
             {t('graph.unlinkedCount', { count: layout.unlinked.length })}
           </span>
-          {layout.unlinked.slice(0, CHIP_LIMIT).map((node) => (
-            <button
-              key={node.id}
-              type="button"
-              onClick={() => onSelect(node.id)}
-              title={node.name}
-              className="group inline-flex max-w-[11rem] cursor-pointer items-center gap-1.5 text-xs text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
-            >
-              {/* Same dot as a drawn node, so the list reads as the part of the
-                  graph that has no edge to show rather than as a form field. */}
-              <span
-                aria-hidden
-                className="h-[9px] w-[9px] shrink-0 rounded-full bg-neutral-300 group-hover:bg-neutral-500 dark:bg-neutral-600 dark:group-hover:bg-neutral-400"
-              />
-              {/* The list is not a drawing: it has the panel's width to wrap
-                  into, so the name is shown whole and only the CSS ellipsis
-                  clips it when the button itself runs out of room. */}
-              <span className="truncate">{node.name}</span>
-            </button>
-          ))}
-          {layout.unlinked.length > CHIP_LIMIT && (
+          {showUnlinked &&
+            layout.unlinked.slice(0, CHIP_LIMIT).map((node) => (
+              <button
+                key={node.id}
+                type="button"
+                onClick={() => onSelect(node.id)}
+                title={node.name}
+                className="group inline-flex max-w-[11rem] cursor-pointer items-center gap-1.5 text-xs text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
+              >
+                {/* Same dot as a drawn node, so the list reads as the part of the
+                    graph that has no edge to show rather than as a form field. */}
+                <span
+                  aria-hidden
+                  className="h-[9px] w-[9px] shrink-0 rounded-full bg-neutral-300 group-hover:bg-neutral-500 dark:bg-neutral-600 dark:group-hover:bg-neutral-400"
+                />
+                {/* The list is not a drawing: it has the panel's width to wrap
+                    into, so the name is shown whole and only the CSS ellipsis
+                    clips it when the button itself runs out of room. */}
+                <span className="truncate">{node.name}</span>
+              </button>
+            ))}
+          {showUnlinked && layout.unlinked.length > CHIP_LIMIT && (
             <span className="text-xs text-neutral-500 dark:text-neutral-400">
               +{layout.unlinked.length - CHIP_LIMIT}
             </span>
@@ -215,6 +307,10 @@ export default function NeighbourhoodGraph({
             })}
           </span>
         )}
+        {/* The two encodings are stated once, under the drawing, so a bigger dot
+            and a ring are readable rather than merely decorative. */}
+        <span>{t('graph.nodeDegreeLegend')}</span>
+        <span>{t('graph.typesLegend')}</span>
         <span>{t('graph.clickHint')}</span>
       </div>
     </div>

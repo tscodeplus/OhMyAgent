@@ -8,14 +8,38 @@ import Select from '../ui/Select';
 import Spinner from '../ui/Spinner';
 import NeighbourhoodGraph from './NeighbourhoodGraph';
 import EntityDetail from './EntityDetail';
+import RelationTable from './RelationTable';
+import GraphDiagnostics from './GraphDiagnostics';
+import GraphFilters from './GraphFilters';
+import { SPARSE_EDGE_LIMIT } from './layout';
 import type {
   EntityDetailPayload,
   EntityPageRef,
+  GraphComponent,
   GraphPayload,
+  GraphStats,
   GraphSummary,
 } from '../../types/graph';
 
 const DEPTH_OPTIONS = [1, 2, 3];
+/** The server's node budget for the overview; also the composition's node cap. */
+const DEFAULT_LIMIT = 200;
+/** Mention names the neighbourhood block prints before summarising the rest. */
+const MENTION_DISPLAY_LIMIT = 24;
+
+/**
+ * `<input type="date">` value → the instant the drawing is asked about.
+ *
+ * End of the chosen day, because a relation that started that morning was true
+ * that day: asking about the day should not hide it. An empty value means all
+ * time, expressed by OMITTING `asOf` — the route's parser reads 0 as "no filter"
+ * too, but a timestamp at the epoch would be a different request than no request.
+ */
+function asOfEpochMs(date: string): number | undefined {
+  if (!date) return undefined;
+  const parsed = new Date(`${date}T23:59:59.999`).getTime();
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 interface GraphViewProps {
   /**
@@ -32,8 +56,16 @@ interface GraphViewProps {
 }
 
 /**
- * The entity graph tab: overview or one entity's neighbourhood, the detail panel
- * beside it, and the two links back into the page layer.
+ * The entity graph tab: overview, one entity's neighbourhood, or one connected
+ * component, the detail panel beside it, and the two links back into the page
+ * layer.
+ *
+ * The view is chosen by what the reader asked for, not by what the payload
+ * happens to contain: the overview reports structure (counts, where the graph
+ * breaks) and drills into one component on request; a neighbourhood draws the
+ * entity it was opened for. A graph with a handful of relations is shown as a
+ * table of relation rows, because a picture of twelve lines among hundreds of
+ * names is not a picture of anything.
  *
  * It no longer owns a search box or a page header. Both moved to
  * `KnowledgeHubView` when pages and the graph became one surface — the box that
@@ -55,15 +87,45 @@ export default function GraphView({
   const [aliases, setAliases] = useState<string[]>([]);
   const [pages, setPages] = useState<EntityPageRef[]>([]);
   const [aliasesLoading, setAliasesLoading] = useState(false);
+  /**
+   * The component being drilled into. Local rather than a route param: the route
+   * already owns "which entity", and a component is a temporary narrowing of the
+   * overview that a reader leaves with one click.
+   */
+  const [component, setComponent] = useState<{ id: string; name: string } | null>(null);
+  const [stats, setStats] = useState<GraphStats | null>(null);
+  /** Empty = every relation type (the server's default), never "types=''". */
+  const [types, setTypes] = useState<string[]>([]);
+  /** `YYYY-MM-DD`; empty = all time. */
+  const [asOf, setAsOf] = useState('');
+  const [wholeGraph, setWholeGraph] = useState(false);
+  /** The canvas, unfolded while the payload is sparse enough to default to a table. */
+  const [expanded, setExpanded] = useState(false);
+
+  const asOfMs = useMemo(() => asOfEpochMs(asOf), [asOf]);
+  const isNeighbourhood = Boolean(entityId) && !component;
+  const isOverview = !entityId && !component;
 
   const loadGraph = useCallback(async () => {
     setGraphLoading(true);
     setGraphError(null);
-    const params = new URLSearchParams({ limit: '200' });
-    if (entityId) {
+    // A new payload is a new drawing: unfolding the canvas for one filter must not
+    // keep it unfolded for the next.
+    setExpanded(false);
+    const params = new URLSearchParams({ limit: String(DEFAULT_LIMIT) });
+    if (component) {
+      // `component` wins over `entity` on the server, and the drill-down is the
+      // more specific request of the two.
+      params.set('component', component.id);
+    } else if (entityId) {
       params.set('entity', entityId);
       params.set('depth', String(depth));
+    } else if (wholeGraph) {
+      // The escape hatch spends the server's hard cap instead of the budget.
+      params.set('whole', '1');
     }
+    if (types.length > 0) params.set('types', types.join(','));
+    if (asOfMs !== undefined) params.set('asOf', String(asOfMs));
     try {
       const payload = await apiRequest<GraphPayload>(`/api/memory/graph?${params.toString()}`);
       setGraph(payload);
@@ -79,11 +141,34 @@ export default function GraphView({
     } finally {
       setGraphLoading(false);
     }
-  }, [depth, entityId, onSummary, t]);
+  }, [asOfMs, component, depth, entityId, onSummary, t, types, wholeGraph]);
 
   useEffect(() => {
     void loadGraph();
   }, [loadGraph]);
+
+  // The route owns the entity selection, so arriving at one (a page link, a search
+  // hit) has to leave the component drill-down behind instead of drawing it on top.
+  useEffect(() => {
+    setComponent(null);
+  }, [entityId]);
+
+  // Diagnostics describe the whole graph and are unfiltered by design: they are the
+  // reference point the filtered drawing is read against. A failure here must not
+  // take the drawing down with it, so it simply stays absent.
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<GraphStats>('/api/memory/graph/stats')
+      .then((payload) => {
+        if (!cancelled) setStats(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Aliases and the pages that point at this entity are not part of the graph
   // payload (nodes describe the drawing, not the record), so the detail header
@@ -121,6 +206,39 @@ export default function GraphView({
   );
   const selectedNode = entityId ? nodesById.get(entityId) : undefined;
   const graphDisabled = graph?.enabled === false;
+  const edgeCount = graph?.edges.length ?? 0;
+  const sparse = edgeCount <= SPARSE_EDGE_LIMIT;
+  const canvasVisible = edgeCount > 0 && (!sparse || expanded);
+  const mentions = graph?.mentions ?? [];
+  const shownMentions = mentions.slice(0, MENTION_DISPLAY_LIMIT);
+
+  const selectEntity = useCallback(
+    (id: string | undefined) => {
+      setComponent(null);
+      onSelectEntity(id);
+    },
+    [onSelectEntity],
+  );
+
+  const backToOverview = useCallback(() => {
+    setComponent(null);
+    onSelectEntity(undefined);
+  }, [onSelectEntity]);
+
+  const openComponent = useCallback((next: GraphComponent) => {
+    const representative = next.nodes.find((node) => node.id === next.id) ?? next.nodes[0];
+    setComponent({ id: next.id, name: representative?.name ?? next.id });
+  }, []);
+
+  // Collected defensively: the stats payload does not carry the vocabulary yet, and
+  // the selected types are unioned in so that a payload already narrowed by them
+  // cannot remove the only way to uncheck them.
+  const typeOptions = useMemo(() => {
+    const known = new Set(stats?.relationTypes ?? []);
+    for (const type of types) known.add(type);
+    for (const edge of graph?.edges ?? []) known.add(edge.relation_type);
+    return [...known].sort((left, right) => left.localeCompare(right));
+  }, [graph, stats, types]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -131,7 +249,11 @@ export default function GraphView({
               <div className="min-w-0">
                 <h2 className="flex items-center gap-1.5 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">
                   <Network size={14} strokeWidth={1.75} />
-                  {selectedNode ? selectedNode.name : t('graph.overview')}
+                  {component
+                    ? component.name
+                    : selectedNode
+                      ? selectedNode.name
+                      : t('graph.overview')}
                 </h2>
                 {graph && (
                   <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -140,8 +262,8 @@ export default function GraphView({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {entityId && (
-                  <Button variant="secondary" size="sm" onClick={() => onSelectEntity(undefined)}>
+                {(entityId || component) && (
+                  <Button variant="secondary" size="sm" onClick={backToOverview}>
                     {t('graph.backToOverview')}
                   </Button>
                 )}
@@ -153,7 +275,7 @@ export default function GraphView({
                   value={String(depth)}
                   // Depth is a traversal knob for a single entity; the overview
                   // takes the whole graph, so the control is inert there.
-                  disabled={!entityId}
+                  disabled={!isNeighbourhood}
                   onChange={(event) => setDepth(Number(event.target.value))}
                   options={DEPTH_OPTIONS.map((option) => ({
                     value: String(option),
@@ -177,7 +299,8 @@ export default function GraphView({
               </div>
             ) : graphDisabled ? (
               // `memory.graph.enabled: false` projects nothing. Saying "no data
-              // yet" here would blame the corpus for a switch.
+              // yet" here would blame the corpus for a switch — and this branch is
+              // also why the diagnostics panel never renders a grid of zeros.
               <div className="flex flex-col items-center gap-1 py-12 text-center">
                 <p className="text-sm text-neutral-600 dark:text-neutral-300">
                   {t('graph.disabledTitle')}
@@ -202,12 +325,120 @@ export default function GraphView({
                     {t('graph.truncated', { count: graph.nodes.length })}
                   </p>
                 )}
-                <NeighbourhoodGraph
-                  nodes={graph.nodes}
-                  edges={graph.edges}
-                  focusId={entityId}
-                  onSelect={(id) => onSelectEntity(id)}
+
+                {isOverview && stats && stats.enabled !== false && (
+                  <GraphDiagnostics stats={stats} onOpenComponent={openComponent} />
+                )}
+
+                {/* The filters stay above the empty line: a reader who narrowed the
+                    picture down to nothing needs the control that undid it. */}
+                <GraphFilters
+                  typeOptions={typeOptions}
+                  selectedTypes={types}
+                  onTypesChange={setTypes}
+                  asOf={asOf}
+                  onAsOfChange={setAsOf}
+                  wholeGraph={
+                    isOverview ? { value: wholeGraph, onChange: setWholeGraph } : undefined
+                  }
                 />
+
+                {edgeCount === 0 ? (
+                  // Nothing to draw and nothing to tabulate. The line is the whole
+                  // answer, including the part a reader would otherwise assume:
+                  // co-occurrence is deliberately not an edge.
+                  <p className="py-8 text-center text-xs text-neutral-500 dark:text-neutral-400">
+                    {t('graph.noEdgesAtAll')}
+                  </p>
+                ) : (
+                  <>
+                    {sparse && (
+                      <div className="mb-1 flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-expanded={expanded}
+                          onClick={() => setExpanded((current) => !current)}
+                        >
+                          {expanded ? t('graph.collapseGraph') : t('graph.expandGraph')}
+                        </Button>
+                      </div>
+                    )}
+                    {(!sparse || !expanded) && (
+                      <RelationTable
+                        edges={graph.edges}
+                        nodesById={nodesById}
+                        onSelect={selectEntity}
+                      />
+                    )}
+                    {canvasVisible && (
+                      <div className={sparse ? 'mt-2' : undefined}>
+                        <NeighbourhoodGraph
+                          nodes={graph.nodes}
+                          edges={graph.edges}
+                          focusId={isNeighbourhood ? entityId : undefined}
+                          onSelect={selectEntity}
+                          // S1b: the overview's chip list is a truncation
+                          // artefact. Only its count is a fact worth stating.
+                          showUnlinked={isNeighbourhood}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {isNeighbourhood && (
+                  <section className="mt-3 border-t border-neutral-200 pt-2 dark:border-neutral-800">
+                    <h3 className="text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                      {t('graph.mentionsTitle')}
+                    </h3>
+                    {/* Stated, not implied: these names share memories with the
+                        entity and nothing else, and co-occurrence is not a
+                        statement (§3 of KNOWLEDGE_GRAPH.md). */}
+                    <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                      {t('graph.mentionsHint')}
+                    </p>
+                    {mentions.length === 0 ? (
+                      <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                        {t('graph.noMentions')}
+                      </p>
+                    ) : (
+                      <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+                        {shownMentions.map((mention) => (
+                          <li key={mention.name}>
+                            {/* A name with a node is a door; one the projector never
+                                admitted has nothing to open and stays text. */}
+                            {mention.entity_id ? (
+                              <button
+                                type="button"
+                                onClick={() => selectEntity(mention.entity_id)}
+                                title={t('graph.nodeAria', { name: mention.name })}
+                                className="inline-flex items-baseline gap-1 text-xs text-neutral-700 hover:text-neutral-900 hover:underline dark:text-neutral-300 dark:hover:text-neutral-100"
+                              >
+                                <span className="truncate">{mention.name}</span>
+                                <span className="text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
+                                  {mention.memories}
+                                </span>
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-baseline gap-1 text-xs text-neutral-600 dark:text-neutral-400">
+                                <span className="truncate">{mention.name}</span>
+                                <span className="text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
+                                  {mention.memories}
+                                </span>
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {(graph.mentions_truncated || mentions.length > shownMentions.length) && (
+                      <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {t('graph.mentionsMore', { count: shownMentions.length })}
+                      </p>
+                    )}
+                  </section>
+                )}
               </>
             )}
           </section>
@@ -221,7 +452,7 @@ export default function GraphView({
                 edges={graph?.edges ?? []}
                 nodesById={nodesById}
                 aliasesLoading={aliasesLoading}
-                onSelect={(id) => onSelectEntity(id)}
+                onSelect={selectEntity}
                 onOpenPage={onOpenPage}
               />
             </aside>

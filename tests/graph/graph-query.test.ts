@@ -14,7 +14,12 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../../src/memory/db';
 import { EntityRepository } from '../../src/memory/repositories/entity-repository';
-import { parseGraphAsOf, queryEntityGraph } from '../../src/graph/graph-query';
+import {
+  parseGraphAsOf,
+  queryEntityComponent,
+  queryEntityGraph,
+  readGraphStats,
+} from '../../src/graph/graph-query';
 
 describe('queryEntityGraph', () => {
   let db: Database.Database;
@@ -219,5 +224,124 @@ describe('queryEntityGraph', () => {
     // Unparsable means "no temporal filter"; 0 would hide every edge.
     expect(parseGraphAsOf('not a time')).toBeUndefined();
     expect(parseGraphAsOf(undefined)).toBeUndefined();
+  });
+
+  // ─── S2: the asserting memory travels with the edge ──────────────────────
+
+  it('carries the asserting memory, and omits the key when the row has none', () => {
+    seedMemory('mem-assert');
+    // `linkEntities` refreshes provenance on the existing row rather than
+    // duplicating it, the same way the projector re-asserts a relation.
+    repo.linkEntities({
+      sourceId: ids.alice,
+      targetId: ids.bob,
+      relationType: 'knows',
+      sourceMemoryId: 'mem-assert',
+    });
+
+    const query = queryEntityGraph(db, ids.alice);
+    const knows = query?.edges.find((edge) => edge.relation_type === 'knows');
+    expect(knows?.source_memory_id).toBe('mem-assert');
+
+    // A pre-v10 row has no provenance, and absence must stay truthful: no key,
+    // not a null and not a guess (the UI shows no evidence link, not a dead one).
+    const worksAt = query?.edges.find((edge) => edge.relation_type === 'works_at');
+    expect(worksAt).toBeDefined();
+    expect(worksAt).not.toHaveProperty('source_memory_id');
+  });
+
+  // ─── S6: mentions reach the WebUI ────────────────────────────────────────
+
+  it('resolves a co-mentioned name to its node only when the node exists', () => {
+    addEntity('ent-zeta', 'Zeta', 'concept');
+    seedMemory('mem-co');
+    addMentionLink('co-1', 'mem-co', 'Alice');
+    addMentionLink('co-2', 'mem-co', 'Zeta');
+    // Yotta is mentioned by the corpus and was never admitted as a node.
+    addMentionLink('co-3', 'mem-co', 'Yotta');
+
+    const anonymous = queryEntityGraph(db, ids.alice, { includeMentions: true });
+    // Off by default: the model-facing payload names things by name, never id.
+    expect(anonymous?.mentions).toEqual([
+      { name: 'Yotta', memories: 1 },
+      { name: 'Zeta', memories: 1 },
+    ]);
+
+    const resolved = queryEntityGraph(db, ids.alice, {
+      includeMentions: true,
+      mentionEntityIds: true,
+    });
+    const byName = new Map(resolved?.mentions.map((mention) => [mention.name, mention]));
+    expect(byName.get('Zeta')?.entity_id).toBe('ent-zeta');
+    // A name no memory vouched for has no node, so no id is invented for it.
+    expect(byName.get('Yotta')).not.toHaveProperty('entity_id');
+  });
+
+  it('reports the mention cap separately from the aggregate truncation', () => {
+    seedMemory('mem-cap');
+    addMentionLink('cap-1', 'mem-cap', 'Alice');
+    addMentionLink('cap-2', 'mem-cap', 'Zeta');
+    addMentionLink('cap-3', 'mem-cap', 'Yotta');
+
+    const complete = queryEntityGraph(db, ids.alice, { includeMentions: true, limit: 10 });
+    expect(complete?.mentions).toHaveLength(2);
+    expect(complete?.mentionsTruncated).toBe(false);
+
+    const capped = queryEntityGraph(db, ids.alice, { includeMentions: true, limit: 1 });
+    expect(capped?.mentions).toHaveLength(1);
+    // `truncated` aggregates nodes, edges and mentions; a caller rendering the
+    // mention block alone needs the narrower fact.
+    expect(capped?.mentionsTruncated).toBe(true);
+  });
+
+  // ─── S4: diagnostics and the component drill-down ────────────────────────
+
+  it('counts connectivity over typed, still-true edges only', () => {
+    addEntity('ent-isolated', 'Isolated', 'concept');
+    addEntity('ent-mentioned', 'Ubuntu', 'concept');
+    seedMemory('mem-ubuntu');
+    addMentionLink('ub-1', 'mem-ubuntu', 'Ubuntu');
+
+    const stats = readGraphStats(db);
+
+    expect(stats.nodes).toBe(7);
+    // Five typed rows (alice→acme, alice→bob, bob→berlin, berlin→emea, and the
+    // retracted alice→berlin), so `edges` matches a direct SQL count and the
+    // retracted one is reported as a subset rather than silently subtracted.
+    expect(stats.edges).toBe(5);
+    expect(stats.retractedEdges).toBe(1);
+    expect(stats.isolated).toBe(2);
+    expect(stats.mentionOnly).toBe(1);
+    expect(stats.mentionLinks).toBe(1);
+    // One component of five, plus each isolated entity as its own part.
+    expect(stats.componentCount).toBe(3);
+    expect(stats.largestComponentPct).toBe(0.714);
+    expect(stats.components).toHaveLength(1);
+    expect(stats.components[0]).toMatchObject({
+      id: ids.alice,
+      size: 5,
+      // The component's own count is live edges only: history is not connectivity.
+      edgeCount: 4,
+    });
+  });
+
+  it('drills into one component and stops at its boundary', () => {
+    addEntity('ent-isolated', 'Isolated', 'concept');
+
+    const component = queryEntityComponent(db, ids.berlin);
+    const nodeIds = component?.nodes.map((node) => node.id) ?? [];
+
+    expect(component?.origin.id).toBe(ids.berlin);
+    expect(nodeIds).toEqual(expect.arrayContaining([ids.alice, ids.bob, ids.acme, ids.emea]));
+    // A disconnected entity is not part of the component it was not clicked from.
+    expect(nodeIds).not.toContain('ent-isolated');
+    expect(component?.truncated).toBe(false);
+
+    // The cap is about the payload, and it says so when it cuts.
+    const capped = queryEntityComponent(db, ids.berlin, { limit: 2 });
+    expect(capped?.nodes).toHaveLength(1);
+    expect(capped?.truncated).toBe(true);
+
+    expect(queryEntityComponent(db, 'nobody')).toBeUndefined();
   });
 });

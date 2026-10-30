@@ -26,6 +26,37 @@ export interface GraphEdge {
   confidence: number;
   valid_from?: number;
   valid_to?: number;
+  /**
+   * `confidence` decayed to the instant being asked about, present only while
+   * `memory.graph.decay_half_life_days` is set. The stored number is never
+   * overwritten, so `confidence` still says what the producer asserted.
+   */
+  effective_confidence?: number;
+  /**
+   * The memory that asserted the relation, so an edge can be opened back to the
+   * sentence it came from. Absent for edges projected before provenance was
+   * stored — the column is nullable by design — and such a row then offers no
+   * evidence button at all rather than a dead one.
+   */
+  source_memory_id?: string;
+}
+
+/**
+ * A name the corpus mentions in the same memories as the queried entity.
+ *
+ * Never an edge: co-occurrence is not a statement, so it travels in its own
+ * array and is rendered in its own block.
+ */
+export interface GraphMentionNeighbour {
+  name: string;
+  /** Memories that name this entity and the queried one both. */
+  memories: number;
+  /**
+   * The node this name already belongs to, so the UI can open it. Absent when no
+   * memory ever vouched for a node of that name — a mention the projector refused
+   * has nothing to open, and the UI must not mint an id for it.
+   */
+  entity_id?: string;
 }
 
 export interface GraphPayload {
@@ -39,6 +70,62 @@ export interface GraphPayload {
    * guess it from `nodes.length === 0`. Absent in payloads from older servers.
    */
   enabled?: boolean;
+  /**
+   * Co-mentioned names — NEIGHBOURHOOD payloads only: a per-origin mention list
+   * has no meaning when there is no origin. Optional rather than a second payload
+   * type because one endpoint answers all three modes (overview, neighbourhood and
+   * component), and the UI reads whichever fields the mode it asked for carries.
+   */
+  mentions?: GraphMentionNeighbour[];
+  /** The mention cap alone decided; `truncated` aggregates it with the node/edge caps. */
+  mentions_truncated?: boolean;
+}
+
+/** One connected part of the graph, as `GET /api/memory/graph/stats` lists them. */
+export interface GraphComponent {
+  /** Representative node id: highest degree, then canonical name. */
+  id: string;
+  size: number;
+  /** Live typed edges inside the component — retracted ones are not connectivity. */
+  edgeCount: number;
+  /** Up to 12 members for the panel, ordered by degree desc then name. */
+  nodes: Array<{ id: string; name: string }>;
+}
+
+/**
+ * `GET /api/memory/graph/stats` — the numbers that explain a sparse drawing.
+ *
+ * `edges` counts typed edges only, so `MENTIONED` never inflates it: counting
+ * co-occurrence would turn "almost nothing is connected" into "everything is".
+ */
+export interface GraphStats {
+  enabled: boolean;
+  nodes: number;
+  edges: number;
+  /** How many of `edges` are closed by `valid_to`: history, not connectivity. */
+  retractedEdges: number;
+  /** Entities with no typed edge in either direction. */
+  isolated: number;
+  /** Entities with no typed edge but at least one `memory_links` row naming them. */
+  mentionOnly: number;
+  mentionLinks: number;
+  /** Total disconnected parts, each isolated entity counting as one. */
+  componentCount: number;
+  /** Largest component as a share of `nodes`, 0..1. */
+  largestComponentPct: number;
+  /** Size ≥ 2 components, largest first, capped at 8. */
+  components: GraphComponent[];
+  /** Present only when the `knowledge_links` table exists. */
+  danglingLinks?: number;
+  /** Present only when the `knowledge_pages` table exists. */
+  scopedPages?: number;
+  /**
+   * The relation vocabulary to filter by, most used first (`GET /api/memory/graph/stats`).
+   * Optional only for payloads from an older server: a list rebuilt from the current
+   * payload would shrink to the type a user just selected, which is the one control
+   * that can unselect it.
+   */
+  relationTypes?: string[];
 }
 
 export interface EntityRecord {
@@ -156,12 +243,6 @@ export interface SearchGraphHint {
   memoryRef: string;
 }
 
-/**
- * Counts the graph tab reports to the merged page's header.
- *
- * `enabled` is `memory.graph.enabled`: an empty graph and a switched-off one are
- * different answers, and the header says which one it is looking at.
- */
 /**
  * Counts the graph tab reports to the merged page's header.
  *

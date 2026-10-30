@@ -35,6 +35,15 @@ import type { GraphEdge, GraphNode } from '../../types/graph';
 export const NODE_RADIUS = 4.5;
 /** The entity the user opened, drawn a touch heavier than its neighbours. */
 export const FOCUS_RADIUS = 6;
+/**
+ * Radius a hub grows to at most.
+ *
+ * Radius is a second channel on degree (`nodeRadius`), and an uncapped log scale
+ * would let one 200-edge hub swallow the canvas. The cap is a little under three
+ * times a leaf, so the busiest node still reads as "big" without becoming a blob.
+ */
+export const MAX_NODE_RADIUS = 12;
+
 export const LABEL_SIZE = 10;
 /**
  * Only a safety net for absurd names: the real limit is the space a node gets
@@ -48,6 +57,17 @@ export const LABEL_HARD_MAX_CHARS = 32;
  * is cut, and only after the height budget says it cannot fit.
  */
 export const MAX_RENDERED = 40;
+/**
+ * Above this many edges a relation table stops being readable and the drawing
+ * starts being the honest view. Twelve rows is one screen; the canvas is the only
+ * thing that can show structure past that.
+ *
+ * It is a rendering threshold, not a data claim: a corpus with twelve edges is
+ * the shape of today's graph, and a table of twelve rows says more than a picture
+ * of twelve lines among hundreds of names — while the same threshold decides
+ * whether edge predicates are worth drawing as labels.
+ */
+export const SPARSE_EDGE_LIMIT = 12;
 
 /** Distance between two rings of the radial layout. */
 const RING_STEP = 54;
@@ -94,6 +114,19 @@ const BUDGET_STEP = 0.8;
 export interface LayoutPoint {
   x: number;
   y: number;
+}
+
+/**
+ * How big to draw a node, from how connected it is.
+ *
+ * A square root of the count would put an eight-leaf hub at nearly three radii
+ * already; log2 keeps a busy hub distinguishable from a leaf and a leaf from a
+ * hub without the picture turning into a single dot with whiskers. Degree is a
+ * second channel beside the label because the layout has no room for a third.
+ */
+export function nodeRadius(degree: number): number {
+  const scaled = NODE_RADIUS * Math.log2(1 + Math.max(0, degree));
+  return Math.min(MAX_NODE_RADIUS, Math.max(NODE_RADIUS, scaled));
 }
 
 export interface LayoutInput {

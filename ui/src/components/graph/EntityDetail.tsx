@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { EntityPageRef, GraphEdge, GraphNode } from '../../types/graph';
+import { RelationRow } from './RelationTable';
 
 interface EntityDetailProps {
   node: GraphNode;
@@ -13,63 +14,6 @@ interface EntityDetailProps {
   onSelect: (entityId: string) => void;
   /** Opens a page in the pages tab — the other half of the merge. */
   onOpenPage: (pageId: string) => void;
-}
-
-/** Validity is shown as a date, not a timestamp — the day is what people recall. */
-function formatDay(epochMs: number): string {
-  return new Date(epochMs).toLocaleDateString();
-}
-
-function RelationRow({
-  edge,
-  other,
-  direction,
-  onSelect,
-}: {
-  edge: GraphEdge;
-  other: GraphNode | undefined;
-  direction: 'outgoing' | 'incoming';
-  onSelect: (entityId: string) => void;
-}) {
-  const { t } = useTranslation('common');
-  const retracted = edge.valid_to !== undefined;
-
-  return (
-    <li className="flex flex-col gap-1 rounded-md border border-neutral-200 px-2.5 py-2 dark:border-neutral-800">
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-          {direction === 'outgoing' ? '→' : '←'} {edge.relation_type}
-        </span>
-        {other ? (
-          <button
-            type="button"
-            onClick={() => onSelect(other.id)}
-            className="min-w-0 truncate text-left text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {other.name}
-          </button>
-        ) : (
-          <span className="text-xs text-neutral-500 dark:text-neutral-400">
-            {t('graph.unknownEntity')}
-          </span>
-        )}
-        {retracted && (
-          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-            {t('graph.retracted')}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-        <span>{t('graph.confidence', { value: Math.round(edge.confidence * 100) })}</span>
-        {edge.valid_from !== undefined && (
-          <span>{t('graph.validFrom', { date: formatDay(edge.valid_from) })}</span>
-        )}
-        {edge.valid_to !== undefined && (
-          <span>{t('graph.validUntil', { date: formatDay(edge.valid_to) })}</span>
-        )}
-      </div>
-    </li>
-  );
 }
 
 export default function EntityDetail({
@@ -173,7 +117,8 @@ export default function EntityDetail({
               <RelationRow
                 key={edge.id}
                 edge={edge}
-                other={nodesById.get(edge.target)}
+                source={node}
+                target={nodesById.get(edge.target)}
                 direction="outgoing"
                 onSelect={onSelect}
               />
@@ -196,7 +141,8 @@ export default function EntityDetail({
               <RelationRow
                 key={edge.id}
                 edge={edge}
-                other={nodesById.get(edge.source)}
+                source={nodesById.get(edge.source)}
+                target={node}
                 direction="incoming"
                 onSelect={onSelect}
               />

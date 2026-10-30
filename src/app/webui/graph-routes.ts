@@ -26,6 +26,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { EntityRepository } from '../../memory/repositories/entity-repository.js';
+import { MENTION_RELATION_TYPE } from '../../graph/entity-mining.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
 import { unifiedSearch } from '../../memory/unified-search.js';
@@ -45,15 +46,34 @@ import {
   loadGraphNodes,
   parseGraphAsOf,
   parseGraphRelationTypes,
+  queryEntityComponent,
   queryEntityGraph,
+  readGraphStats,
   type GraphEdgeFilter,
+  type GraphMentionNeighbour,
   type GraphQueryEdge,
   type GraphQueryNode,
+  type GraphStats,
 } from '../../graph/graph-query.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import type { FooterConfig } from '../types.js';
 
 const MAX_GRAPH_LIMIT = 200;
+/**
+ * Share of the overview's node budget spent on seeds.
+ *
+ * Seeds cost budget and leaves cost budget, and the defect the overview had was a
+ * hub whose spokes all fell outside a top-N list — numbing every edge it owned.
+ * `seedCount === limit` reproduces exactly that: the budget is spent on names
+ * before any neighbour of theirs is drawn. A fifth leaves four fifths for the
+ * leaves, which is what a hub's spokes cost.
+ */
+const OVERVIEW_SEED_SHARE = 0.2;
+/** Nearest whole number of seeds a node budget affords, never below one. */
+function overviewSeedCount(nodeBudget: number): number {
+  return Math.max(1, Math.ceil(nodeBudget * OVERVIEW_SEED_SHARE));
+}
+
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
@@ -80,6 +100,19 @@ export interface GraphPayload {
    * payload instead of being guessed from an empty array.
    */
   enabled: boolean;
+}
+
+/**
+ * The neighbourhood payload: `GraphPayload` plus the co-occurrence tier.
+ *
+ * `mentions` has its own array because a mention is not an edge — co-occurrence is
+ * not a statement (`docs/KNOWLEDGE_GRAPH.md` §3) — and the overview payload does
+ * not carry it: a per-origin mention list has no meaning when there is no origin.
+ */
+export interface NeighbourhoodGraphPayload extends GraphPayload {
+  mentions: GraphMentionNeighbour[];
+  /** The mention cap alone; `truncated` aggregates it with the node and edge caps. */
+  mentions_truncated: boolean;
 }
 
 export type SearchResultKind = 'entity' | 'memory' | 'message';
@@ -243,23 +276,34 @@ function plainText(value: string, maxChars: number): string {
 }
 
 /**
- * Overview payload: the busiest entities first, then the edges among them.
+ * Overview payload: the busiest entities, then their one-hop neighbours.
  *
- * Degree is what makes an overview legible — the densest cluster is what a user
- * opening "knowledge graph" is looking for. The tiebreaker matters just as much
- * now that nodes come from mentions: most nodes carry no edge at all (a corpus
- * names `Ubuntu` in 38 memories and states no fact about it), so ordering the
- * zero-degree group alphabetically would show an arbitrary slice of the
- * alphabet and hide exactly the names the corpus talks about most. Mentions are
- * the natural second key: it is the same evidence that admitted the node.
+ * The old rule was a top-N induced subgraph — take the N busiest names and draw
+ * whatever edges happen to join them — and its failure mode is why this is now a
+ * BFS. A hub with thirty spokes ranked first and drew as a bare name, because the
+ * spokes (degree 1) sat below N and were never selected; every edge the hub owned
+ * pointed outside the picture. Selection therefore asks a different question:
+ * which nodes does the budget buy, starting from the busiest ones and following
+ * their edges.
+ *
+ * `limit` is still a NODE budget (plan §4.2.1 decision A), so `limit=2` yields two
+ * nodes, not a seed plus an unbounded frontier. `whole` is the explicit escape
+ * hatch for "the entire graph": the node budget is a phone-shaped default, not a
+ * claim about the data.
+ *
+ * Seed order — degree desc, mention count desc, canonical name asc — is the order
+ * the overview has always used, and it still matters: most nodes carry no edge at
+ * all, so an alphabetical tiebreaker would show an arbitrary slice of the alphabet
+ * and hide the names the corpus actually talks about.
  */
 function loadOverview(
   db: Database.Database,
-  limit: number,
+  nodeBudget: number,
   filter: GraphEdgeFilter,
   enabled: boolean,
+  whole: boolean,
 ): GraphPayload {
-  const rows = db
+  const ranked = db
     .prepare(
       `SELECT e.id
        FROM entities e
@@ -267,22 +311,134 @@ function loadOverview(
                   WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) DESC,
                 (SELECT COUNT(*) FROM memory_links ml
                   WHERE ml.target_entity = e.name OR ml.subject_entity = e.name) DESC,
-                e.canonical_name ASC
-       LIMIT @limit`,
+                e.canonical_name ASC`,
     )
-    .all({ limit: limit + 1 }) as Array<{ id: string }>;
+    .all() as Array<{ id: string }>;
+  const rankOf = new Map(ranked.map((row, index) => [row.id, index]));
 
-  const truncated = rows.length > limit;
-  const nodes = loadGraphNodes(
-    db,
-    rows.slice(0, limit).map((row) => row.id),
-  );
+  // `whole` spends the budget on seeds instead of leaves — every node is a seed,
+  // so there is nothing left for a frontier to discover.
+  const seedCount = whole ? nodeBudget : overviewSeedCount(nodeBudget);
+  const seedIds = ranked.slice(0, seedCount).map((row) => row.id);
+  const adjacency = readOverviewAdjacency(db, seedIds, filter, rankOf);
+
+  const selected: string[] = [];
+  const visited = new Set<string>();
+  // Measured, not guessed: the flag is set only when an unvisited candidate really
+  // was turned away, so a graph that simply fits reports `truncated: false`.
+  let nodeBudgetCut = false;
+  const consider = (id: string): void => {
+    if (visited.has(id)) return;
+    if (selected.length >= nodeBudget) {
+      nodeBudgetCut = true;
+      return;
+    }
+    visited.add(id);
+    selected.push(id);
+  };
+
+  for (const seedId of seedIds) consider(seedId);
+  for (const seedId of seedIds) {
+    for (const neighbourId of adjacency.get(seedId) ?? []) consider(neighbourId);
+  }
+
+  const nodes = loadGraphNodes(db, selected);
+  // The edge cap gets its own budget: edges are O(n·d) where nodes are O(n), so a
+  // hub of twenty spokes loses most of them to a cap set at the node budget — the
+  // second half of the same defect, arriving through the edge list.
   const { edges, truncated: edgesTruncated } = loadEdgesBetween(
     db,
     nodes.map((node) => node.id),
-    filter,
+    { ...filter, limit: Math.max(nodeBudget, nodes.length * 4) },
   );
-  return { nodes, edges, truncated: truncated || edgesTruncated, enabled };
+  // Three separate cuts, one flag. `nodeBudgetCut` and `edgesTruncated` are caps
+  // that bit; `ranked.length > selected.length` is the overview's own design — it
+  // draws the busiest part, so on any corpus with entities outside that part the
+  // drawing is incomplete, and `graph.truncated`'s sentence ("only the first N
+  // entities came back, there is more") is exactly the true statement. Without the
+  // third term a 13-entity graph answered `truncated: false` while drawing two of
+  // them, which reads as a lie to whoever opened the payload.
+  const omitted = ranked.length > selected.length;
+  return { nodes, edges, truncated: nodeBudgetCut || edgesTruncated || omitted, enabled };
+}
+/**
+ * One-hop adjacency of the seeds, over the edges the caller will actually be shown.
+ *
+ * Read in a single query for all seeds (a per-seed lookup is N+1, and the overview
+ * is the WebUI's landing request), and filtered by the same temporal and
+ * relation-type predicate `loadEdgesBetween` uses: a neighbour reachable only
+ * through an edge the caller filtered out would be drawn as an unrelated name —
+ * the very symptom this selection rule exists to remove.
+ *
+ * `MENTIONED` rows are not adjacency. Co-occurrence is not a statement, so a
+ * neighbour reached only that way has no drawn edge to its seed
+ * (`docs/KNOWLEDGE_GRAPH.md` §3); mentions have their own tier on the
+ * neighbourhood payload.
+ *
+ * Neighbours come back in the seeds' own ranking order, so which spokes survive a
+ * tight budget is deterministic rather than rowid luck.
+ */
+function readOverviewAdjacency(
+  db: Database.Database,
+  seedIds: string[],
+  filter: GraphEdgeFilter,
+  rankOf: Map<string, number>,
+): Map<string, string[]> {
+  const adjacency = new Map<string, string[]>();
+  if (seedIds.length === 0 || !tableExists(db, 'entity_edges')) return adjacency;
+
+  const params: Record<string, unknown> = {
+    mentionRelation: MENTION_RELATION_TYPE,
+    asOf: filter.asOf ?? null,
+  };
+  const seedPlaceholders = seedIds
+    .map((id, index) => {
+      params[`seed${index}`] = id;
+      return `@seed${index}`;
+    })
+    .join(', ');
+
+  let sql = `
+    SELECT x.source_entity_id AS source, x.target_entity_id AS target
+    FROM entity_edges x
+    WHERE (x.source_entity_id IN (${seedPlaceholders})
+        OR x.target_entity_id IN (${seedPlaceholders}))
+      AND upper(trim(x.relation_type)) <> @mentionRelation
+      AND (@asOf IS NULL OR ((x.valid_from IS NULL OR x.valid_from <= @asOf)
+           AND (x.valid_to IS NULL OR x.valid_to > @asOf)))`;
+  const relationTypes = filter.relationTypes ?? [];
+  if (relationTypes.length > 0) {
+    const typePlaceholders = relationTypes
+      .map((type, index) => {
+        params[`type${index}`] = type;
+        return `@type${index}`;
+      })
+      .join(', ');
+    sql += ` AND x.relation_type IN (${typePlaceholders})`;
+  }
+
+  const rows = db.prepare(sql).all(params) as Array<{ source: string; target: string }>;
+  const seedSet = new Set(seedIds);
+  for (const row of rows) {
+    // An edge is filed under whichever endpoint is a seed; a seed-to-seed edge is
+    // filed under both, each naming the other.
+    if (seedSet.has(row.source)) pushAdjacent(adjacency, row.source, row.target);
+    if (seedSet.has(row.target)) pushAdjacent(adjacency, row.target, row.source);
+  }
+
+  for (const neighbours of adjacency.values()) {
+    neighbours.sort((a, b) => (rankOf.get(a) ?? Infinity) - (rankOf.get(b) ?? Infinity));
+  }
+  return adjacency;
+}
+
+function pushAdjacent(adjacency: Map<string, string[]>, from: string, to: string): void {
+  const neighbours = adjacency.get(from);
+  if (!neighbours) {
+    adjacency.set(from, [to]);
+  } else if (!neighbours.includes(to)) {
+    neighbours.push(to);
+  }
 }
 
 /**
@@ -365,23 +521,35 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
 
   /**
    * Graph payload.
-   *   `?entity=<id|name|alias>` — that entity's neighbourhood (default: overview)
-   *   `?depth=1..3`             — hop count, neighbourhood only
-   *   `?limit=1..200`           — node/edge cap
-   *   `?asOf=<epoch ms>`        — "what was true then"
-   *   `?types=a,b`              — relation types to traverse
+   *   `?entity=<id|name|alias>`    — that entity's neighbourhood (default: overview)
+   *   `?component=<id|name|alias>` — that entity's whole connected component
+   *   `?depth=1..3`                — hop count, neighbourhood only
+   *   `?limit=1..200`              — node/edge cap
+   *   `?asOf=<epoch ms>`           — "what was true then"
+   *   `?types=a,b`                 — relation types to traverse
+   *   `?whole=1`                   — the whole graph instead of a budgeted overview
+   *
+   * `component` wins when both it and `entity` are given: the drill-down is the
+   * more specific request, and silently ignoring it would answer a different
+   * question than the one the panel asked.
    */
   app.get('/api/memory/graph', async (request, reply) => {
     const query = request.query as {
       entity?: string;
+      component?: string;
       depth?: string;
       limit?: string;
       asOf?: string;
       types?: string;
+      whole?: string;
     };
 
     const limit = clampInt(query.limit, DEFAULT_GRAPH_QUERY_LIMIT, 1, MAX_GRAPH_LIMIT);
     const depth = clampInt(query.depth, 1, 1, MAX_QUERY_DEPTH);
+    // `whole=1` spends the hard cap rather than the caller's budget: the budget is
+    // a phone-shaped default, and honouring both would make the escape hatch mean
+    // "whatever limit says", which is the thing it exists to override.
+    const whole = query.whole === '1';
     const enabled = cfg.graphEnabled ? cfg.graphEnabled() : true;
     const filter: GraphEdgeFilter = {
       asOf: parseGraphAsOf(query.asOf),
@@ -393,7 +561,9 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       if (!tableExists(cfg.db, 'entities')) {
         // Pre-v10 database: nothing has ever been written, so the honest answer
         // is an empty graph — not a 500 the UI has to special-case.
-        if (query.entity) return reply.status(404).send({ error: 'Entity not found' });
+        if (query.entity || query.component) {
+          return reply.status(404).send({ error: 'Entity not found' });
+        }
         return reply.send({
           nodes: [],
           edges: [],
@@ -402,9 +572,31 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         } satisfies GraphPayload);
       }
 
+      // Component drill-down: the payload the statistics panel links into. Nodes
+      // are the whole component (structural, so it matches the size the panel
+      // printed) while `limit` / `asOf` / `types` narrow only the edges drawn.
+      const componentRef = query.component?.trim();
+      if (componentRef) {
+        const component = queryEntityComponent(cfg.db, componentRef, {
+          asOf: filter.asOf,
+          relationTypes: filter.relationTypes,
+          limit,
+          decayHalfLifeDays: cfg.decayHalfLifeDays,
+        });
+        if (!component) return reply.status(404).send({ error: 'Entity not found' });
+        return reply.send({
+          nodes: [component.origin, ...component.nodes],
+          edges: component.edges,
+          truncated: component.truncated,
+          enabled,
+        } satisfies GraphPayload);
+      }
+
       const entityRef = query.entity?.trim();
       if (!entityRef) {
-        return reply.send(loadOverview(cfg.db, limit, filter, enabled));
+        return reply.send(
+          loadOverview(cfg.db, whole ? MAX_GRAPH_LIMIT : limit, filter, enabled, whole),
+        );
       }
 
       // `entity` is whatever the user clicked or typed: an id, a canonical name
@@ -415,6 +607,8 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         asOf: filter.asOf,
         relationTypes: filter.relationTypes,
         limit,
+        includeMentions: true,
+        mentionEntityIds: true,
         decayHalfLifeDays: cfg.decayHalfLifeDays,
       });
       if (!neighbourhood) return reply.status(404).send({ error: 'Entity not found' });
@@ -425,7 +619,41 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
         edges: neighbourhood.edges,
         truncated: neighbourhood.truncated,
         enabled,
-      } satisfies GraphPayload);
+        // Co-mentioned names, with the node each one already belongs to. For a
+        // sparsely-connected entity this is the only informative part of the
+        // payload, and it can never be mistaken for a statement: it never enters
+        // `edges` (graph-query.ts owns that split).
+        mentions: neighbourhood.mentions,
+        mentions_truncated: neighbourhood.mentionsTruncated,
+      } satisfies NeighbourhoodGraphPayload);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * Graph diagnostics: the numbers that explain a sparse drawing.
+   *
+   * 378 entities and 12 edges is not a rendering problem, it is a corpus fact —
+   * almost every node is a name a memory mentioned and no memory made a statement
+   * about. That is what this panel is for, so `MENTIONED` is excluded from `edges`
+   * by the query itself: counting it would turn "almost nothing is connected"
+   * into "everything is connected", which is the exact reading the mention tier
+   * exists to prevent (docs/KNOWLEDGE_GRAPH.md §3).
+   *
+   * A static path beside `/api/memory/graph`, not a `?stats=1` flag on it: the two
+   * answer different questions with different costs (200 nodes vs the whole
+   * graph), and Fastify prefers a static segment over a parameter, so neither the
+   * parameterised `/api/memory/:id` nor `/api/memory/graph` is shadowed — both
+   * cases are tested.
+   */
+  app.get('/api/memory/graph/stats', async (_request, reply) => {
+    const enabled = cfg.graphEnabled ? cfg.graphEnabled() : true;
+    try {
+      // Zeroes with a real `enabled` flag on a pre-v10 database: there is no graph
+      // to measure, and that is an answer, not a failure.
+      return reply.send({ enabled, ...readGraphStats(cfg.db) } satisfies GraphStats);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });
