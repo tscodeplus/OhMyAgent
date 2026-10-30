@@ -51,6 +51,41 @@ export const KNOWLEDGE_LOG_ACTORS = ['agent', 'user', 'system'] as const;
 export type KnowledgeLogActor = (typeof KNOWLEDGE_LOG_ACTORS)[number];
 
 /**
+ * Why a reviewer rejected a shadow draft.
+ *
+ * A closed set, not free text, because the value of asking at all is the tally:
+ * “nine of fifty drafts were rejected as a recap of one conversation” is a
+ * statement about the grouping prompt, while nine sentences saying roughly that
+ * are not. The optional `note` on the same log row carries whatever the reviewer
+ * wants to add, which is why the code never has to grow a case for every nuance.
+ *
+ * The labels live in the WebUI's i18n dictionaries — this module owns the fact,
+ * `ui/src/i18n/locales/<lang>/common.json` owns the words.
+ */
+export const REJECTION_REASONS = [
+  /** Restates the conversations it came from; nothing reusable was distilled. */
+  'recap',
+  /** A subject, but the body is too thin to answer a question later. */
+  'thin',
+  /** Cites one conversation only, so nothing corroborates it (rule 2 bypassed). */
+  'single_conversation',
+  /** Says something the cited memories do not support. */
+  'inaccurate',
+  /** True but nothing every chat should know — wrong to publish as `global`. */
+  'not_global',
+  /** Another page already says this. */
+  'duplicate',
+  /** None of the above; the `note` explains. */
+  'other',
+] as const;
+
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
+export function isRejectionReason(value: unknown): value is RejectionReason {
+  return typeof value === 'string' && (REJECTION_REASONS as readonly string[]).includes(value);
+}
+
+/**
  * A `knowledge_pages` row as stored.
  *
  * `aliases` and `tags` are JSON array text (e.g. `'["PQ"]'`) or NULL — parse
@@ -163,6 +198,8 @@ export interface KnowledgeLogEntry {
   actor: KnowledgeLogActor;
   version: number | null;
   reason: string | null;
+  /** The reviewer's own words for a rejection; see `REJECTION_REASONS` (v25). */
+  note: string | null;
   created_at: number;
 }
 

@@ -470,9 +470,19 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     );
   }
 
-  function setStatus(id: string, status: KnowledgePageStatus, actor: KnowledgeActor): boolean {
-    const changed = repository.setStatus(id, status, actor);
-    if (changed) logger?.debug({ pageId: id, status, actor }, 'knowledge page status changed');
+  function setStatus(
+    id: string,
+    status: KnowledgePageStatus,
+    actor: KnowledgeActor,
+    details?: { reason?: string; note?: string },
+  ): boolean {
+    const changed = repository.setStatus(id, status, actor, details);
+    if (changed) {
+      logger?.debug(
+        { pageId: id, status, actor, reason: details?.reason },
+        'knowledge page status changed',
+      );
+    }
     return changed;
   }
 

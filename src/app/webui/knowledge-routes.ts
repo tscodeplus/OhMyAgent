@@ -50,7 +50,9 @@ import {
   KNOWLEDGE_PAGE_STATUSES,
   KNOWLEDGE_SOURCE_KINDS,
   PAGE_TYPES,
+  REJECTION_REASONS,
   isPageType,
+  isRejectionReason,
   type KnowledgeBacklink,
   type KnowledgePage,
   type KnowledgePageStatus,
@@ -75,6 +77,12 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_PENDING_LIMIT = 50;
 const MAX_PENDING_LIMIT = 200;
+/**
+ * A rejection note is a sentence or two, not a page of prose: the queue renders
+ * it in a toast-sized row, and an unbounded field on a phone keyboard is a way to
+ * paste a whole document into a log column.
+ */
+const MAX_REJECTION_NOTE_CHARS = 500;
 /** Mirrors the contract's own search default (and clamp). */
 const DEFAULT_SEARCH_LIMIT = 6;
 const MAX_SEARCH_LIMIT = 20;
@@ -595,6 +603,32 @@ function readKnowledgeCounts(db: Database.Database): KnowledgeCounts {
   return { total: Number(totalRow.n), byStatus, byPageType };
 }
 
+/**
+ * How many drafts were rejected for each reason (v25).
+ *
+ * This is the answer to "why do the drafts keep missing", so it is a tally over a
+ * closed set rather than a list of sentences: `recap` nine times says the grouping
+ * prompt is producing conversation digests, `inaccurate` nine times says the page
+ * call is over-claiming, and `single_conversation` nine times says the recurrence
+ * rule is being bypassed — three different fixes that a wall of prose would hide.
+ * `other` is the one bucket that needs its notes read by hand.
+ *
+ * Empty when the layer never ran (no `knowledge_log` table) or nothing has been
+ * rejected yet, never fabricated.
+ */
+function readRejectionCounts(db: Database.Database): Array<{ reason: string; count: number }> {
+  if (!tableExists(db, 'knowledge_log')) return [];
+  const rows = db
+    .prepare(
+      `SELECT reason, COUNT(*) AS n FROM knowledge_log
+        WHERE reason LIKE 'reject:%'
+        GROUP BY reason
+        ORDER BY n DESC, reason ASC`,
+    )
+    .all() as Array<{ reason: string; n: number | string }>;
+  return rows.map((row) => ({ reason: row.reason, count: Number(row.n) }));
+}
+
 export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRouteConfig): void {
   const { service } = cfg;
 
@@ -963,13 +997,44 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
    * the page is no longer active once this returns. `status` is the new state the
    * UI needs; the archived body is still served by the list endpoint
    * (`?status=archived`).
+   *
+   * `reason` is a `REJECTION_REASONS` code and `note` is the reviewer's own words
+   * (both optional, v25). Asking for the reason is the point of the exercise, not
+   * paperwork: a code can be tallied — nine of fifty drafts rejected as `recap`
+   * says something about the grouping prompt that nine sentences do not — and a
+   * draft that is *wrong* needs a different fix from one that is merely *thin*.
+   * An unknown code is a 400 rather than a silently dropped field, so a client
+   * typo cannot produce an unattributable rejection.
    */
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: { reason?: unknown; note?: unknown } }>(
     '/api/knowledge/page/:id/archive',
     async (request, reply) => {
       try {
         const { id } = request.params;
-        if (!service.setStatus(id, 'archived', 'user')) {
+        const body = (request.body ?? {}) as { reason?: unknown; note?: unknown };
+        if (body.reason !== undefined && !isRejectionReason(body.reason)) {
+          return reply.status(400).send({
+            error: 'unknown rejection reason',
+            allowed: REJECTION_REASONS,
+          });
+        }
+        if (body.note !== undefined && typeof body.note !== 'string') {
+          return reply.status(400).send({ error: 'note must be a string' });
+        }
+        const note = typeof body.note === 'string' ? body.note.trim() : '';
+        if (note.length > MAX_REJECTION_NOTE_CHARS) {
+          return reply
+            .status(400)
+            .send({ error: `note must be at most ${MAX_REJECTION_NOTE_CHARS} characters` });
+        }
+        const details =
+          body.reason === undefined && note === ''
+            ? undefined
+            : {
+                ...(body.reason === undefined ? {} : { reason: `reject:${String(body.reason)}` }),
+                ...(note === '' ? {} : { note }),
+              };
+        if (!service.setStatus(id, 'archived', 'user', details)) {
           return reply
             .status(404)
             .send({ error: 'Not Found', message: `No knowledge page with id ${id}` });
@@ -1004,6 +1069,8 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
         tableExists(cfg.db, 'knowledge_pages') && tableExists(cfg.db, 'knowledge_fts_jieba');
       return reply.send({
         ...counts,
+        // Why the drafts miss, not just how many there are.
+        rejections: readRejectionCounts(cfg.db),
         fts: indexable ? checkConsistency(cfg.db) : null,
       });
     } catch (err) {

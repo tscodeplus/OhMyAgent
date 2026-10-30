@@ -6,6 +6,7 @@ import { migrateV14 } from '../../src/memory/migration-v14';
 import { migrateV21 } from '../../src/memory/migration-v21';
 import { migrateV22 } from '../../src/memory/migration-v22';
 import { migrateV24 } from '../../src/memory/migration-v24';
+import { migrateV25 } from '../../src/memory/migration-v25';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository';
 import { EmbeddingRepository } from '../../src/memory/repositories/embedding-repository';
 import { MemoryWriter } from '../../src/memory/memory-writer';
@@ -771,15 +772,17 @@ describe('MemoryWriter', () => {
     const CORRECTED = 'Deploy target is the production cluster';
 
     /**
-     * The knowledge tables arrive with migration-v14/v21/v22/v24, not
-     * `applySchema` — `KnowledgeRepository` writes `entity_id`, `scope` and
-     * `normalized_title`, which the later ones add.
+     * The knowledge tables arrive with migration-v14/v21/v22/v24/v25, not
+     * `applySchema` — `KnowledgeRepository` writes `entity_id`, `scope`,
+     * `normalized_title` and `knowledge_log.note`, which the later ones add.
      */
     function setupKnowledgeLayer(): KnowledgeRepository {
       migrateV14(db);
       migrateV21(db);
       migrateV22(db);
       migrateV24(db);
+      // v25 adds `knowledge_log.note`, which every status write now populates.
+      migrateV25(db);
       return new KnowledgeRepository(db);
     }
 

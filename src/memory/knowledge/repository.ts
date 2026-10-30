@@ -598,7 +598,12 @@ export class KnowledgeRepository {
   }
 
   /** Flip a page's lifecycle status (approve / archive / re-queue). */
-  setStatus(id: string, status: KnowledgePageStatus, actor: KnowledgeLogActor): boolean {
+  setStatus(
+    id: string,
+    status: KnowledgePageStatus,
+    actor: KnowledgeLogActor,
+    details?: { reason?: string; note?: string },
+  ): boolean {
     const run = this.db.transaction((): boolean => {
       const current = this.findById(id);
       if (!current) return false;
@@ -618,7 +623,12 @@ export class KnowledgeRepository {
         action: status === 'pending' ? 'pending' : 'update',
         actor,
         version,
-        reason: `status: ${current.status} -> ${status}`,
+        // A caller-supplied reason replaces the generic transition string: the
+        // transition is already implied by the write that just happened, while
+        // *why* the reviewer rejected the draft is not recoverable afterwards —
+        // and it is the only part of this row worth grouping over.
+        reason: details?.reason ?? `status: ${current.status} -> ${status}`,
+        note: details?.note ?? null,
       });
       return true;
     });
@@ -761,11 +771,12 @@ export class KnowledgeRepository {
     actor: KnowledgeLogActor;
     version: number | null;
     reason: string | null;
+    note?: string | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO knowledge_log (id, page_id, action, actor, version, reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO knowledge_log (id, page_id, action, actor, version, reason, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         randomUUID(),
@@ -774,6 +785,7 @@ export class KnowledgeRepository {
         entry.actor,
         entry.version,
         entry.reason,
+        entry.note ?? null,
         Date.now(),
       );
   }

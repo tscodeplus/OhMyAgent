@@ -5,6 +5,7 @@ import { migrateV14 } from '../../src/memory/migration-v14.js';
 import { migrateV21 } from '../../src/memory/migration-v21.js';
 import { migrateV22 } from '../../src/memory/migration-v22.js';
 import { migrateV24 } from '../../src/memory/migration-v24.js';
+import { migrateV25 } from '../../src/memory/migration-v25.js';
 import { KnowledgeRepository } from '../../src/memory/knowledge/repository.js';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository.js';
 import { EmbeddingRepository } from '../../src/memory/repositories/embedding-repository.js';
@@ -237,6 +238,8 @@ describe('memory governance tools', () => {
     migrateV21(db);
     migrateV22(db);
     migrateV24(db);
+    // v25 adds `knowledge_log.note`, which every status write now populates.
+    migrateV25(db);
     const knowledge = new KnowledgeRepository(db);
     memoryRepo.create({
       id: 'cited',

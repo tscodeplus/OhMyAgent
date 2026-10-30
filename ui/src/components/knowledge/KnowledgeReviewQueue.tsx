@@ -11,7 +11,8 @@ import {
   archiveKnowledgePage,
   fetchPendingKnowledgePages,
 } from './knowledge-api';
-import type { PendingKnowledgePagePayload } from './types';
+import type { PendingKnowledgePagePayload, RejectionReason } from './types';
+import { MAX_REJECTION_NOTE_CHARS, REJECTION_REASONS } from './types';
 import KnowledgeScopeBadge from './KnowledgeScopeBadge';
 
 /** The route's own default; the queue is a review list, not a browsing surface. */
@@ -47,6 +48,15 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
   /** Id of the page a decision is in flight for, so its row shows the spinner. */
   const [actingId, setActingId] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  /**
+   * The row whose reason panel is open, and the note typed so far.
+   *
+   * Both live here rather than per row because only one rejection can be in
+   * progress at a time: fifty panels holding their own half-typed sentences would
+   * be state nobody can review, and the server takes one decision per request.
+   */
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [note, setNote] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -76,7 +86,11 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
   }, [refreshKey, reloadToken, t]);
 
   const decide = useCallback(
-    async (page: PendingKnowledgePagePayload, action: 'approve' | 'archive') => {
+    async (
+      page: PendingKnowledgePagePayload,
+      action: 'approve' | 'archive',
+      reason?: RejectionReason,
+    ) => {
       setActingId(page.id);
       try {
         // Approve for a page still flagged by the write-side invalidation
@@ -87,11 +101,16 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
         const result =
           action === 'approve'
             ? await approveKnowledgePage(page.id)
-            : await archiveKnowledgePage(page.id);
+            : // The note travels with the chip when the reviewer typed one first:
+              // "thin" plus a sentence they already wrote is a better record than
+              // making them choose between the two.
+              await archiveKnowledgePage(page.id, { reason, ...(note.trim() ? { note } : {}) });
         // Both decisions take the page out of `pending`, so the row goes with it
         // instead of staying behind with a new badge.
         setPages((current) => current.filter((entry) => entry.id !== page.id));
         if (previewId === page.id) setPreviewId(null);
+        if (rejectingId === page.id) setRejectingId(null);
+        setNote('');
         onChanged();
         if (action === 'approve' && result.warning) {
           showToast(
@@ -124,7 +143,7 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
         setActingId(null);
       }
     },
-    [onChanged, previewId, showToast, t],
+    [note, onChanged, previewId, rejectingId, showToast, t],
   );
 
   return (
@@ -171,40 +190,35 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
               return (
                 <li
                   key={page.id}
-                  className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-800"
+                  // The whole row opens the body: reading the draft is what the row is
+                  // for, and hunting for a 14px button is the slow path. The button
+                  // stays as the keyboard/AT path (`li` is not focusable by design — a
+                  // toggle nested inside a row that also holds real buttons would offer
+                  // a second tab stop with no distinct action).
+                  onClick={() => setPreviewId(expanded ? null : page.id)}
+                  className={`cursor-pointer rounded-lg border p-3 transition-colors ${
+                    expanded
+                      ? 'border-neutral-300 dark:border-neutral-700'
+                      : 'border-neutral-200 hover:border-neutral-300 dark:border-neutral-800 dark:hover:border-neutral-700'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <h3 className="truncate text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
                         {page.title}
                       </h3>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
-                          {t(`knowledge.pageTypes.${page.pageType}`)}
-                        </span>
-                        {/* The queue is where the scope decides the answer: the
-                            same subject curated in two chats is two drafts, and
-                            only one of them belongs here. */}
-                        <KnowledgeScopeBadge scope={page.scope} />
-                        <span className="truncate">{page.slug}</span>
-                        {page.updatedAt && (
-                          <span>
-                            ·{' '}
-                            {t('knowledge.review.written', {
-                              time: formatRelativeTime(page.updatedAt),
-                              actor: page.updatedBy || t('knowledge.editor.actorUnknown'),
-                            })}
-                          </span>
-                        )}
-                      </p>
                       {/*
-                        Evidence, because it is the one judgement a reviewer cannot
-                        make from the body: a draft can read perfectly and still be
-                        one chat talking to itself. `independent` is the number
-                        admission rule 2 was measured with (distinct conversations),
-                        so a draft below `requireSources` passed on rule 3 — "the user
-                        asked for it" — and has never been corroborated. Confidence is
-                        not shown: every curated draft carries the mean source
+                        One line for everything a reviewer scans: what kind, whose
+                        chat, which slug, who wrote it and when, and how much
+                        evidence stands behind it. Evidence moved up here because a
+                        second paragraph of grey text below the title is where a
+                        number goes to be skipped — and "one conversation" is the
+                        judgement the body cannot give you:
+                        `independent` counts distinct conversations (the number
+                        admission rule 2 was measured with), so a draft below
+                        `requireSources` passed on rule 3 — "the user asked for it" —
+                        and has never been corroborated. Confidence is deliberately
+                        absent: every curated draft carries the mean source
                         confidence, i.e. the same 100%, and a number that never varies
                         invites a judgement it cannot support.
                         Defensive `?? 0`: a service worker can serve a cached older
@@ -214,8 +228,26 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                         const evidence = page.sources ?? { total: 0, independent: 0 };
                         const thin = evidence.independent < requireSources;
                         return (
-                          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+                            <span className="rounded bg-neutral-100 px-1.5 py-0.5 dark:bg-neutral-800">
+                              {t(`knowledge.pageTypes.${page.pageType}`)}
+                            </span>
+                            {/* The queue is where the scope decides the answer: the
+                                same subject curated in two chats is two drafts, and
+                                only one of them belongs here. */}
+                            <KnowledgeScopeBadge scope={page.scope} />
+                            <span className="truncate">{page.slug}</span>
+                            {page.updatedAt && (
+                              <span>
+                                ·{' '}
+                                {t('knowledge.review.written', {
+                                  time: formatRelativeTime(page.updatedAt),
+                                  actor: page.updatedBy || t('knowledge.editor.actorUnknown'),
+                                })}
+                              </span>
+                            )}
                             <span>
+                              ·{' '}
                               {t('knowledge.review.sourceSummary', {
                                 sources: evidence.total,
                                 conversations: evidence.independent,
@@ -238,10 +270,16 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setPreviewId(expanded ? null : page.id)}
+                      // The row already toggles on click; without this the click
+                      // arrives twice and the body never opens.
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPreviewId(expanded ? null : page.id);
+                      }}
                       aria-label={
                         expanded ? t('knowledge.review.hidePreview') : t('knowledge.review.preview')
                       }
+                      aria-expanded={expanded}
                     >
                       {expanded ? <EyeOff size={14} /> : <Eye size={14} />}
                       <span>
@@ -253,26 +291,91 @@ export default function KnowledgeReviewQueue({ refreshKey, onChanged }: Knowledg
                   </div>
 
                   {expanded && (
-                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-neutral-50 p-2 text-[11.5px] leading-relaxed text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+                    /* Selecting text to copy must not fold the row away. */
+                    <pre
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-neutral-50 p-2 text-[11.5px] leading-relaxed text-neutral-700 dark:bg-neutral-900 dark:text-neutral-300"
+                    >
                       {page.content || t('knowledge.conflict.emptyContent')}
                     </pre>
                   )}
 
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Button size="sm" loading={busy} onClick={() => void decide(page, 'approve')}>
+                  {/* Actions are their own island: a click here is a decision, never a toggle. */}
+                  <div
+                    className="mt-2 flex flex-wrap items-center gap-2"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <Button
+                      size="sm"
+                      loading={busy}
+                      disabled={rejectingId === page.id}
+                      onClick={() => void decide(page, 'approve')}
+                    >
                       <Check size={14} strokeWidth={1.75} />
                       {t('knowledge.review.approve')}
                     </Button>
                     <Button
                       variant="danger"
                       size="sm"
-                      disabled={busy}
-                      onClick={() => void decide(page, 'archive')}
+                      disabled={busy || rejectingId === page.id}
+                      onClick={() => setRejectingId(rejectingId === page.id ? null : page.id)}
                     >
                       <Archive size={14} strokeWidth={1.75} />
-                      {t('knowledge.review.archive')}
+                      {t('knowledge.review.reject')}
                     </Button>
                   </div>
+
+                  {/*
+                    The reason panel is the count that makes the tally real: seven
+                    codes with two clicks total (reject, then a chip). It replaces a
+                    free-text box on purpose — "other" exists for the sentence, and
+                    asking for prose first would give us fifty sentences nobody can
+                    group.
+                  */}
+                  {rejectingId === page.id && (
+                    <div className="mt-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-800">
+                      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {t('knowledge.review.rejectPrompt')}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {REJECTION_REASONS.map((reason) => (
+                          <button
+                            key={reason}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void decide(page, 'archive', reason)}
+                            className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-red-500/40 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                          >
+                            {t(`knowledge.review.reasons.${reason}`)}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <input
+                          value={note}
+                          onChange={(event) => setNote(event.target.value)}
+                          maxLength={MAX_REJECTION_NOTE_CHARS}
+                          placeholder={t('knowledge.review.rejectNotePlaceholder')}
+                          className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-transparent px-2 py-1 text-[11.5px] text-neutral-800 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:text-neutral-200 dark:focus:border-neutral-500"
+                        />
+                        <Button
+                          size="sm"
+                          loading={busy}
+                          onClick={() => void decide(page, 'archive', 'other')}
+                        >
+                          {t('knowledge.review.rejectConfirm')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => setRejectingId(null)}
+                        >
+                          {t('knowledge.review.rejectCancel')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               );
             })}

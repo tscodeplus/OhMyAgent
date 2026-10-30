@@ -949,6 +949,115 @@ describe('knowledge routes', () => {
         (await app.inject({ method: 'POST', url: '/api/knowledge/page/nope/archive' })).statusCode,
       ).toBe(404);
     });
+
+    /**
+     * A rejected draft carries a cause. The code goes to `knowledge_log.reason` so
+     * it stays groupable, the sentence to `knowledge_log.note` — one column holding
+     * both would turn "recap ×9" into nine distinct reasons and make the tally
+     * useless, which is the whole point of asking.
+     */
+    it('records the rejection reason and note on the log row', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/knowledge/page/${SHADOW}/archive`,
+        payload: { reason: 'recap', note: '  只是把那次对话复述了一遍  ' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect((res.json() as { status: string }).status).toBe('archived');
+
+      const log = db
+        .prepare(
+          `SELECT reason, note, actor FROM knowledge_log
+            WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(SHADOW) as { reason: string; note: string | null; actor: string };
+      expect(log).toMatchObject({ reason: 'reject:recap', actor: 'user' });
+      // Trimmed: a pasted sentence arrives with its whitespace.
+      expect(log.note).toBe('只是把那次对话复述了一遍');
+    });
+
+    it('400s an unknown reason instead of dropping it silently', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/knowledge/page/${SHADOW}/archive`,
+        payload: { reason: 'because-i-said-so' },
+      });
+      expect(res.statusCode).toBe(400);
+      const body = res.json() as { error: string; allowed: string[] };
+      expect(body.allowed).toContain('recap');
+      // And nothing moved: a typo must not archive the draft under no reason.
+      const queue = await app.inject({ method: 'GET', url: '/api/knowledge/pending' });
+      expect((queue.json() as { pages: Array<{ id: string }> }).pages.map((p) => p.id)).toContain(
+        SHADOW,
+      );
+    });
+
+    it('400s a note that is not a string, or is longer than the cap', async () => {
+      const notAString = await app.inject({
+        method: 'POST',
+        url: `/api/knowledge/page/${SHADOW}/archive`,
+        payload: { reason: 'thin', note: 42 },
+      });
+      expect(notAString.statusCode).toBe(400);
+
+      const tooLong = await app.inject({
+        method: 'POST',
+        url: `/api/knowledge/page/${SHADOW}/archive`,
+        payload: { reason: 'thin', note: 'x'.repeat(501) },
+      });
+      expect(tooLong.statusCode).toBe(400);
+    });
+
+    it('still archives with no reason at all, keeping the generic log line', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/knowledge/page/${SHADOW}/archive`,
+      });
+      expect(res.statusCode).toBe(200);
+      const log = db
+        .prepare(
+          `SELECT reason, note FROM knowledge_log
+            WHERE page_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(SHADOW) as { reason: string; note: string | null };
+      expect(log.reason).toBe('status: pending -> archived');
+      expect(log.note).toBeNull();
+    });
+
+    it('tallies rejections by reason in /stats', async () => {
+      // A third pending draft, because RETIRED is already archived and a rejected
+      // page must actually move for its log row to exist.
+      const THIRD = seedPage({
+        pageType: 'topic',
+        slug: 'thin-topic',
+        title: 'Thin Topic',
+        content: 'too thin',
+        status: 'pending',
+      });
+      for (const [id, reason] of [
+        [SHADOW, 'recap'],
+        [POWER_QUERY, 'recap'],
+        [THIRD, 'thin'],
+      ] as const) {
+        const res = await app.inject({
+          method: 'POST',
+          url: `/api/knowledge/page/${id}/archive`,
+          payload: { reason },
+        });
+        expect(res.statusCode).toBe(200);
+      }
+
+      const stats = await app.inject({ method: 'GET', url: '/api/knowledge/stats' });
+      const body = stats.json() as { rejections: Array<{ reason: string; count: number }> };
+      expect(body.rejections).toEqual(
+        expect.arrayContaining([
+          { reason: 'reject:recap', count: 2 },
+          { reason: 'reject:thin', count: 1 },
+        ]),
+      );
+      // Descending by count, so the most common failure of the curator is first.
+      expect(body.rejections[0]).toEqual({ reason: 'reject:recap', count: 2 });
+    });
   });
 
   describe('GET /api/knowledge/stats', () => {

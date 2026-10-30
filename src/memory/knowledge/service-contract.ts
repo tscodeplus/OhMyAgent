@@ -182,8 +182,19 @@ export interface KnowledgeService {
     input: UpdateKnowledgePageInput,
     options: KnowledgeWriteOptions,
   ): KnowledgeWriteResult;
-  /** `approve <id>` / `archive` from the WebUI or `/knowledge`. */
-  setStatus(id: string, status: KnowledgePageStatus, actor: KnowledgeActor): boolean;
+  /**
+   * `approve <id>` / `archive` from the WebUI or `/knowledge`.
+   *
+   * `details` records *why*: a rejection carries a `REJECTION_REASONS` code (stored
+   * in `knowledge_log.reason`, so it can be tallied) and the reviewer's own words
+   * (`knowledge_log.note`, v25). Approvals pass neither.
+   */
+  setStatus(
+    id: string,
+    status: KnowledgePageStatus,
+    actor: KnowledgeActor,
+    details?: { reason?: string; note?: string },
+  ): boolean;
   /**
    * Page titles worth injecting this turn, most relevant first.
    *

@@ -24,6 +24,26 @@ export type KnowledgePageStatus = (typeof KNOWLEDGE_PAGE_STATUSES)[number];
 export const KNOWLEDGE_SOURCE_KINDS = ['memory', 'message', 'session'] as const;
 export type KnowledgeSourceKind = (typeof KNOWLEDGE_SOURCE_KINDS)[number];
 
+/**
+ * Why a reviewer rejected a draft — must stay in step with `REJECTION_REASONS` in
+ * `src/memory/knowledge/types.ts`, which is the authority (an unknown code is a
+ * 400 there). The labels are i18n keys under `knowledge.review.reasons.*`; the
+ * codes are what reaches `knowledge_log.reason`, so a chip and a tally row agree.
+ */
+export const REJECTION_REASONS = [
+  'recap',
+  'thin',
+  'single_conversation',
+  'inaccurate',
+  'not_global',
+  'duplicate',
+  'other',
+] as const;
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
+/** Server-side cap on the free-text note (`MAX_REJECTION_NOTE_CHARS`). */
+export const MAX_REJECTION_NOTE_CHARS = 500;
+
 /** A `knowledge_pages` row as the WebUI consumes it. */
 export interface KnowledgePagePayload {
   id: string;

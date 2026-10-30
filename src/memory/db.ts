@@ -23,6 +23,7 @@ import { migrateV21 } from './migration-v21.js';
 import { migrateV22 } from './migration-v22.js';
 import { migrateV23 } from './migration-v23.js';
 import { migrateV24 } from './migration-v24.js';
+import { migrateV25 } from './migration-v25.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -341,6 +342,17 @@ export function openDatabase(dbPath: string): Database.Database {
         `created ${v24Result.created.join(', ') || 'no index'}, ` +
         `backfilled ${v24Result.backfilled} title(s)`,
     );
+  }
+
+  // V25 gives a rejected draft a cause the reviewer can pick and a place for their
+  // own words: `knowledge_log.note`, beside the reason code that `knowledge_log.reason`
+  // already stores (the code stays groupable, the sentence stays out of the tally).
+  // After applySchema like v20/v21/v22/v24 for the same reason — the table is
+  // v14's — and guarded by `PRAGMA table_info`, so a migrated database pays two
+  // cheap reads per open and nothing else.
+  const v25Result = migrateV25(db);
+  if (v25Result.added.length > 0) {
+    logger.info(`[V25] Knowledge migration: added columns: ${v25Result.added.join(', ')}`);
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

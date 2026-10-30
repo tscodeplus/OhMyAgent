@@ -22,6 +22,7 @@ import type {
   KnowledgeStatusChangePayload,
   KnowledgeWriteAccepted,
   PageType,
+  RejectionReason,
 } from './types';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -161,11 +162,25 @@ export function approveKnowledgePage(id: string): Promise<KnowledgeStatusChangeP
   );
 }
 
-/** Kept for history but no longer offered. The response's `page` is always null. */
-export function archiveKnowledgePage(id: string): Promise<KnowledgeStatusChangePayload> {
+/**
+ * Reject a draft: kept for history, no longer offered, and *why* is recorded.
+ *
+ * The reason is a `REJECTION_REASONS` code so the server can tally it; `note` is
+ * the reviewer's own sentence and lands in a separate column, which is why the code
+ * stays groupable. Both are optional — an unreasoned archive still works, it just
+ * contributes nothing to the tally.
+ */
+export function archiveKnowledgePage(
+  id: string,
+  options: { reason?: RejectionReason; note?: string } = {},
+): Promise<KnowledgeStatusChangePayload> {
+  const body: { reason?: RejectionReason; note?: string } = {};
+  if (options.reason !== undefined) body.reason = options.reason;
+  const note = options.note?.trim();
+  if (note) body.note = note;
   return request<KnowledgeStatusChangePayload>(
     `/api/knowledge/page/${encodeURIComponent(id)}/archive`,
-    { method: 'POST' },
+    { method: 'POST', body: JSON.stringify(body) },
   );
 }
 
