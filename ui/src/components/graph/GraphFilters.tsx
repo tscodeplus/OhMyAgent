@@ -27,6 +27,7 @@ interface GraphFiltersProps {
   wholeGraph?: {
     value: boolean;
     onChange: (next: boolean) => void;
+    nodes: number;
     total: number;
     noEdgeNodes: number;
   };
@@ -187,7 +188,7 @@ export default function GraphFilters({
 
       {wholeGraph?.value && (
         <p className="mt-1 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-          {t('graph.wholeGraphHint', { total: wholeGraph.total })}
+          {t('graph.wholeGraphHint', { nodes: wholeGraph.nodes, total: wholeGraph.total })}
           {wholeGraph.noEdgeNodes > 0 && (
             <> {t('graph.wholeGraphNoEdges', { count: wholeGraph.noEdgeNodes })}</>
           )}

@@ -1659,7 +1659,7 @@
     "asOfOption": "按某一天的状态查看",
     "wholeGraph": "整张图",
     "countsOfTotal": "{{nodes}} / 共 {{total}} 个实体 · {{edges}} 条关系",
-    "wholeGraphHint": "整张图把全部 {{total}} 个实体纳入节点集（默认只取最常出现的实体及其一跳邻居）。",
+    "wholeGraphHint": "整张图一次取回服务器的节点上限（这里是 {{nodes}} / 共 {{total}}）；默认只取出现最多的实体及其一跳邻居。",
     "wholeGraphNoEdges": "其中 {{count}} 个实体没有任何关系，所以画布上的连线不会因此变多。"
   },
   "knowledge": {

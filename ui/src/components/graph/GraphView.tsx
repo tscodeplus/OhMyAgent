@@ -239,6 +239,20 @@ export default function GraphView({
    */
   const wholeTotal = stats && stats.enabled !== false ? stats.nodes : undefined;
   /**
+   * Whether the whole-graph switch can change the drawing at all.
+   *
+   * The switch widens the *node set*, so it can only add lines by pulling in a node
+   * that carries an edge — and when every typed edge is already on the canvas, it
+   * adds numbers and nothing else. That is not a corner case: on a corpus of 378
+   * entities and 12 relations the default budget already contains all twelve, so
+   * checking it left the picture identical and read as a broken control.
+   *
+   * Absent stats (older server, failed fetch) the switch stays: "cannot prove it is
+   * useless" is not the same as "it is useless".
+   */
+  const canShowWholeGraph =
+    stats === null || stats.enabled === false ? true : (graph?.edges.length ?? 0) < stats.edges;
+  /**
    * How many of the payload's nodes carry no relation at all.
    *
    * This is the sentence the whole-graph switch was missing: those nodes are real,
@@ -399,10 +413,14 @@ export default function GraphView({
                   asOf={asOf}
                   onAsOfChange={setAsOf}
                   wholeGraph={
-                    isOverview
+                    // `|| wholeGraph` keeps the switch reachable while it is ON: a
+                    // whole payload carries every edge, so the rule above would hide
+                    // the only control that turns it back off.
+                    isOverview && (canShowWholeGraph || wholeGraph)
                       ? {
                           value: wholeGraph,
                           onChange: changeWholeGraph,
+                          nodes: graph.nodes.length,
                           total: wholeTotal ?? graph.nodes.length,
                           noEdgeNodes: wholeGraph ? nodesWithoutEdges : 0,
                         }

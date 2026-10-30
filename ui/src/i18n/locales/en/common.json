@@ -1659,7 +1659,7 @@
     "asOfOption": "Show the graph as it stood on a given day",
     "wholeGraph": "Whole graph",
     "countsOfTotal": "{{nodes}} of {{total}} entities · {{edges}} relations",
-    "wholeGraphHint": "The whole graph puts all {{total}} entities in the node set (the default takes the busiest entities and their one-hop neighbours).",
+    "wholeGraphHint": "The whole graph fetches the server's node cap in one go ({{nodes}} of {{total}} here); the default takes the busiest entities and their one-hop neighbours.",
     "wholeGraphNoEdges": "{{count}} of them have no relation at all, so checking it adds no lines to the canvas."
   },
   "knowledge": {
