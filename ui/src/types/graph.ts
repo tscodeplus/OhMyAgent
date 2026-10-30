@@ -111,6 +111,14 @@ export interface GraphStats {
   mentionLinks: number;
   /** Total disconnected parts, each isolated entity counting as one. */
   componentCount: number;
+  /**
+   * How many of `componentCount` have two or more members.
+   *
+   * `components` is capped at eight and the cap is invisible in the payload, so without
+   * this number a reader cannot tell a complete list from a truncated one. Absent from an
+   * older server, which is why the panel falls back to `components.length`.
+   */
+  multiNodeComponents?: number;
   /** Largest component as a share of `nodes`, 0..1. */
   largestComponentPct: number;
   /** Size ≥ 2 components, largest first, capped at 8. */
@@ -337,4 +345,16 @@ export interface EdgeRosterPage {
   nextCursor: string | null;
   /** Open vs retracted under the same filters EXCEPT `status` — so one request says both. */
   counts: { open: number; retracted: number };
+}
+
+/**
+ * One page of `GET /api/memory/components` — every multi-node component, largest first.
+ *
+ * `GraphStats.components` is the panel's summary of eight; this is the list behind it,
+ * with `total` as the denominator that makes the cap visible.
+ */
+export interface ComponentPage {
+  items: GraphComponent[];
+  total: number;
+  nextCursor: string | null;
 }

@@ -42,12 +42,14 @@ import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.j
 import {
   DEFAULT_GRAPH_QUERY_LIMIT,
   MAX_QUERY_DEPTH,
+  decodeComponentCursor,
   loadEdgesBetween,
   loadGraphNodes,
   parseGraphAsOf,
   parseGraphRelationTypes,
   queryEntityComponent,
   queryEntityGraph,
+  readComponentPage,
   readGraphStats,
   type GraphEdgeFilter,
   type GraphMentionNeighbour,
@@ -100,6 +102,10 @@ const ROSTER_EDGE_PRESENCE: RosterEdgePresence[] = ['any', 'yes', 'no'];
 const EDGE_STATUSES: Array<EdgeRosterQuery['status']> = ['open', 'retracted', 'all'];
 const DEFAULT_ENTITY_ROSTER_LIMIT = 50;
 const DEFAULT_EDGE_ROSTER_LIMIT = 100;
+const DEFAULT_COMPONENT_PAGE_LIMIT = 20;
+const MAX_COMPONENT_PAGE_LIMIT = 100;
+/** A lone entity is not a gap between clusters, so the list starts at two. */
+const MIN_COMPONENT_SIZE = 2;
 const MAX_SEARCH_LIMIT = 50;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
 const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
@@ -550,6 +556,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
    *   `?component=<id|name|alias>` — that entity's whole connected component
    *   `?depth=1..3`                — hop count, neighbourhood only
    *   `?limit=1..200`              — node/edge cap
+   *   `?cursor=`                   — page boundary inside one component (BFS order)
    *   `?asOf=<epoch ms>`           — "what was true then"
    *   `?types=a,b`                 — relation types to traverse
    *   `?whole=1`                   — the whole graph instead of a budgeted overview
@@ -564,6 +571,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       component?: string;
       depth?: string;
       limit?: string;
+      cursor?: string;
       asOf?: string;
       types?: string;
       whole?: string;
@@ -602,10 +610,15 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       // printed) while `limit` / `asOf` / `types` narrow only the edges drawn.
       const componentRef = query.component?.trim();
       if (componentRef) {
+        const offset = query.cursor ? decodeComponentCursor(query.cursor) : undefined;
+        if (query.cursor && offset === undefined) {
+          return reply.status(400).send({ error: 'Invalid cursor' });
+        }
         const component = queryEntityComponent(cfg.db, componentRef, {
           asOf: filter.asOf,
           relationTypes: filter.relationTypes,
           limit,
+          offset,
           decayHalfLifeDays: cfg.decayHalfLifeDays,
         });
         if (!component) return reply.status(404).send({ error: 'Entity not found' });
@@ -784,6 +797,48 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
 
     try {
       return reply.send(queryEdgeRoster(cfg.db, roster));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * The full component list (plan §4.2).
+   *
+   * `/stats.components` is capped at eight and the cap is invisible in the payload, so a
+   * reader sees "各通分量 368" above eight rows and cannot tell a full list from a
+   * truncated one. `multiNodeComponents` gives the honest denominator and this endpoint
+   * gives the rows behind it.
+   *
+   * `minSize` defaults to 2: one disconnected name is not a gap between clusters, it is
+   * the normal state of a corpus that mentions more things than it makes statements about
+   * (357 of 378 on the device).
+   *
+   *   `?minSize=2..`           member floor
+   *   `?cursor=`               page boundary (an offset into a deterministic order)
+   *   `?limit=1..100`          page size, default 20
+   */
+  app.get('/api/memory/components', async (request, reply) => {
+    const query = request.query as Record<string, string | undefined>;
+    const offset = query.cursor ? decodeComponentCursor(query.cursor) : undefined;
+    // A cursor nobody can decode must not turn into "page one": that is how a reader
+    // concludes the list lost the rows they were part-way through.
+    if (query.cursor && offset === undefined) {
+      return reply.status(400).send({ error: 'Invalid cursor' });
+    }
+
+    try {
+      return reply.send(
+        readComponentPage(cfg.db, {
+          minSize:
+            query.minSize === undefined
+              ? undefined
+              : clampInt(query.minSize, MIN_COMPONENT_SIZE, MIN_COMPONENT_SIZE, 1_000_000),
+          offset,
+          limit: clampInt(query.limit, DEFAULT_COMPONENT_PAGE_LIMIT, 1, MAX_COMPONENT_PAGE_LIMIT),
+        }),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

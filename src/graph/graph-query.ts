@@ -650,9 +650,18 @@ export interface GraphStats {
   mentionLinks: number;
   /** Total disconnected parts, each isolated entity counting as one. */
   componentCount: number;
+  /**
+   * How many of `componentCount` have two or more members.
+   *
+   * `components` is capped at 8 and the cap is invisible, so a panel of 8 rows under a
+   * headline of "368 components" leaves a reader unable to tell a full list from a
+   * truncated one. This number is the honest denominator, and the panel prints it next
+   * to the capped list.
+   */
+  multiNodeComponents: number;
   /** Largest component as a share of `nodes`, 0..1, rounded to 3 decimals. */
   largestComponentPct: number;
-  /** Size ≥ 2 components, largest first, capped at 8. */
+  /** Size ≥ 2 components, largest first, capped at `COMPONENT_LIST_CAP`. */
   components: GraphComponent[];
   /**
    * The relation vocabulary present in the graph, most used first.
@@ -694,6 +703,15 @@ interface GraphStructure {
   membersOf: Map<string, string[]>;
   /** Root → live typed edges whose endpoints are both in that component. */
   edgeCountOf: Map<string, number>;
+  /**
+   * Entity id → its live neighbours, both directions.
+   *
+   * Kept because "page through a component and keep every page connected" is a BFS
+   * question, and a component's member list cannot answer it: `orderedMembers` sorts by
+   * degree, which is the right order for a preview and the wrong one for a page — the
+   * second page of a degree order is a scatter of unrelated nodes.
+   */
+  neighbours: Map<string, string[]>;
   /** Typed edges in the whole graph, retracted ones included. */
   edgeCount: number;
   /** How many of `edgeCount` are closed by `valid_to`. */
@@ -725,6 +743,7 @@ function readGraphStructure(db: Database.Database): GraphStructure {
     rootOf: new Map(),
     membersOf: new Map(),
     edgeCountOf: new Map(),
+    neighbours: new Map(),
     edgeCount: 0,
     retractedEdges: 0,
   };
@@ -787,6 +806,12 @@ function readGraphStructure(db: Database.Database): GraphStructure {
       if (!source || !target) continue;
       source.degree += 1;
       target.degree += 1;
+      const sourceNeighbours = structure.neighbours.get(source.id);
+      if (sourceNeighbours) sourceNeighbours.push(target.id);
+      else structure.neighbours.set(source.id, [target.id]);
+      const targetNeighbours = structure.neighbours.get(target.id);
+      if (targetNeighbours) targetNeighbours.push(source.id);
+      else structure.neighbours.set(target.id, [source.id]);
       const sourceRoot = find(source.id);
       const targetRoot = find(target.id);
       if (sourceRoot !== targetRoot) parent.set(targetRoot, sourceRoot);
@@ -826,6 +851,47 @@ function orderedMembers(structure: GraphStructure, memberIds: string[]): GraphSt
     .map((id) => structure.nodes.get(id))
     .filter((node): node is GraphStructureNode => node !== undefined)
     .sort(compareByDegreeThenName);
+}
+
+/**
+ * Breadth-first order from `origin`, restricted to one component and deterministic.
+ *
+ * A drill-down pages through a component, and a page has to be readable on its own: BFS
+ * from the clicked entity makes every page a connected shell, while slicing a
+ * degree-ordered list makes page two a scatter of nodes whose neighbours are all on
+ * page one. Neighbours are visited in canonical-name order so two databases holding the
+ * same facts produce the same page boundaries — a boundary that moved between reads
+ * would show a reader rows they had already paged past.
+ */
+function breadthFirstWithinComponent(
+  structure: GraphStructure,
+  originId: string,
+  members: Set<string>,
+): string[] {
+  const order: string[] = [];
+  const seen = new Set<string>([originId]);
+  const queue: string[] = [originId];
+  for (let head = 0; head < queue.length; head++) {
+    const id = queue[head];
+    order.push(id);
+    const neighbours = (structure.neighbours.get(id) ?? [])
+      .filter((next) => members.has(next) && !seen.has(next))
+      .sort((a, b) => {
+        const left = structure.nodes.get(a)?.canonicalName ?? a;
+        const right = structure.nodes.get(b)?.canonicalName ?? b;
+        if (left !== right) return left < right ? -1 : 1;
+        return a < b ? -1 : 1;
+      });
+    for (const next of neighbours) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  // Unreachable inside one component; walking the rest anyway keeps a page boundary
+  // truthful if that invariant ever breaks, instead of silently dropping members.
+  for (const member of members) if (!seen.has(member)) order.push(member);
+  return order;
 }
 
 /** `name` in the form `readMentionEvidence` stores, so the two are comparable. */
@@ -904,6 +970,36 @@ function readEntityTypeVocabulary(db: Database.Database): string[] {
 }
 
 /**
+ * A component group: its members in panel order and the live edges inside it.
+ *
+ * One definition of "which members belong together" is shared by the statistics panel and
+ * the full component list, because two groupings of the same union-find would eventually
+ * disagree about a size — and the drill-down a reader clicked would then describe a
+ * cluster the panel never showed.
+ */
+interface ComponentGroup {
+  members: GraphStructureNode[];
+  edgeCount: number;
+}
+
+/** Size ≥ 2 components, largest first, ties by the representative's degree then name. */
+function collectComponentGroups(structure: GraphStructure): ComponentGroup[] {
+  const groups: ComponentGroup[] = [];
+  for (const [root, memberIds] of structure.membersOf) {
+    if (memberIds.length < 2) continue;
+    groups.push({
+      members: orderedMembers(structure, memberIds),
+      edgeCount: structure.edgeCountOf.get(root) ?? 0,
+    });
+  }
+  groups.sort(
+    (a, b) =>
+      b.members.length - a.members.length || compareByDegreeThenName(a.members[0], b.members[0]),
+  );
+  return groups;
+}
+
+/**
  * The statistics panel's numbers. `enabled` is the caller's flag, so this reports
  * only what the database says and the route composes the two.
  *
@@ -915,28 +1011,22 @@ export function readGraphStats(db: Database.Database): Omit<GraphStats, 'enabled
   const structure = readGraphStructure(db);
   const { names: mentionedNames, links: mentionLinks } = readMentionEvidence(db);
 
-  const parts: Array<{ members: GraphStructureNode[]; edgeCount: number }> = [];
   let isolated = 0;
   let mentionOnly = 0;
   let largest = 0;
 
   for (const [root, memberIds] of structure.membersOf) {
-    const members = orderedMembers(structure, memberIds);
-    const edgeCount = structure.edgeCountOf.get(root) ?? 0;
-    if (members.length > largest) largest = members.length;
-    if (members.length === 1 && edgeCount === 0) {
-      isolated += 1;
-      // Mention-only is a subset of isolated by construction, so the two numbers
-      // can never contradict each other in the panel.
-      if (mentionedNames.has(foldMentionName(members[0].name))) mentionOnly += 1;
-    }
-    if (members.length >= 2) parts.push({ members, edgeCount });
+    if (memberIds.length > largest) largest = memberIds.length;
+    if (memberIds.length !== 1) continue;
+    if ((structure.edgeCountOf.get(root) ?? 0) !== 0) continue;
+    isolated += 1;
+    // Mention-only is a subset of isolated by construction, so the two numbers
+    // can never contradict each other in the panel.
+    const only = structure.nodes.get(memberIds[0]);
+    if (only && mentionedNames.has(foldMentionName(only.name))) mentionOnly += 1;
   }
 
-  parts.sort(
-    (a, b) =>
-      b.members.length - a.members.length || compareByDegreeThenName(a.members[0], b.members[0]),
-  );
+  const parts = collectComponentGroups(structure);
 
   const nodes = structure.nodes.size;
   const stats: Omit<GraphStats, 'enabled'> = {
@@ -947,6 +1037,7 @@ export function readGraphStats(db: Database.Database): Omit<GraphStats, 'enabled
     mentionOnly,
     mentionLinks,
     componentCount: structure.membersOf.size,
+    multiNodeComponents: parts.length,
     // Rounded here, not in the UI: two clients must not round 0.125 differently.
     largestComponentPct: nodes === 0 ? 0 : Number((largest / nodes).toFixed(3)),
     components: parts.slice(0, COMPONENT_LIST_CAP).map((part) => ({
@@ -1022,6 +1113,8 @@ export function queryEntityComponent(
     asOf?: number;
     relationTypes?: string[];
     limit?: number;
+    /** Index into the component's BFS order, for paging a component too big to send. */
+    offset?: number;
     decayHalfLifeDays?: number;
   } = {},
 ): EntityComponentQuery | undefined {
@@ -1042,19 +1135,13 @@ export function queryEntityComponent(
 
   const structure = readGraphStructure(db);
   const root = structure.rootOf.get(entity.id);
-  const members =
-    root === undefined ? [] : orderedMembers(structure, structure.membersOf.get(root) ?? []);
-  // The clicked entity leads the payload: it is where the UI centres the drawing
-  // and the node that must survive the cap when the component is too big to send.
-  const sequence = [
-    ...members.filter((member) => member.id === entity.id),
-    ...members.filter((member) => member.id !== entity.id),
-  ];
+  const memberIds = new Set(root === undefined ? [] : (structure.membersOf.get(root) ?? []));
+  // BFS from the clicked entity, not a degree sort: `offset` is a page boundary, and a
+  // page that is not connected on its own is a picture of nothing in particular.
+  const sequence = breadthFirstWithinComponent(structure, entity.id, memberIds);
+  const offset = Math.max(0, Math.floor(options.offset ?? 0));
 
-  const [origin, ...nodes] = loadGraphNodes(
-    db,
-    sequence.slice(0, limit).map((member) => member.id),
-  );
+  const [origin, ...nodes] = loadGraphNodes(db, sequence.slice(offset, offset + limit));
   // The entity has a row (`resolveEntity` read it), so this is only reachable on
   // a database whose graph tables were emptied between the two reads.
   if (!origin) return undefined;
@@ -1072,7 +1159,86 @@ export function queryEntityComponent(
     origin,
     nodes,
     edges: decaying ? ranked.slice(0, limit) : ranked,
-    // Two different cuts: the component did not fit, or its edge list did not.
-    truncated: sequence.length > limit || edgesTruncated || (decaying && ranked.length > limit),
+    // Three different cuts: the component has more pages, this page's edge list was
+    // capped, or decayed ranking trimmed it.
+    truncated:
+      offset + limit < sequence.length || edgesTruncated || (decaying && ranked.length > limit),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The component list (plan §4.2)
+//
+// `/stats` serves the eight largest components because the panel is a summary. A
+// summary is not a list: 368 components under a headline of 368 is a reader unable
+// to tell "these are the gaps" from "these are the first eight gaps". This is the
+// complete list, and the only thing it adds to the same grouping is a page boundary.
+// ---------------------------------------------------------------------------
+
+export interface ComponentPageQuery {
+  /** Members a component needs to be listed; 2 by default — a lone name is not a gap. */
+  minSize?: number;
+  /** Index into the deterministic list, carried by the opaque cursor. */
+  offset?: number;
+  limit: number;
+}
+
+export interface ComponentPage {
+  items: GraphComponent[];
+  /** Components that pass `minSize`, all of them. */
+  total: number;
+  nextCursor: string | null;
+}
+
+/**
+ * The cursor is an offset, and says so.
+ *
+ * A keyset here would have to be `(size, representative)` recomputed from the same
+ * union-find on every request, which is the same work as counting to the offset —
+ * the order is deterministic, so an index into it is stable in exactly the way a
+ * keyset would be. Dressing it as if it were an opaque keyset would imply a guarantee
+ * (rows never move when the graph changes) that no implementation here can give.
+ */
+export function encodeComponentCursor(offset: number): string {
+  return Buffer.from(JSON.stringify({ o: offset }), 'utf8').toString('base64url');
+}
+
+export function decodeComponentCursor(raw: string): number | undefined {
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { o?: unknown };
+    if (!parsed || typeof parsed.o !== 'number') return undefined;
+    if (!Number.isFinite(parsed.o) || parsed.o < 0) return undefined;
+    return Math.floor(parsed.o);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * One page of connected components, largest first.
+ *
+ * Membership is the same `readGraphStructure` the panel and the drill-down use, so a
+ * component this list prints has exactly the size the drill-down will draw.
+ */
+export function readComponentPage(db: Database.Database, query: ComponentPageQuery): ComponentPage {
+  const structure = readGraphStructure(db);
+  const minSize = Math.max(2, Math.floor(query.minSize ?? 2));
+  const groups = collectComponentGroups(structure).filter(
+    (group) => group.members.length >= minSize,
+  );
+  const offset = Math.max(0, Math.floor(query.offset ?? 0));
+  const limit = Math.max(1, Math.floor(query.limit));
+
+  return {
+    items: groups.slice(offset, offset + limit).map((group) => ({
+      id: group.members[0].id,
+      size: group.members.length,
+      edgeCount: group.edgeCount,
+      nodes: group.members
+        .slice(0, COMPONENT_MEMBER_PREVIEW)
+        .map((member) => ({ id: member.id, name: member.name })),
+    })),
+    total: groups.length,
+    nextCursor: offset + limit < groups.length ? encodeComponentCursor(offset + limit) : null,
   };
 }

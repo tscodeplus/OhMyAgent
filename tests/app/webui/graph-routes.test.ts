@@ -570,6 +570,10 @@ describe('knowledge-graph routes', () => {
         mentionOnly: 1,
         mentionLinks: 1,
         componentCount: 3,
+        // The panel prints eight rows at most; this is the denominator that makes the
+        // cap visible instead of turning "368 components" into a headline over a
+        // truncated list.
+        multiNodeComponents: 1,
         largestComponentPct: 0.714,
         components: [
           {
