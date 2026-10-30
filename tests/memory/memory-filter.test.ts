@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { shouldCapture, detectCategory, isPromptInjection } from '../../src/memory/memory-filter';
+import {
+  shouldCapture,
+  detectCategory,
+  isPromptInjection,
+  redactSecrets,
+  containsSecret,
+} from '../../src/memory/memory-filter';
 
 describe('shouldCapture', () => {
   describe('length filter', () => {
@@ -101,5 +107,43 @@ describe('detectCategory', () => {
 
   it('defaults to fact', () => {
     expect(detectCategory('记住我的生日是1月1日')).toBe('fact');
+  });
+});
+
+describe('redactSecrets', () => {
+  it('masks API keys, JWTs, private keys and tokens', () => {
+    expect(redactSecrets('使用 sk-G373KTHTGrMYgwp7mUTQxRt25Tb5DL2yMKs10etTrKemLJAx 查询')).toBe(
+      '使用 [secret:api-key] 查询',
+    );
+    expect(
+      redactSecrets(
+        'token eyJhbGciOiJIUzI1NiJ9.eyJleGFtSWQiOiJleGFtLWlkIiwic3ViIjoidSJ9.c2lnbmF0dXJlLWJ5dGVz 已保存',
+      ),
+    ).toBe('token [secret:jwt] 已保存');
+    expect(redactSecrets('gh token ghp_0123456789abcdefghijABCDEFGHIJ012345')).toBe(
+      'gh token [secret:github-token]',
+    );
+    expect(redactSecrets('aws AKIAIOSFODNN7EXAMPLE here')).toBe('aws [secret:aws-key] here');
+    expect(redactSecrets('slack xoxb-1234567890-abcdefghij')).toBe('slack [secret:slack-token]');
+  });
+
+  it('is idempotent, so a data migration can replay it', () => {
+    const once = redactSecrets(
+      'key sk-abcdefghijklmnopqrstuvwx and ghp_0123456789abcdefghijABCDEFGHIJ012345',
+    );
+    expect(redactSecrets(once)).toBe(once);
+  });
+
+  it('leaves ordinary prose about keys and tasks untouched', () => {
+    // `sk-` needs 16+ chars after it and a word boundary: these are words.
+    expect(redactSecrets('task-runner 和 rk-test 不是密钥')).toBe(
+      'task-runner 和 rk-test 不是密钥',
+    );
+    expect(redactSecrets('用户询问如何生成 API 密钥')).toBe('用户询问如何生成 API 密钥');
+  });
+
+  it('reports whether a text carries a secret', () => {
+    expect(containsSecret('sk-G373KTHTGrMYgwp7mUTQxRt25Tb5DL2yMKs10etTrKemLJAx')).toBe(true);
+    expect(containsSecret('普通的一句话')).toBe(false);
   });
 });

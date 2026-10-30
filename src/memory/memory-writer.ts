@@ -12,6 +12,7 @@ import type { LLMExtractionConfig } from './entity-extractor.js';
 import { mergeMemory, appendTimeline, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { matchesMemoryAccess } from './memory-access-policy.js';
+import { redactSecrets } from './memory-filter.js';
 import type { MemoryAccessPolicy } from './memory-access-policy.js';
 import { PreferenceConflictResolver, detectTopic } from './write/preference-conflict-resolver.js';
 import { errorForObservation, hashForObservation, memoryObservability } from './observability.js';
@@ -152,6 +153,11 @@ export class MemoryWriter {
    * Write a memory with upsert (exact-match dedup) and optional embedding.
    */
   async write(options: WriteOptions): Promise<WriteResult> {
+    // A credential never reaches a row. Redacting here (and not only at the
+    // repository) keeps the exact-duplicate probe, the embedding and the stored
+    // text looking at the same string — a probe that matched the secret-bearing
+    // form would "update" a row that already holds the mask.
+    options = { ...options, content: redactSecrets(options.content) };
     const scopeKey = options.scopeKey ?? '';
     const kind = options.kind ?? 'fact';
     const threshold = options.dedupThreshold ?? 0.9;
@@ -401,6 +407,44 @@ export class MemoryWriter {
       return { id: raced.id, action: 'exact_duplicate', isDuplicate: true, duplicateOf: raced.id };
     }
     const memory = outcome.created;
+
+    // 3.05. A session's summaries supersede each other.
+    //
+    // `summarize_interval` mints a new summary of the session every N messages,
+    // and nothing retired the previous one: the device held two `active`
+    // `scope=session` summaries for the same cron session (2319 and 1385 chars,
+    // identical opening), and `retrieveGrouped` admits both — so the per-turn
+    // `<memory_context>` spent its budget quoting the same monitor output twice.
+    // A newer summary of the *same session* is by definition the better
+    // description of it, so the older ones are closed rather than deleted: the
+    // chain stays readable through `supersedes_id`, and `active` is the read
+    // filter everywhere.
+    if (kind === 'summary' && options.scope === 'session' && scopeKey !== '') {
+      try {
+        // Descending, so the pointer ends up on the newest prior summary.
+        const priors = this.memoryRepository
+          .findByScopeAndKind(options.scope, scopeKey, 'summary')
+          .filter((prior) => prior.id !== memory.id);
+        for (const prior of priors) {
+          this.memoryRepository.supersede(prior.id, memory.id);
+        }
+        if (priors.length > 0) {
+          this.mergeConfig?.logger.info(
+            { scopeKey, supersededCount: priors.length, memoryId: memory.id },
+            'Session summary superseded the previous one',
+          );
+        }
+      } catch (err) {
+        memoryObservability.record('memory.write.degraded', {
+          stage: 'summary_supersede',
+          memoryId: memory.id,
+          scope: options.scope,
+          kind,
+          agentId: agentId ?? undefined,
+          error: errorForObservation(err),
+        });
+      }
+    }
 
     // A memory row exists under this id again, so any page citing the id is
     // citing text that has just been replaced (plan §8 S1). Only a caller that

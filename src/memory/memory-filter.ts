@@ -56,6 +56,62 @@ const INJECTION_PATTERNS = [
 
 // HTML/Markdown heavy content
 const HTML_PATTERN = /<[^>]+>/;
+
+// ── Secret redaction ───────────────────────────────────────────────────
+
+/**
+ * Credentials that must never be stored verbatim as a memory.
+ *
+ * A memory is replayed into other sessions forever, so a secret that reaches one
+ * is a secret that reaches a model context, a log line, a knowledge page and an
+ * Obsidian export. The device corpus had two: a `sk-…` API key stored as a
+ * `preference`, and a `Clawvard exam token` JWT in a user-scope memory that the
+ * per-turn `<memory_context>` block then quoted back. Neither was "unsafe" by
+ * any existing rule — `isSafe` checks size and prompt injection only.
+ *
+ * Redaction (not refusal) is deliberate: the sentence around the key still says
+ * something ("用户使用 API 密钥 … 进行查询"), and dropping the whole memory would
+ * lose the fact that a key-based workflow exists. The mask names the kind so the
+ * redacted text stays readable and greppable.
+ */
+const SECRET_PATTERNS: Array<{ pattern: RegExp; mask: string }> = [
+  // JWT — checked first: its body is long base64 that the others would not match.
+  {
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+    mask: '[secret:jwt]',
+  },
+  // OpenAI-style / generic API keys (`sk-`, `sk-proj-`, `rk-`, `pk-`).
+  { pattern: /\b(?:sk|rk|pk)-[A-Za-z0-9_-]{16,}/g, mask: '[secret:api-key]' },
+  { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g, mask: '[secret:github-token]' },
+  { pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g, mask: '[secret:github-token]' },
+  { pattern: /\bAKIA[0-9A-Z]{16}\b/g, mask: '[secret:aws-key]' },
+  { pattern: /\bxox[baprs]-[A-Za-z0-9-]{10,}/g, mask: '[secret:slack-token]' },
+  { pattern: /\bAIza[0-9A-Za-z_-]{30,}/g, mask: '[secret:google-key]' },
+  {
+    pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    mask: '[secret:private-key]',
+  },
+];
+
+/**
+ * Replace every credential-shaped substring with a named mask.
+ *
+ * Pure and idempotent: running it on already-redacted text changes nothing,
+ * which is what lets the write path and the data migration share one
+ * implementation.
+ */
+export function redactSecrets(text: string): string {
+  let redacted = text;
+  for (const { pattern, mask } of SECRET_PATTERNS) {
+    redacted = redacted.replace(pattern, mask);
+  }
+  return redacted;
+}
+
+/** Whether this text carries a credential that {@link redactSecrets} would mask. */
+export function containsSecret(text: string): boolean {
+  return redactSecrets(text) !== text;
+}
 const MARKDOWN_HEAVY = /(?:^|\n)#{1,6}\s|(?:^|\n)[\*\-]\s|(?:^|\n)\d+\.\s|(?:^|\n)```/;
 
 export interface FilterResult {

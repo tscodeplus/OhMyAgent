@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { redactSecrets } from '../memory-filter.js';
 import { syncJiebaFts } from '../fts.js';
 import { EmbeddingRepository } from './embedding-repository.js';
 
@@ -92,7 +93,12 @@ export class MemoryRepository {
       scope: input.scope,
       scope_key: input.scope_key,
       kind: input.kind,
-      content: input.content,
+      // A credential is redacted at the write choke point, not at each caller
+      // (`memory_store`, the summarizer, the offload path, an import). A memory
+      // is replayed into other sessions forever, so the mask has to happen
+      // wherever a row is born; the FTS index below is synced from the stored
+      // row, so it sees the redacted text too.
+      content: redactSecrets(input.content),
       metadata: input.metadata ?? null,
       agent_id: input.agent_id ?? null,
       visibility: input.visibility ?? 'shared',
@@ -236,7 +242,7 @@ export class MemoryRepository {
     }
     if (input.content !== undefined) {
       fields.push('content = @content');
-      values.content = input.content;
+      values.content = redactSecrets(input.content);
     }
     if (input.metadata !== undefined) {
       fields.push('metadata = @metadata');

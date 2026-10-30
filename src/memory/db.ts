@@ -26,6 +26,8 @@ import { migrateV24 } from './migration-v24.js';
 import { migrateV25 } from './migration-v25.js';
 import { migrateV26 } from './migration-v26.js';
 import { migrateV27 } from './migration-v27.js';
+import { migrateV28 } from './migration-v28.js';
+import { migrateV29 } from './migration-v29.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -377,6 +379,36 @@ export function openDatabase(dbPath: string): Database.Database {
   const v27Result = migrateV27(db);
   if (v27Result.createdTables.length > 0) {
     logger.info(`[V27] Graph metrics tables: ${v27Result.createdTables.join(', ')}`);
+  }
+
+  // V28 repairs data, not schema: a credential stored as a memory is replayed
+  // into every later session (prompt, FTS hit, knowledge source, vault export),
+  // so rows written before the write path learned to mask them are rewritten
+  // here. Idempotent by construction — a masked row redacts to itself.
+  try {
+    const v28Result = migrateV28(db);
+    if (v28Result.redacted > 0) {
+      logger.warn(
+        `[V28] Redacted credentials in ${v28Result.redacted} memory row(s) (${v28Result.kinds.join(', ')})`,
+      );
+    }
+  } catch (err) {
+    logger.warn({ err }, '[V28] Credential redaction failed — continuing');
+  }
+
+  // V29 repairs the other half of the same pile: a session summarised twice kept
+  // both summaries `active`, and per-turn recall admitted both. Only a session
+  // summarised *again* is repaired by the write path, so the backlog is closed
+  // here — superseded, never deleted.
+  try {
+    const v29Result = migrateV29(db);
+    if (v29Result.superseded > 0) {
+      logger.info(
+        `[V29] Closed ${v29Result.superseded} superseded session summar(y/ies) across ${v29Result.sessions} session(s)`,
+      );
+    }
+  } catch (err) {
+    logger.warn({ err }, '[V29] Session summary supersede failed — continuing');
   }
 
   // Backfill FTS index for memories that are missing from it (first-time
