@@ -602,4 +602,53 @@ describe('knowledge service', () => {
       expect(service.get({ slug: 'excel-etl' })).toBeNull();
     });
   });
+
+  describe('live runtime config (getConfig)', () => {
+    // The WebUI edits `require_sources` and `curate.shadow`, and a threshold that
+    // only lands on the next restart is a number the UI shows but does not mean:
+    // the review queue displayed the new value while admission enforced the old
+    // one. These pin the re-read, since the snapshot still exists as the floor.
+
+    it('re-reads requireSources per write, so a change applies without a restart', () => {
+      let requireSources = 2;
+      const live = createKnowledgeService({
+        db,
+        config: { requireSources },
+        getConfig: () => ({ requireSources }),
+      });
+      const singleSource = createInput({ sources: [TWO_MEMORY_SOURCES[0]] });
+
+      expect(live.create(singleSource, { actor: 'agent', enforceAdmission: true })).toMatchObject({
+        ok: false,
+        reason: 'not_recurrent',
+      });
+
+      requireSources = 1;
+      expect(live.create(singleSource, { actor: 'agent', enforceAdmission: true })).toMatchObject({
+        ok: true,
+      });
+    });
+
+    it('re-reads shadow per write, so curation starts queuing for review', () => {
+      let shadow = false;
+      const live = createKnowledgeService({
+        db,
+        config: { shadow },
+        getConfig: () => ({ shadow }),
+      });
+
+      expect(live.create(createInput(), { actor: 'agent', enforceAdmission: true })).toMatchObject({
+        ok: true,
+        status: 'active',
+      });
+
+      shadow = true;
+      expect(
+        live.create(createInput({ slug: 'live-shadow', title: 'Live Shadow' }), {
+          actor: 'agent',
+          enforceAdmission: true,
+        }),
+      ).toMatchObject({ ok: true, status: 'pending' });
+    });
+  });
 });

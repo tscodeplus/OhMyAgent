@@ -68,6 +68,17 @@ export interface KnowledgeServiceDeps {
   db: Database.Database;
   /** Subset of the `knowledge:` config block; omitted keys take the defaults. */
   config?: Partial<KnowledgeRuntimeConfig>;
+  /**
+   * Live runtime config, re-read on every write.
+   *
+   * The WebUI edits `require_sources`, `min_memory_confidence` and
+   * `curate.shadow`, and a threshold that only takes effect after a restart is a
+   * number the UI shows but does not mean — the review queue displayed the new
+   * value while admission kept enforcing the old one. Only the knobs that gate a
+   * *write* are read here: whether the layer exists at all is decided when the
+   * service is constructed, which is the one thing a restart still owns.
+   */
+  getConfig?: () => Partial<KnowledgeRuntimeConfig> | undefined;
   logger?: Pick<Logger, 'debug' | 'info' | 'warn'>;
 }
 
@@ -194,7 +205,15 @@ function evaluateAdmission(input: {
 
 export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeService {
   const { db, logger } = deps;
-  const config: KnowledgeRuntimeConfig = { ...DEFAULT_KNOWLEDGE_RUNTIME_CONFIG, ...deps.config };
+  const baseConfig: KnowledgeRuntimeConfig = {
+    ...DEFAULT_KNOWLEDGE_RUNTIME_CONFIG,
+    ...deps.config,
+  };
+  /** Snapshot overlaid with the live values, so a WebUI edit lands on the next write. */
+  const runtimeConfig = (): KnowledgeRuntimeConfig => ({
+    ...baseConfig,
+    ...deps.getConfig?.(),
+  });
   const repository = new KnowledgeRepository(db);
 
   // `config.enabled` is deliberately not consulted here: it gates whether the
@@ -335,6 +354,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     input: CreateKnowledgePageInput,
     options: KnowledgeWriteOptions,
   ): KnowledgeWriteResult {
+    const config = runtimeConfig();
     if (!isPageType(input.pageType)) {
       return { ok: false, code: 'invalid_page_type', allowed: PAGE_TYPES };
     }
@@ -405,6 +425,7 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
     input: UpdateKnowledgePageInput,
     options: KnowledgeWriteOptions,
   ): KnowledgeWriteResult {
+    const config = runtimeConfig();
     const patch = { ...input, updatedBy: input.updatedBy ?? options.actor };
 
     if (patch.sources !== undefined) {

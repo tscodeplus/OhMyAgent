@@ -32,7 +32,9 @@ import {
 } from '../../src/commands/command-handler.js';
 import type { KnowledgeCurator, KnowledgeCurateConfig } from '../../src/memory/knowledge/curate.js';
 import { loadConfig, resetConfig, stopConfigWatcher } from '../../src/app/config.js';
+import { configEventBus } from '../../src/app/config-event-bus.js';
 import { openDatabase } from '../../src/memory/db.js';
+import { openSeededDatabase } from '../knowledge/fixtures.js';
 import { MessageRepository } from '../../src/memory/repositories/message-repository.js';
 import type { AppConfig, AppServices } from '../../src/app/types.js';
 
@@ -300,5 +302,62 @@ describe('the share curation trigger is installed with the knowledge layer', () 
         cfg.knowledge.enabled = false;
       }),
     ).toBe(0);
+  });
+});
+
+/**
+ * The horizon `MemoryHygiene` actually resolves.
+ *
+ * `resolvedConfig` is private, and reading it anyway is the point: the defect was
+ * the composer passing nothing while the class silently defaulted to 90, so only
+ * the value the class resolves can prove `knowledge.log_retention_days` reaches
+ * it. Asserting the composer's argument would have passed against the bug.
+ */
+function hygieneHorizon(memory: MemoryServices): number {
+  const hygiene = memory.memoryHygiene as unknown as {
+    resolvedConfig: { knowledgeLogRetentionDays: number };
+  };
+  return hygiene.resolvedConfig.knowledgeLogRetentionDays;
+}
+
+describe('the knowledge layer reads its knobs without a restart', () => {
+  it('hands knowledge.log_retention_days to hygiene instead of letting it fall back to 90', async () => {
+    const config = makeConfig((cfg) => {
+      cfg.knowledge.logRetentionDays = 30;
+    });
+    const db = openDatabase(':memory:');
+    const memory = await createMemoryServices(config, silentLogger(), db);
+
+    expect(hygieneHorizon(memory)).toBe(30);
+  });
+
+  it('applies a reloaded retention horizon and require_sources to the next prune and the next write', async () => {
+    const config = makeConfig();
+    // Seeded: admission refuses a source that names a memory row nothing holds.
+    const db = openSeededDatabase();
+    const memory = await createMemoryServices(config, silentLogger(), db);
+    expect(hygieneHorizon(memory)).toBe(90);
+
+    await configEventBus.emit(
+      makeConfig((cfg) => {
+        cfg.knowledge.logRetentionDays = 7;
+        cfg.knowledge.curate.requireSources = 1;
+      }),
+    );
+
+    expect(hygieneHorizon(memory)).toBe(7);
+    // The same write the default threshold refuses, now that one source suffices.
+    expect(
+      memory.knowledgeService?.create(
+        {
+          pageType: 'topic',
+          slug: 'live-knob',
+          title: 'Live Knob',
+          content: '一条来源就够的页面。',
+          sources: [{ kind: 'memory', id: 'memory-knowledge-a' }],
+        },
+        { actor: 'agent', enforceAdmission: true },
+      ),
+    ).toMatchObject({ ok: true });
   });
 });

@@ -374,15 +374,20 @@ export async function createMemoryServices(
     logger.info('SceneClusterer initialized');
   }
 
-  const memoryHygiene = new MemoryHygiene(
-    memoryRepository,
-    db,
-    {
-      tempRetentionDays: config.memory.hygiene.retentionDays,
-      checkIntervalMs: 12 * 60 * 60 * 1000,
-    },
-    sceneClusterer,
-    () => memoryRetriever.clearCache(),
+  // Mutated in place by the reload listener below, so the horizon the WebUI
+  // shows is the horizon that actually prunes.
+  const hygieneConfig = {
+    tempRetentionDays: config.memory.hygiene.retentionDays,
+    checkIntervalMs: 12 * 60 * 60 * 1000,
+    // `knowledge_log` grows with write count (a nightly batch of 5 pages is
+    // ~1800 rows a year), so it needs a horizon. Omitting this key did not fail
+    // loudly: `MemoryHygiene` falls back to its own 90, which is why
+    // `knowledge.log_retention_days` never applied.
+    knowledgeLogRetentionDays: config.knowledge?.logRetentionDays ?? 90,
+  };
+
+  const memoryHygiene = new MemoryHygiene(memoryRepository, db, hygieneConfig, sceneClusterer, () =>
+    memoryRetriever.clearCache(),
   );
 
   const sessionRepository = new SessionRepository(db);
@@ -540,6 +545,25 @@ export async function createMemoryServices(
   // Failure must never break bootstrap: a broken knowledge layer degrades to
   // "off" (no service, so no tools/routes/injection) while memory keeps working.
   let knowledgeService: KnowledgeService | undefined;
+  // The write-time knobs, re-read through a getter by `createKnowledgeService`:
+  // a WebUI edit to `require_sources` / `min_memory_confidence` / `curate.shadow`
+  // applies to the next write instead of the next restart.
+  const knowledgeRuntime = {
+    requireSources: config.knowledge?.curate.requireSources ?? 2,
+    minMemoryConfidence: config.knowledge?.curate.minMemoryConfidence ?? 0.6,
+    shadow: config.knowledge?.curate.shadow ?? false,
+  };
+
+  // One listener for both: the hygiene horizon (prune on a timer) and the
+  // knowledge write knobs (read per write). Everything else about the layer is
+  // fixed at construction — see `KnowledgeServiceDeps.getConfig`.
+  configEventBus.onReload((c) => {
+    hygieneConfig.tempRetentionDays = c.memory.hygiene.retentionDays;
+    hygieneConfig.knowledgeLogRetentionDays = c.knowledge?.logRetentionDays ?? 90;
+    knowledgeRuntime.requireSources = c.knowledge?.curate.requireSources ?? 2;
+    knowledgeRuntime.minMemoryConfidence = c.knowledge?.curate.minMemoryConfidence ?? 0.6;
+    knowledgeRuntime.shadow = c.knowledge?.curate.shadow ?? false;
+  });
   // `?.` on purpose: `AppConfig` declares `knowledge` as always present, but
   // createMemoryServices is also called with hand-built partial configs (the
   // bootstrap tests build one object per scenario). An absent block means the
@@ -556,6 +580,7 @@ export async function createMemoryServices(
           shadow: config.knowledge.curate.shadow,
           logRetentionDays: config.knowledge.logRetentionDays,
         },
+        getConfig: () => knowledgeRuntime,
         logger,
       });
       logger.info('Knowledge service initialized (knowledge pages are editable and searchable)');

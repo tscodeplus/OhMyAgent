@@ -30,6 +30,29 @@ interface KnowledgeSettingsProps {
 
 const CURATE_MODES = ['off', 'manual', 'nightly'] as const;
 
+/**
+ * Fields whose change only lands after a restart, matched as prefixes of the
+ * dotted paths `useConfigDirty` reports as dirty.
+ *
+ * Explicit beats a tab-level `RESTART_REQUIRED_TABS` entry here because the tab
+ * is mixed: `inject.*`, `curate.requireSources`, `curate.minMemoryConfidence`,
+ * `curate.shadow`, `logRetentionDays` and `conversationSearch.autoInjectMaxItems`
+ * are re-read live (the service re-reads its write knobs through `getConfig`),
+ * and prompting for a restart on those would train the operator to ignore the
+ * prompt. What stays startup-owned: whether the layer exists at all, the tool
+ * and route registration behind `read.enabled` / `conversationSearch.enabled`,
+ * and the curator instance that snapshots `mode`, `maxPagesPerRun` and
+ * `modelRef`.
+ */
+const RESTART_FIELD_PREFIXES = [
+  'knowledge.enabled',
+  'knowledge.read.enabled',
+  'knowledge.curate.mode',
+  'knowledge.curate.maxPagesPerRun',
+  'knowledge.curate.modelRef',
+  'conversationSearch.enabled',
+];
+
 interface FieldRowProps {
   label: string;
   description?: string;
@@ -62,6 +85,7 @@ export default function KnowledgeSettings({
     tabId,
     registerHandle,
     onDirtyChange,
+    RESTART_FIELD_PREFIXES,
   );
 
   if (loading)
