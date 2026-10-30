@@ -11,6 +11,7 @@ import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
 import KnowledgeHubView from './components/knowledge/KnowledgeHubView';
+import GraphRosterView from './components/graph/GraphRosterView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest, fetchProjectSessions } from './utils/api';
@@ -136,6 +137,9 @@ export default function App() {
         <Route path="/knowledge/review" element={<KnowledgeHubView tab="review" />} />
         <Route path="/knowledge/graph" element={<KnowledgeHubView tab="graph" />} />
         <Route path="/knowledge/graph/:entityId" element={<KnowledgeHubView tab="graph" />} />
+        {/* The graph's enumeration half: the canvas draws a capped slice, so the complete
+            list is its own route rather than a mode of the drawing. */}
+        <Route path="/knowledge/roster" element={<GraphRosterView />} />
         {/* The graph used to be its own nav entry; bookmarks and old links keep
             working by landing on the tab it became. */}
         <Route path="/graph" element={<Navigate to="/knowledge/graph" replace />} />

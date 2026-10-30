@@ -591,6 +591,10 @@ describe('knowledge-graph routes', () => {
         // and the retracted `was_at` still counts as vocabulary — it is a relation
         // a caller may legitimately ask about with `asOf`.
         relationTypes: ['knows', 'lives_in', 'part_of', 'was_at', 'works_at'],
+        // Two people and two concepts tie, so the alphabetical tiebreak decides the
+        // order; the roster's type filter offers exactly this list rather than a
+        // hard-coded enum that starts lying when a producer asserts a new type.
+        entityTypes: ['concept', 'person', 'organization', 'place', 'region'],
       });
     });
 

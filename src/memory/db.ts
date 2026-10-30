@@ -24,6 +24,7 @@ import { migrateV22 } from './migration-v22.js';
 import { migrateV23 } from './migration-v23.js';
 import { migrateV24 } from './migration-v24.js';
 import { migrateV25 } from './migration-v25.js';
+import { migrateV26 } from './migration-v26.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -353,6 +354,17 @@ export function openDatabase(dbPath: string): Database.Database {
   const v25Result = migrateV25(db);
   if (v25Result.added.length > 0) {
     logger.info(`[V25] Knowledge migration: added columns: ${v25Result.added.join(', ')}`);
+  }
+
+  // V26 indexes `memory_links.subject_entity`, which v15 added without one. Every
+  // "which memories name X" query is `target_entity = X OR subject_entity = X`, and
+  // an OR only uses indexes when both sides have one — the unindexed half turned
+  // each of those into a full table scan per entity (`SCAN ml` on the device, 43 ms
+  // of a 55 ms graph request). After applySchema like v20–v25: the column exists by
+  // then, and `IF NOT EXISTS` makes the replay free.
+  const v26Result = migrateV26(db);
+  if (v26Result.createdIndexes.length > 0) {
+    logger.info(`[V26] Graph migration: ensured ${v26Result.createdIndexes.join(', ')}`);
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

@@ -56,6 +56,16 @@ import {
   type GraphStats,
 } from '../../graph/graph-query.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
+import {
+  decodeRosterCursor,
+  queryEdgeRoster,
+  queryEntityRoster,
+  type EdgeRosterQuery,
+  type EdgeRosterSort,
+  type EntityRosterQuery,
+  type EntityRosterSort,
+  type RosterEdgePresence,
+} from '../../graph/graph-roster.js';
 import type { FooterConfig } from '../types.js';
 
 const MAX_GRAPH_LIMIT = 200;
@@ -75,6 +85,21 @@ function overviewSeedCount(nodeBudget: number): number {
 }
 
 const DEFAULT_SEARCH_LIMIT = 20;
+
+/**
+ * The roster endpoints' sort keys, as closed sets.
+ *
+ * Closed because those values reach `ORDER BY`: a whitelist is what keeps a query
+ * string out of the SQL, and an unknown key is reported as a 400 rather than
+ * silently replaced by a default — a list that quietly re-sorts looks like a bug
+ * in the data.
+ */
+const ENTITY_ROSTER_SORTS: EntityRosterSort[] = ['degree', 'mentions', 'name', 'updated'];
+const EDGE_ROSTER_SORTS: EdgeRosterSort[] = ['validFrom', 'confidence', 'relation'];
+const ROSTER_EDGE_PRESENCE: RosterEdgePresence[] = ['any', 'yes', 'no'];
+const EDGE_STATUSES: Array<EdgeRosterQuery['status']> = ['open', 'retracted', 'all'];
+const DEFAULT_ENTITY_ROSTER_LIMIT = 50;
+const DEFAULT_EDGE_ROSTER_LIMIT = 100;
 const MAX_SEARCH_LIMIT = 50;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
 const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
@@ -654,6 +679,111 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
       // Zeroes with a real `enabled` flag on a pre-v10 database: there is no graph
       // to measure, and that is an answer, not a failure.
       return reply.send({ enabled, ...readGraphStats(cfg.db) } satisfies GraphStats);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * The entity roster (plan §4.1.1): every entity, keyset-paginated.
+   *
+   * The canvas cannot answer "what is in my graph". On the device 357 of 378
+   * entities have no typed edge at all, so there is nothing to draw for them and the
+   * 40-node budget is spent on the 21 that do. This is the complete answer, and it is
+   * a LIST on purpose: enumeration has a total order, a drawing does not.
+   *
+   *   `?q=`                     substring over name / canonical name / alias
+   *   `?type=`                  entity_type (the vocabulary is `/stats.entityTypes`)
+   *   `?edges=any|yes|no`       has a typed edge / is isolated
+   *   `?minDegree=`             incident-edge floor
+   *   `?sort=degree|mentions|name|updated` + `?dir=asc|desc`
+   *   `?cursor=`                opaque keyset cursor from the previous page
+   *   `?limit=1..200`           page size (default 50)
+   */
+  app.get('/api/memory/entities', async (request, reply) => {
+    const query = request.query as Record<string, string | undefined>;
+    if (query.sort !== undefined && !ENTITY_ROSTER_SORTS.includes(query.sort as EntityRosterSort)) {
+      return reply.status(400).send({ error: 'Unknown sort', allowed: ENTITY_ROSTER_SORTS });
+    }
+    if (
+      query.edges !== undefined &&
+      !ROSTER_EDGE_PRESENCE.includes(query.edges as RosterEdgePresence)
+    ) {
+      return reply
+        .status(400)
+        .send({ error: 'Unknown edges filter', allowed: ROSTER_EDGE_PRESENCE });
+    }
+    const cursor = query.cursor ? decodeRosterCursor(query.cursor) : undefined;
+    // A cursor nobody can decode restarts nothing: silently paging from the top is
+    // how a reader concludes the list lost rows.
+    if (query.cursor && !cursor) return reply.status(400).send({ error: 'Invalid cursor' });
+
+    const roster: EntityRosterQuery = {
+      q: query.q,
+      entityType: query.type,
+      edges: query.edges as RosterEdgePresence | undefined,
+      minDegree:
+        query.minDegree === undefined
+          ? undefined
+          : clampInt(query.minDegree, 0, 0, Number.MAX_SAFE_INTEGER),
+      sort: (query.sort as EntityRosterSort | undefined) ?? 'degree',
+      dir: query.dir === 'asc' ? 'asc' : 'desc',
+      cursor,
+      limit: clampInt(query.limit, DEFAULT_ENTITY_ROSTER_LIMIT, 1, MAX_GRAPH_LIMIT),
+    };
+
+    try {
+      return reply.send(queryEntityRoster(cfg.db, roster));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  /**
+   * The edge roster (plan §4.1.2): every typed edge, keyset-paginated.
+   *
+   * `status=retracted` is the half the drawing cannot show. `/stats` has always
+   * reported "2 retracted", and until now there was no way to learn which two — a
+   * count with no drill-down is a dead end, and history nobody can open is
+   * indistinguishable from history that was deleted.
+   *
+   *   `?source=` / `?target=`  entity id, one direction
+   *   `?relation=`             predicate (vocabulary is `/stats.relationTypes`)
+   *   `?status=open|retracted|all`  (default `open`)
+   *   `?asOf=`                 the same temporal predicate the drawing uses
+   *   `?since=` / `?until=`    window over `valid_from`
+   *   `?sort=validFrom|confidence|relation` + `?dir=asc|desc`
+   *   `?cursor=` / `?limit=`   page size default 100
+   */
+  app.get('/api/memory/edges', async (request, reply) => {
+    const query = request.query as Record<string, string | undefined>;
+    if (query.sort !== undefined && !EDGE_ROSTER_SORTS.includes(query.sort as EdgeRosterSort)) {
+      return reply.status(400).send({ error: 'Unknown sort', allowed: EDGE_ROSTER_SORTS });
+    }
+    if (query.status !== undefined && !EDGE_STATUSES.includes(query.status as never)) {
+      return reply.status(400).send({ error: 'Unknown status', allowed: EDGE_STATUSES });
+    }
+    const cursor = query.cursor ? decodeRosterCursor(query.cursor) : undefined;
+    if (query.cursor && !cursor) return reply.status(400).send({ error: 'Invalid cursor' });
+
+    const roster: EdgeRosterQuery = {
+      source: query.source,
+      target: query.target,
+      relation: query.relation,
+      status: (query.status as EdgeRosterQuery['status'] | undefined) ?? 'open',
+      asOf: parseGraphAsOf(query.asOf),
+      since: parseGraphAsOf(query.since),
+      until: parseGraphAsOf(query.until),
+      sort: (query.sort as EdgeRosterSort | undefined) ?? 'validFrom',
+      dir: query.dir === 'asc' ? 'asc' : 'desc',
+      cursor,
+      limit: clampInt(query.limit, DEFAULT_EDGE_ROSTER_LIMIT, 1, MAX_GRAPH_LIMIT),
+    };
+
+    try {
+      return reply.send(queryEdgeRoster(cfg.db, roster));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ error: message });

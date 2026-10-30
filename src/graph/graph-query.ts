@@ -662,6 +662,14 @@ export interface GraphStats {
    * type a user just selected — removing the control that unselects it.
    */
   relationTypes: string[];
+  /**
+   * The entity-type vocabulary present in the graph, most common first.
+   *
+   * Served for the same reason `relationTypes` is: the roster's type filter needs
+   * the whole vocabulary, and a list rebuilt from the current page would shrink to
+   * whichever type is selected — removing the control that deselects it.
+   */
+  entityTypes: string[];
   /** Present only when the knowledge layer's tables exist. */
   danglingLinks?: number;
   /** Pages bound to one conversation rather than `global`. */
@@ -875,6 +883,27 @@ function readRelationVocabulary(db: Database.Database): string[] {
 }
 
 /**
+ * The entity-type vocabulary actually present, most common first.
+ *
+ * `entities.entity_type` is written by the miner (`concept` / `organization`) and
+ * by whatever a producer asserted, so this is a corpus measurement, not a schema
+ * enum — the roster's filter must offer what exists rather than a hard-coded list
+ * that starts lying the moment a new type appears.
+ */
+function readEntityTypeVocabulary(db: Database.Database): string[] {
+  if (!tableExists(db, 'entities')) return [];
+  const rows = db
+    .prepare(
+      `SELECT entity_type AS type, COUNT(*) AS n
+         FROM entities
+        GROUP BY entity_type
+        ORDER BY n DESC, type ASC`,
+    )
+    .all() as Array<{ type: string; n: number }>;
+  return rows.map((row) => row.type);
+}
+
+/**
  * The statistics panel's numbers. `enabled` is the caller's flag, so this reports
  * only what the database says and the route composes the two.
  *
@@ -929,6 +958,7 @@ export function readGraphStats(db: Database.Database): Omit<GraphStats, 'enabled
         .map((member) => ({ id: member.id, name: member.name })),
     })),
     relationTypes: readRelationVocabulary(db),
+    entityTypes: readEntityTypeVocabulary(db),
   };
 
   // The knowledge layer's own health belongs in the same panel — a dangling link

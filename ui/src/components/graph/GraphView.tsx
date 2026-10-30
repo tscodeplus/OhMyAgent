@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Network } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { List, Network } from 'lucide-react';
 import { apiRequest } from '../../utils/api';
 import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
@@ -79,6 +80,7 @@ export default function GraphView({
   onOpenPage,
 }: GraphViewProps) {
   const { t } = useTranslation('common');
+  const navigate = useNavigate();
 
   const [depth, setDepth] = useState(1);
   const [graph, setGraph] = useState<GraphPayload | null>(null);
@@ -336,6 +338,15 @@ export default function GraphView({
                     {t('graph.backToOverview')}
                   </Button>
                 )}
+                {/*
+                  The canvas draws at most 40 nodes, so "what is in my graph" cannot be
+                  answered by looking at it. The roster is that answer, and this is the
+                  way to it from the drawing.
+                */}
+                <Button variant="secondary" size="sm" onClick={() => navigate('/knowledge/roster')}>
+                  <List size={13} strokeWidth={1.75} />
+                  {t('graph.roster')}
+                </Button>
                 <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
                   {t('graph.depth')}
                 </span>

@@ -254,3 +254,87 @@ export interface GraphSummary {
   edges: number;
   enabled: boolean;
 }
+
+/**
+ * The two vocabularies the roster's filters need, read from `GET /api/memory/graph/stats`.
+ *
+ * A deliberately narrow read of the payload `GraphStats` describes: that type explains
+ * the drawing (how sparse it is), while a filter needs only what exists to pick from.
+ * The vocabularies are optional following the same precedent as `GraphStats.relationTypes`
+ * — a payload from an older server offers "all" and reads correctly, where a list rebuilt
+ * from the current page would shrink to the value already selected and remove the control
+ * that deselects it.
+ */
+export interface GraphRosterStats {
+  /** Entities in the whole graph — the denominator the roster's hint line states. */
+  nodes: number;
+  entityTypes?: string[];
+  relationTypes?: string[];
+}
+
+/**
+ * One entity in the roster (`GET /api/memory/entities`, src/graph/graph-roster.ts).
+ *
+ * The canvas is capped at 40 rendered nodes, so it can never answer "what is in my
+ * graph" — on the device 357 of 378 entities carry no relation and have nothing to
+ * draw. This row is that answer for one entity: it enumerates rather than ranks.
+ *
+ * The cursor is opaque and never built here; the server owns the ordering key,
+ * because a client that guessed one would page a different list than the server sorted.
+ */
+export interface EntityRosterRow {
+  id: string;
+  name: string;
+  canonicalName: string;
+  entityType: string;
+  /**
+   * Incident typed edges, retracted ones included — the same predicate as
+   * `GraphNode.degree`, so the roster and the canvas radius cannot disagree.
+   */
+  degree: { out: number; in: number; total: number };
+  /** `memory_links` rows naming this entity: co-occurrence, not connectivity. */
+  mentionCount: number;
+  /** Up to a handful of aliases, alphabetical; the rest are counted, not sent. */
+  aliases: string[];
+  /** Aliases in total, so a row can say how many it did not print. */
+  aliasCount: number;
+  updatedAt: number | null;
+}
+
+export interface EntityRosterPage {
+  items: EntityRosterRow[];
+  /** Rows matching the filters, ignoring `cursor` and `limit`. */
+  total: number;
+  /** `null` on the last page; otherwise the only way back to the next one. */
+  nextCursor: string | null;
+}
+
+/**
+ * One relation in the roster (`GET /api/memory/edges`).
+ *
+ * `validTo` non-null is a RETRACTED relation: the row is kept so history stays
+ * answerable, so the roster shows it as expired instead of hiding it. Showing only
+ * open relations would leave `/stats`'s "2 retracted" a count with no drill-down.
+ */
+export interface EdgeRosterRow {
+  id: string;
+  relationType: string;
+  confidence: number;
+  source: { id: string; name: string };
+  target: { id: string; name: string };
+  validFrom: number | null;
+  validTo: number | null;
+  /**
+   * The memory that asserted the relation. Rendered as plain text, not a link: the
+   * roster is an enumeration, and a row that navigated away would lose the list.
+   */
+  sourceMemoryId: string | null;
+}
+
+export interface EdgeRosterPage {
+  items: EdgeRosterRow[];
+  total: number;
+  nextCursor: string | null;
+  /** Open vs retracted under the same filters EXCEPT `status` — so one request says both. */
+  counts: { open: number; retracted: number };
+}
