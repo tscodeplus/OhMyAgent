@@ -292,6 +292,56 @@ describe('entity_backfill — LLM pass', () => {
     expect(result.details).toMatchObject({ rejectedByGates: 1, typedLinksWritten: 0 });
   });
 
+  it('reports why the unattempted backlog is not a candidate queue', async () => {
+    // The measured shape on the reference install: "111 memories were never
+    // attempted" was true but unexplainable from `maintenance_runs.details`, so
+    // answering it needed a hand-written query against the device database.
+    // 77 of those are `scene` rows (file paths), 10 too short, 8 already typed.
+    const eligible = '王小明是我的同事，他在Acme工作';
+    seedMemory('m-eligible', eligible);
+    // A `scene` row stores `scenes/<session>_<date>.md`, never a statement.
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, status, created_at, updated_at)
+       VALUES ('m-scene', 'user', 'user-1', 'scene', 'scenes/s1_2026-10-01.md', 'active', '1', '1')`,
+    ).run();
+    // Below MIN_LLM_CONTENT_CHARS.
+    seedMemory('m-short', '好的');
+    // A producer already typed this one, so it is not a candidate again.
+    seedMemory('m-typed', '张伟是Acme公司的顾问');
+    db.prepare(
+      `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence)
+       VALUES ('l-typed', 'm-typed', 'Acme', 'ADVISES', 0.9)`,
+    ).run();
+    modelAnswers({ [eligible]: [] });
+
+    const result = await runJob();
+
+    // `m-eligible` was attempted by this run, so it left the unattempted set;
+    // the other three never entered it and each is reported under its own filter.
+    expect(result.details).toMatchObject({
+      unattempted: { total: 3, byKind: 1, tooShort: 1, alreadyTyped: 1, candidates: 0 },
+    });
+  });
+
+  it('reports the same backlog breakdown on a dry run', async () => {
+    // A dry run is how an operator asks "what would you do"; "0 candidates" is
+    // unreadable without the reason the others are not candidates.
+    seedMemory('m1', '王小明是我的同事，他在Acme工作');
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, status, created_at, updated_at)
+       VALUES ('m-scene', 'user', 'user-1', 'scene', 'scenes/s1_2026-10-01.md', 'active', '1', '1')`,
+    ).run();
+
+    const result = await createEntityBackfillJob(db, linkRepo, {
+      config: DEFAULT_ENTITY_EXTRACTION_JOB_CONFIG,
+      auxConfig: AUX_CONFIG,
+    }).run({ dryRun: true });
+
+    expect(result.details).toMatchObject({
+      unattempted: { total: 2, byKind: 1, tooShort: 0, alreadyTyped: 0, candidates: 1 },
+    });
+  });
+
   it('keeps today’s behaviour with llm: false, and spends no model call', async () => {
     const text = '王小明是我的同事';
     seedMemory('m1', text);

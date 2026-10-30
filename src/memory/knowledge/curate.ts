@@ -158,6 +158,53 @@ export interface KnowledgeCurateConfig {
   auxConfig?: AuxModelConfig;
 }
 
+/** The `knowledge.curate` knobs, in the shape the config file stores them. */
+export interface KnowledgeCurateConfigInput {
+  enabled: boolean;
+  mode: CurateMode;
+  shadow: boolean;
+  maxPagesPerRun: number;
+  requireSources: number;
+  minMemoryConfidence: number;
+  /** `curate.model_ref`; empty means "reuse `memory_aux_models`". */
+  modelRef: string;
+}
+
+/**
+ * Map the config file's `knowledge:` block onto {@link KnowledgeCurateConfig}.
+ *
+ * Lives here rather than in the composer because two callers build a curator now:
+ * `DreamCycle` (nightly, via `createSchedulers`) and `pnpm knowledge:curate` (the
+ * on-demand backfill). Two mappings of the same six knobs is exactly how a CLI
+ * ends up curating with different thresholds than the phase it is standing in
+ * for.
+ *
+ * `getAuxConfig` is a getter rather than a value: `createMemoryServices` mutates
+ * the shared `AuxModelConfig` in place on hot-reload, so a snapshot would pin the
+ * backfill to the model configured at process start. `modelRef` overrides only
+ * the model — provider keys, baseUrls and the fallback chain stay what
+ * `memory_aux_models` resolved to, and a curation model that fails falls back
+ * down the same chain `auxLLMCall` already walks.
+ */
+export function buildKnowledgeCurateConfig(
+  input: KnowledgeCurateConfigInput,
+  getAuxConfig: () => AuxModelConfig,
+): KnowledgeCurateConfig {
+  return {
+    enabled: input.enabled,
+    mode: input.mode,
+    shadow: input.shadow,
+    maxPagesPerRun: input.maxPagesPerRun,
+    requireSources: input.requireSources,
+    minMemoryConfidence: input.minMemoryConfidence,
+    get auxConfig(): AuxModelConfig {
+      const modelRef = input.modelRef.trim();
+      const aux = getAuxConfig();
+      return modelRef ? { ...aux, modelRef } : aux;
+    },
+  };
+}
+
 // ── Report ──────────────────────────────────────────────────────────────
 
 export type CurateSkipReason =
@@ -191,6 +238,25 @@ export interface CurateRunOptions {
   trigger?: CurateTrigger;
   /** Checked between pages — never inside a write. */
   signal?: AbortSignal;
+  /**
+   * Window start (epoch ms) for this run, overriding {@link windowStart}.
+   *
+   * The default window is "since the last *successful* recorded run", and a first
+   * run only looks back one night (`FIRST_RUN_LOOKBACK_MS`) — deliberately, so a
+   * phone does not curate its whole history at boot. The consequence on a real
+   * install was a page layer that could never start: the corpus's newest memory
+   * was six weeks old, every run looked back 24 hours to the previous run and
+   * found `no_candidates`, and recording that as a success advanced the window a
+   * day further. This option is the backfill door: `pnpm knowledge:curate
+   * --since=<date>` re-reads an old window on demand.
+   *
+   * It is a **window override, not a new cursor**: nothing here writes a
+   * `maintenance_runs` row (only `DreamCycle` does), so a backfill cannot make
+   * the nightly phase believe a night it never covered was covered. Re-running the
+   * same window is safe — a page's identity is `(page_type, scope, slug)`, so a
+   * second run updates what the first wrote instead of creating a duplicate.
+   */
+  since?: number;
   /**
    * The conversation this run writes into — `KnowledgeWriteOptions.scope`.
    *
@@ -284,6 +350,95 @@ export interface CurateGroup {
   subject: string;
   /** Memory ids the model cited, filtered to ids it was actually shown. */
   memoryIds: string[];
+}
+
+/**
+ * The candidate read, shared by the curator and the CLI's `--dry-run`.
+ * One expression of the filter matters: `--dry-run` exists so an operator can
+ * see the cost of a window before spending a model call, and a counter that
+ * disagreed with the real query would make the dry run useless.
+ */
+function curateCandidateWhere(): string {
+  const placeholders = CANDIDATE_KINDS.map(() => '?').join(',');
+  return `status = 'active'
+            AND kind IN (${placeholders})
+            AND confidence >= ?
+            AND CAST(created_at AS INTEGER) >= ?`;
+}
+
+/**
+ * Start of the window the next nightly run would read.
+ *
+ * The last **successful** recorded `dreamcycle_knowledge_curate` run, else one
+ * night ago. Exported because `pnpm knowledge:curate --dry-run` must measure the
+ * same window the phase would, and a CLI that guessed at it would report a
+ * candidate count nobody could act on.
+ *
+ * Recording is deliberately not part of this: only `DreamCycle` writes those
+ * rows, so a backfill started through the CLI cannot advance the window and
+ * leave the nightly phase believing it covered memories it never read.
+ */
+export function curateWindowStart(db: Database.Database): number {
+  const row = db
+    .prepare(
+      `SELECT CAST(started_at AS INTEGER) AS started_at
+         FROM maintenance_runs
+        WHERE job_name = ? AND status = 'success'
+        ORDER BY CAST(started_at AS INTEGER) DESC
+        LIMIT 1`,
+    )
+    .get(CURATE_JOB_NAME) as { started_at: number | null } | undefined;
+  const startedAt = row?.started_at;
+  if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+  return Date.now() - FIRST_RUN_LOOKBACK_MS;
+}
+
+/**
+ * How many memories a curation window holds — the `--dry-run` measurement.
+ *
+ * Counts the rows {@link selectCurateCandidates} reads, without
+ * `CANDIDATE_LIMIT`, so "this window holds 453 memories and one run reads 60 of
+ * them" is a number an operator can see instead of infer.
+ */
+export function countCurateCandidates(
+  db: Database.Database,
+  options: { since: number; minConfidence: number },
+): number {
+  const row = db
+    .prepare(`SELECT COUNT(*) AS n FROM memories WHERE ${curateCandidateWhere()}`)
+    .get(...CANDIDATE_KINDS, options.minConfidence, options.since) as { n: number };
+  return Number(row.n);
+}
+
+/**
+ * Active memories of a curatable kind created inside `since`, oldest first, at
+ * most `limit` of them.
+ *
+ * Oldest first is what makes a backfill converge when the window holds more than
+ * one batch ({@link CANDIDATE_LIMIT}): the page a second run touches is the page
+ * the first one already wrote, and `report.since` tells the caller which window
+ * was read.
+ */
+function selectCurateCandidates(
+  db: Database.Database,
+  options: { since: number; minConfidence: number; limit: number },
+): CandidateMemory[] {
+  return db
+    .prepare(
+      `SELECT id, content, kind, scope, scope_key, confidence
+         FROM memories
+        WHERE ${curateCandidateWhere()}
+        ORDER BY CAST(created_at AS INTEGER) ASC
+        LIMIT ?`,
+    )
+    .all(
+      ...CANDIDATE_KINDS,
+      options.minConfidence,
+      options.since,
+      options.limit,
+    ) as CandidateMemory[];
 }
 
 /**
@@ -678,7 +833,7 @@ export class KnowledgeCurator {
     // `skipReason` already proved a caller exists.
     const callLLM = this.resolveCaller() as AuxCaller;
 
-    report.since = this.windowStart();
+    report.since = options.since ?? this.windowStart();
     if (options.signal?.aborted) {
       report.aborted = true;
       return report;
@@ -937,20 +1092,7 @@ export class KnowledgeCurator {
    * a nightly one (§9.4 rule 1).
    */
   private windowStart(): number {
-    const row = this.db
-      .prepare(
-        `SELECT CAST(started_at AS INTEGER) AS started_at
-           FROM maintenance_runs
-          WHERE job_name = ? AND status = 'success'
-          ORDER BY CAST(started_at AS INTEGER) DESC
-          LIMIT 1`,
-      )
-      .get(CURATE_JOB_NAME) as { started_at: number | null } | undefined;
-    const startedAt = row?.started_at;
-    if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt > 0) {
-      return startedAt;
-    }
-    return Date.now() - FIRST_RUN_LOOKBACK_MS;
+    return curateWindowStart(this.db);
   }
 
   private get db(): Database.Database {
@@ -959,20 +1101,11 @@ export class KnowledgeCurator {
 
   /** Active memories of a curatable kind created inside the window. */
   private gatherCandidates(since: number): CandidateMemory[] {
-    const kinds = [...CANDIDATE_KINDS];
-    const placeholders = kinds.map(() => '?').join(',');
-    return this.db
-      .prepare(
-        `SELECT id, content, kind, scope, scope_key, confidence
-           FROM memories
-          WHERE status = 'active'
-            AND kind IN (${placeholders})
-            AND confidence >= ?
-            AND CAST(created_at AS INTEGER) >= ?
-          ORDER BY CAST(created_at AS INTEGER) ASC
-          LIMIT ?`,
-      )
-      .all(...kinds, this.config.minMemoryConfidence, since, CANDIDATE_LIMIT) as CandidateMemory[];
+    return selectCurateCandidates(this.db, {
+      since,
+      minConfidence: this.config.minMemoryConfidence,
+      limit: CANDIDATE_LIMIT,
+    });
   }
 
   /**

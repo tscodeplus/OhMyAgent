@@ -19,7 +19,7 @@ import { loadConfig } from '../config.js';
 import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
-import { KnowledgeCurator } from '../../memory/knowledge/curate.js';
+import { KnowledgeCurator, buildKnowledgeCurateConfig } from '../../memory/knowledge/curate.js';
 import type { KnowledgeCurateConfig } from '../../memory/knowledge/curate.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CronDeliveryRegistry } from '../../cron/delivery-registry.js';
@@ -87,32 +87,29 @@ function createCronAgentRunner(agentService: AgentService, modelName: string): A
 /**
  * `knowledge.curate` → the shape the curator takes.
  *
- * `auxConfig` is a getter rather than a copy: `createMemoryServices` mutates the
- * shared `AuxModelConfig` in place on hot-reload (new model chain, new keys), so
- * a snapshot taken here would pin curation to the model that was configured at
- * startup. An empty `curate.model_ref` means "reuse `memory_aux_models`"; a
- * non-empty one overrides only the model, because the per-provider keys,
- * baseUrls and the fallback chain stay whatever `memory_aux_models` resolved to
- * — a curation model that fails falls back down the same chain as every other
- * aux call, which is where `auxLLMCall` already looks.
+ * The mapping itself lives in `curate.ts` (`buildKnowledgeCurateConfig`) because
+ * the on-demand backfill (`pnpm knowledge:curate`) builds a curator too, and two
+ * mappings of the same six knobs is how a CLI ends up using thresholds the
+ * nightly phase does not. What stays here is the one thing only the composer
+ * knows: where the live `AuxModelConfig` lives.
  */
 function knowledgeCurateConfig(
   config: AppConfig,
   auxModelConfig: AuxModelConfig,
 ): KnowledgeCurateConfig {
   const curate = config.knowledge.curate;
-  return {
-    enabled: config.knowledge.enabled,
-    mode: curate.mode,
-    shadow: curate.shadow,
-    maxPagesPerRun: curate.maxPagesPerRun,
-    requireSources: curate.requireSources,
-    minMemoryConfidence: curate.minMemoryConfidence,
-    get auxConfig(): AuxModelConfig {
-      const modelRef = curate.modelRef.trim();
-      return modelRef ? { ...auxModelConfig, modelRef } : auxModelConfig;
+  return buildKnowledgeCurateConfig(
+    {
+      enabled: config.knowledge.enabled,
+      mode: curate.mode,
+      shadow: curate.shadow,
+      maxPagesPerRun: curate.maxPagesPerRun,
+      requireSources: curate.requireSources,
+      minMemoryConfidence: curate.minMemoryConfidence,
+      modelRef: curate.modelRef,
     },
-  };
+    () => auxModelConfig,
+  );
 }
 
 export function createSchedulers(input: {

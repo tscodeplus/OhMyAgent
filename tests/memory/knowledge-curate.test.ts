@@ -4,7 +4,10 @@ import type { Logger } from 'pino';
 import { openDatabase } from '../../src/memory/db.js';
 import {
   KnowledgeCurator,
+  buildKnowledgeCurateConfig,
+  countCurateCandidates,
   countIndependentSources,
+  curateWindowStart,
   evaluateAdmission,
   parseGroupingResponse,
   parsePageResponse,
@@ -364,6 +367,85 @@ describe('KnowledgeCurator', () => {
           { kind: 'memory', id: 'm-old' },
         ]),
       );
+    });
+
+    // ── Window and backfill (`pnpm knowledge:curate`) ────────────────────
+
+    it('cannot reach a historical window on its own: a first run looks back one night', async () => {
+      // The reference install's shape: the newest memory is six weeks old, so the
+      // 24h first-run window holds nothing and every run records a success with
+      // zero candidates — which is why the page layer never started.
+      const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+      insertMemory({
+        id: 'm-old',
+        content: 'Power Query replaced the manual VLOOKUP ETL',
+        createdAt: old,
+      });
+
+      const report = await curator().run();
+
+      expect(report.candidates).toBe(0);
+      expect(report.skipped).toBe('no_candidates');
+      // No model call is spent on an empty window.
+      expect(llmCalls).toHaveLength(0);
+      expect(report.since).toBeGreaterThan(old);
+      expect(countCurateCandidates(db, { since: report.since, minConfidence: 0.6 })).toBe(0);
+    });
+
+    it('curates that window when `since` overrides the nightly cursor', async () => {
+      const old = Date.now() - 60 * 24 * 60 * 60 * 1000;
+      insertMemory({
+        id: 'm-old-1',
+        content: 'Power Query replaced the manual VLOOKUP ETL',
+        createdAt: old,
+      });
+      // A different conversation: admission rule 2 counts conversations, so two
+      // rows in one chat would still be one source.
+      insertMemory({
+        id: 'm-old-2',
+        content: 'Power Query is how the team does the monthly ETL',
+        createdAt: old + 1000,
+        scopeKey: 'session-other',
+      });
+      responses = [
+        grouping([{ subject: 'Power Query', memoryIds: ['m-old-1', 'm-old-2'] }]),
+        page(),
+      ];
+
+      const report = await curator().run({ trigger: 'manual', since: old - 1 });
+
+      expect(report.since).toBe(old - 1);
+      expect(report.candidates).toBe(2);
+      expect(report.created).toBe(1);
+      // The backfill door does not change what admission accepts.
+      expect(service.writes[0].options.enforceAdmission).toBe(true);
+    });
+
+    it('reports the window the nightly cursor names, and a count that is not the batch', async () => {
+      const since = Date.now() - 60 * 24 * 60 * 60 * 1000;
+      recordSuccessfulRun(since);
+      expect(curateWindowStart(db)).toBe(since);
+
+      for (let index = 0; index < 3; index++) {
+        insertMemory({
+          id: `m-${index}`,
+          content: 'Power Query ETL notes',
+          createdAt: since + index,
+        });
+      }
+      // Below the confidence floor the curator ignores it; the dry-run count is
+      // built from the same predicate, so it must ignore it too.
+      insertMemory({
+        id: 'm-low',
+        content: 'Power Query ETL notes',
+        createdAt: since + 10,
+        confidence: 0.1,
+      });
+
+      expect(countCurateCandidates(db, { since, minConfidence: 0.6 })).toBe(3);
+      // A window is not a batch: one run reads at most `CANDIDATE_LIMIT` of them,
+      // which is why `--rounds` exists instead of a silent "done".
+      expect(countCurateCandidates(db, { since, minConfidence: 0.6 })).toBeGreaterThan(0);
     });
 
     it('passes the service refusal through by reason', async () => {

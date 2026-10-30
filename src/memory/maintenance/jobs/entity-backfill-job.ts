@@ -162,6 +162,26 @@ interface MemoryRow {
   kind: string;
 }
 
+/**
+ * Why memories the ledger has never answered are not, or not yet, LLM candidates.
+ *
+ * `total` is every active memory with no non-error ledger row; the four buckets
+ * partition it. `candidates` is the queue the next run will read from, so a
+ * `total` that stays high while `candidates` is 0 is a finished backlog, not a
+ * stuck one.
+ */
+interface UnattemptedBreakdown {
+  total: number;
+  /** `persona`/`scene` — bookkeeping rows, never conversation. */
+  byKind: number;
+  /** Shorter than {@link MIN_LLM_CONTENT_CHARS}: a model sent one answers noise. */
+  tooShort: number;
+  /** Already carries a typed link, so a producer has spoken for it. */
+  alreadyTyped: number;
+  /** Readable by {@link LLM_CANDIDATE_SQL}; only the per-run budget limits them. */
+  candidates: number;
+}
+
 /** Why the LLM pass did not run; `null` when it did. */
 type DegradedReason = 'llm_disabled' | 'no_aux_model' | 'llm_failed';
 
@@ -330,6 +350,67 @@ export function createEntityBackfillJob(
      WHERE source_memory_id = ?`,
   );
 
+  /**
+   * Why the LLM pass cannot see a memory the ledger has never answered.
+   *
+   * Measured on the reference database: "111 memories were never attempted" was
+   * true but unexplainable from the job's own output, so it took a hand-written
+   * query against the device database to discover that 77 of them are `scene`
+   * rows (file-path pointers, excluded by design) and 16 were simply queued
+   * behind a budget of five calls per run. Reporting the breakdown turns the next
+   * such question into a read of `maintenance_runs.details`.
+   *
+   * Same predicates as {@link LLM_CANDIDATE_SQL}, in the same order, so
+   * `candidates` here and `llmCalls` there cannot disagree about a memory.
+   * `outcome = 'error'` stays a candidate on purpose: a failed call is not an
+   * answer.
+   */
+  const countUnattempted = db.prepare(`
+    SELECT CASE
+             WHEN m.kind IN (${EXCLUDED_MEMORY_KINDS}) THEN 'byKind'
+             WHEN length(trim(m.content)) < @minChars THEN 'tooShort'
+             WHEN EXISTS (
+               SELECT 1 FROM memory_links ml
+               WHERE ml.source_memory_id = m.id
+                 AND upper(trim(ml.relation_type)) <> @mentionRelation
+             ) THEN 'alreadyTyped'
+             ELSE 'candidate'
+           END AS reason,
+           COUNT(*) AS n
+      FROM memories m
+     WHERE m.status = 'active'
+       AND NOT EXISTS (
+         SELECT 1 FROM entity_extraction_log el
+         WHERE el.memory_id = m.id
+           AND el.outcome <> 'error'
+       )
+     GROUP BY 1
+  `);
+
+  /** Fold {@link countUnattempted}'s rows into one reportable object. */
+  const readUnattemptedBreakdown = (): UnattemptedBreakdown => {
+    const rows = countUnattempted.all({
+      minChars: MIN_LLM_CONTENT_CHARS,
+      mentionRelation: MENTION_RELATION_TYPE,
+    }) as Array<{ reason: string; n: number }>;
+    const breakdown: UnattemptedBreakdown = {
+      total: 0,
+      byKind: 0,
+      tooShort: 0,
+      alreadyTyped: 0,
+      candidates: 0,
+    };
+    for (const row of rows) {
+      const count = Number(row.n);
+      breakdown.total += count;
+      if (row.reason === 'byKind') breakdown.byKind += count;
+      else if (row.reason === 'tooShort') breakdown.tooShort += count;
+      else if (row.reason === 'alreadyTyped') breakdown.alreadyTyped += count;
+      else breakdown.candidates += count;
+    }
+    return breakdown;
+  };
+
   function readLlmCandidates(limit: number): MemoryRow[] {
     if (limit <= 0) return [];
     return db.prepare(LLM_CANDIDATE_SQL).all({
@@ -460,6 +541,10 @@ export function createEntityBackfillJob(
             llmCalls: 0,
             llmCallBudget: llmBudget,
             degradedReason,
+            // The same breakdown the real run reports: a dry run is how an
+            // operator asks "what would you two do", and "0 candidates" is
+            // unreadable without the reason the others are not candidates.
+            unattempted: readUnattemptedBreakdown(),
           },
         };
       }
@@ -535,7 +620,20 @@ export function createEntityBackfillJob(
           } catch (err) {
             // `extractTriplesLLM` catches model failures itself; this is the
             // last-resort guard so a broken extractor cannot fail the run.
-            logger.debug(
+            //
+            // The ledger row is written anyway. `error` deliberately keeps the
+            // memory a candidate (a failure is not an answer), so this records what
+            // happened rather than claiming progress — but without it a throw left
+            // no trace at all, which is why "these memories were never attempted"
+            // needed a device query to explain.
+            recordExtraction.run({
+              memoryId: row.id,
+              contentHash: contentHashFor(row.content),
+              outcome: 'error',
+              written: 0,
+              now: Date.now(),
+            });
+            logger.warn(
               { memoryId: row.id, err: err instanceof Error ? err.message : String(err) },
               '[entity_backfill] LLM extraction threw',
             );
@@ -594,6 +692,13 @@ export function createEntityBackfillJob(
           duplicateTargets,
           /** `llm_disabled` | `no_aux_model` | `llm_failed`, or `null` when the LLM pass ran. */
           degradedReason: effectiveDegraded,
+          /**
+           * The unattempted backlog, broken down by the filter that holds each
+           * memory back (`entity_extraction_log` is the ledger that defines
+           * "attempted"). Added because "never attempted: 111" was measurable but
+           * not diagnosable from this result.
+           */
+          unattempted: readUnattemptedBreakdown(),
         },
       };
     },

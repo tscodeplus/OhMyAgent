@@ -113,7 +113,7 @@ function buildSummaryLLMConfig(
  * so every consumer (MemoryWriter merge, summarizer, query expansion, entity
  * extraction, DreamCycle) picks up the new model chain by reference.
  */
-function buildAuxModelConfig(config: AppConfig): AuxModelConfig {
+export function buildAuxModelConfig(config: AppConfig): AuxModelConfig {
   const auxApiKeys: Record<string, string> = {};
   const auxBaseUrls: Record<string, string> = {};
   // provider_keys entries (per-provider api_key + base_url) must take part in
