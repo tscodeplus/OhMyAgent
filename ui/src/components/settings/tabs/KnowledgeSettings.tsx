@@ -11,9 +11,10 @@
  * the numeric ones are listed in `useConfigDirty`'s `numericPaths`, so a number
  * reaches the server, not a numeric string.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import AccordionItem from '../../ui/AccordionItem';
+import Button from '../../ui/Button';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
@@ -86,6 +87,25 @@ export default function KnowledgeSettings({
 
   const sectionTitleClass = 'text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3';
   const hintClass = 'text-[11px] text-neutral-500 dark:text-neutral-400';
+
+  const [copied, setCopied] = useState(false);
+
+  /**
+   * Copy the export command.
+   *
+   * `navigator.clipboard` is unavailable on plain-http origins, which is how the WebUI is
+   * served on a phone over the LAN — a failure leaves the command selectable instead of
+   * reporting a success it cannot verify.
+   */
+  const copyExportCommand = (): void => {
+    navigator.clipboard
+      ?.writeText('pnpm graph:export --out ~/.ohmyagent/vault')
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => setCopied(false));
+  };
 
   return (
     <div className="space-y-6">
@@ -305,6 +325,31 @@ export default function KnowledgeSettings({
             <p className={hintClass}>
               {t('settings.knowledge.conversation.autoInjectMaxItemsHint')}
             </p>
+          </div>
+        </SettingsCard>
+      </section>
+
+      {/* ── Group C: the whole graph, offline (plan §4.4) ── */}
+      <section>
+        <h3 className={sectionTitleClass}>{t('settings.knowledge.vault.title')}</h3>
+        <SettingsCard>
+          <div className="space-y-1.5">
+            <p className={hintClass}>{t('settings.knowledge.vault.description')}</p>
+            {/*
+              A command, not a button: the export takes tens of seconds, so a synchronous
+              request would time out and an asynchronous one would need a job queue plus
+              artifact cleanup — for a directory the user reads on the same machine. The CLI
+              it names is the single implementation; this panel only says it exists.
+            */}
+            <div className="flex items-center gap-2">
+              <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md bg-neutral-100 px-2 py-1 text-[11px] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                pnpm graph:export --out ~/.ohmyagent/vault
+              </code>
+              <Button variant="secondary" size="sm" onClick={copyExportCommand}>
+                {copied ? t('settings.knowledge.vault.copied') : t('settings.knowledge.vault.copy')}
+              </Button>
+            </div>
+            <p className={hintClass}>{t('settings.knowledge.vault.hint')}</p>
           </div>
         </SettingsCard>
       </section>

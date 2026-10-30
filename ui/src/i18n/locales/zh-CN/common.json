@@ -566,6 +566,13 @@
         "enabledDesc": "在历史消息上做情景回忆——「我们哪天说过这个」。关掉后工具与自动摘录块一起消失。",
         "autoInjectMaxItems": "每轮摘录条数",
         "autoInjectMaxItemsHint": "每轮自动注入的条数上限（工具自身的 limit 还包含邻域扩展）。0 = 不自动注入，工具仍可用。"
+      },
+      "vault": {
+        "title": "图谱数据导出",
+        "description": "画布一次只画得下一部分，导出不受这个限制：整张图写成 Markdown 笔记，用 Obsidian 打开即可看到完整的力导向全图（设备上是 924 个 note）。",
+        "copy": "复制",
+        "copied": "已复制",
+        "hint": "在运行 OhMyAgent 的机器上执行。输出到 ~/.ohmyagent/vault（entities / memories / pages / sessions + index.md），manual/ 目录永不覆盖，--dry-run 只打印计划。"
       }
     },
     "tools": {

@@ -566,6 +566,13 @@
         "enabledDesc": "Episodic recall over past messages — \"when did we say that\". Off removes the tool together with the automatic excerpt block.",
         "autoInjectMaxItems": "Excerpts per turn",
         "autoInjectMaxItemsHint": "Items injected automatically each turn (the tool's own limit counts neighbourhood expansion too). 0 disables the automatic block and keeps the tool usable."
+      },
+      "vault": {
+        "title": "Graph data export",
+        "description": "The canvas can only draw part of the graph; an export is not limited that way — the whole graph becomes Markdown notes, and Obsidian renders the full force-directed picture (924 notes on the device).",
+        "copy": "Copy",
+        "copied": "Copied",
+        "hint": "Run on the machine hosting OhMyAgent. It writes ~/.ohmyagent/vault (entities / memories / pages / sessions plus index.md) and never overwrites manual/. --dry-run prints the plan only."
       }
     },
     "tools": {
