@@ -176,4 +176,41 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
     expect((check.details as { count: number }).count).toBe(1);
     expect((check.details as { pageIds: string[] }).pageIds).toEqual(['page-1']);
   });
+
+  it('also reports pages citing a superseded memory (review finding F3)', async () => {
+    // A superseded row is NOT deleted, so the `NOT EXISTS` form of the check could
+    // never see it — yet the page asserts a claim the memory layer retracted, which
+    // is the same unverifiable citation from the reader's side. Supersede is the
+    // correction path for exactly the five topics §3.1 keeps as `preference`.
+    migrateV14(db);
+    const memId = repo.create({
+      id: 'mem-doc-5',
+      scope: 'user',
+      scope_key: 'default',
+      kind: 'preference',
+      content: '用户偏好使用 npm',
+    }).id;
+    db.prepare(
+      `INSERT INTO knowledge_pages (id, page_type, slug, title, content, status, version, created_at, updated_at)
+       VALUES ('page-2', 'topic', 'slug-2', 'Title', 'Body', 'active', 1, ?, ?)`,
+    ).run(Date.now(), Date.now());
+    db.prepare(
+      `INSERT INTO knowledge_sources (page_id, source_kind, source_id) VALUES ('page-2', 'memory', ?)`,
+    ).run(memId);
+
+    const doctor = new (await import('../../src/memory/maintenance/memory-doctor.js')).MemoryDoctor(
+      db,
+      repo,
+    );
+    let check = (await doctor.diagnose()).checks.find(
+      (c) => c.name === 'orphan_knowledge_sources',
+    )!;
+    expect(check.status).toBe('ok');
+
+    repo.supersede(memId, 'mem-doc-6');
+
+    check = (await doctor.diagnose()).checks.find((c) => c.name === 'orphan_knowledge_sources')!;
+    expect(check.status).toBe('warning');
+    expect(check.details as { inactive: number }).toMatchObject({ dangling: 0, inactive: 1 });
+  });
 });

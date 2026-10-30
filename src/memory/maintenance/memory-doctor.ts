@@ -267,6 +267,12 @@ export class MemoryDoctor {
     // (page downgrade / re-verify) needs to see how large this really is first.
     let danglingSourcePages: string[] = [];
     let danglingSourceCount = 0;
+    // Citations of a row that still exists but is no longer `active`
+    // (superseded / expired / archived). `NOT EXISTS` cannot see these — the row
+    // is there — yet the page asserts a claim the memory layer has retracted, and
+    // that is the same unverifiable citation from the reader's point of view.
+    // Review finding F3.
+    let inactiveSourceCount = 0;
     try {
       const rows = this.db
         .prepare(
@@ -281,18 +287,30 @@ export class MemoryDoctor {
         .all() as Array<{ page_id: string; n: number }>;
       danglingSourceCount = rows.reduce((sum, row) => sum + row.n, 0);
       danglingSourcePages = rows.slice(0, 20).map((row) => row.page_id);
+
+      const inactive = this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM knowledge_sources s
+             JOIN memories m ON m.id = s.source_id
+            WHERE s.source_kind = 'memory' AND m.status <> 'active'`,
+        )
+        .get() as { n: number } | undefined;
+      inactiveSourceCount = inactive?.n ?? 0;
     } catch {
       // Knowledge layer absent on this install — the table does not exist.
     }
+    const unverifiableSourceCount = danglingSourceCount + inactiveSourceCount;
     checks.push({
       name: 'orphan_knowledge_sources',
-      status: danglingSourceCount > 0 ? 'warning' : 'ok',
+      status: unverifiableSourceCount > 0 ? 'warning' : 'ok',
       message:
-        danglingSourceCount > 0
-          ? `${danglingSourceCount} knowledge citations point at deleted memories (${danglingSourcePages.length} pages)`
-          : 'No knowledge page cites a deleted memory',
+        unverifiableSourceCount > 0
+          ? `${danglingSourceCount} knowledge citations point at deleted memories (${danglingSourcePages.length} pages), ${inactiveSourceCount} at superseded/expired ones`
+          : 'No knowledge page cites a deleted or superseded memory',
       details: {
-        count: danglingSourceCount,
+        count: unverifiableSourceCount,
+        dangling: danglingSourceCount,
+        inactive: inactiveSourceCount,
         pageIds: danglingSourcePages,
       },
     });

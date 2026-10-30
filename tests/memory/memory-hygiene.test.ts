@@ -143,4 +143,42 @@ describe('MemoryHygiene', () => {
     expect(checkpoint).toBeDefined();
     expect(checkpoint!.kind).toBe('hygiene_checkpoint');
   });
+
+  /**
+   * Plan §8 S2 / review finding F5: the delete decision needs to know that a page
+   * was citing the row. Counted before the delete — afterwards the citation is
+   * dangling and the question is unanswerable.
+   */
+  it('reports how many deleted memories an active page still cites', () => {
+    db.exec(`
+      CREATE TABLE knowledge_pages (id TEXT PRIMARY KEY, status TEXT);
+      CREATE TABLE knowledge_sources (page_id TEXT, source_kind TEXT, source_id TEXT);
+    `);
+    insertMemory('m1', 'fact', 100);
+    insertMemory('m2', 'fact', 95);
+    insertMemory('m3', 'fact', 5); // fresh, keeps the expired ratio under 80%
+    db.prepare("INSERT INTO knowledge_pages (id, status) VALUES ('p1', 'active')").run();
+    db.prepare("INSERT INTO knowledge_pages (id, status) VALUES ('p2', 'archived')").run();
+    db.prepare(
+      "INSERT INTO knowledge_sources (page_id, source_kind, source_id) VALUES ('p1', 'memory', 'm1')",
+    ).run();
+    // An archived page is not read anywhere, so it is not a loss.
+    db.prepare(
+      "INSERT INTO knowledge_sources (page_id, source_kind, source_id) VALUES ('p2', 'memory', 'm2')",
+    ).run();
+
+    const report = hygiene.clean();
+
+    expect(report.cleanedCount).toBe(2);
+    expect(report.citedByActivePages).toBe(1);
+  });
+
+  it('omits the citation count when nothing cited a deleted row', () => {
+    insertMemory('m1', 'fact', 100);
+    insertMemory('m2', 'fact', 5);
+
+    const report = hygiene.clean();
+
+    expect(report.citedByActivePages).toBeUndefined();
+  });
 });

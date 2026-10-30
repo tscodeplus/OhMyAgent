@@ -43,6 +43,23 @@ describe('assessDurability: volatile patterns', () => {
   it('rejects an output requirement in English', () => {
     expect(assessDurability('Format the output as a table of 50 words')).toBe('volatile');
   });
+
+  it('rejects the English form that actually reached the database', () => {
+    // Revision F1: this is the real row (sample 4, translated by the model), and
+    // the first English pattern missed it twice over — the verb is `keep`, not
+    // `output`, and the quantifier is `under 20 words`, not `20 words max`.
+    // `unknown` here meant the one candidate of the four that lives forever
+    // reached the write path in the language the user actually got it in.
+    expect(
+      assessDurability('User prefers concise, short replies — keep responses under 20 words.'),
+    ).toBe('volatile');
+  });
+
+  it('rejects the English postfix forms', () => {
+    expect(assessDurability('Keep the summary under 100 words')).toBe('volatile');
+    expect(assessDurability('Replies within 20 characters')).toBe('volatile');
+    expect(assessDurability('Answer in 30 words or less')).toBe('volatile');
+  });
 });
 
 describe('assessDurability: anti-false-rejection cases', () => {
@@ -57,6 +74,9 @@ describe('assessDurability: anti-false-rejection cases', () => {
     ['用中文输出'],
     ['用 Markdown 格式输出'],
     ['Always answer in Chinese'],
+    // F1 must not swallow these: they name a format or a tool, with no budget.
+    ['User prefers Markdown output'],
+    ['User writes code in TypeScript'],
     // Caught by §3.1's kind rule (generic → `fact`, reclaimed by hygiene at 90
     // days) rather than by this gate — a task spec that is not permanent anyway.
     ['用户希望输出文件名、Sheet 数、行数和列数。'],

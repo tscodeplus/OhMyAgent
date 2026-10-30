@@ -23,6 +23,14 @@ export interface HygieneConfig {
 export interface HygieneReport {
   cleanedCount: number;
   cleanedKinds: Record<string, number>;
+  /**
+   * Deleted memories that an `active` knowledge page still cites (plan §8 S2).
+   * Those pages are now unverifiable — the citation points at a row that no
+   * longer exists — and the deletion is the moment an operator can still decide
+   * to keep the row. The doctor reports the standing total; this reports this
+   * pass's contribution, which is the number the delete decision needs.
+   */
+  citedByActivePages?: number;
   durationMs: number;
   error?: string;
 }
@@ -47,6 +55,39 @@ function toEpochMsString(date: Date): string {
  * (of a defect, or of an offer that was actually used).
  */
 const INJECTION_OBSERVATION_RETENTION_DAYS = 30;
+
+/**
+ * How many of `ids` are cited by an `active` knowledge page (plan §8 S2).
+ *
+ * Bounded by the caller's delete batch, so the `IN (...)` list is the size of one
+ * hygiene pass, not the corpus. Returns 0 when the knowledge layer is absent —
+ * the probe is a single `sqlite_master` lookup, which is cheaper than making every
+ * caller know about `knowledge_sources`.
+ */
+function countCitedIds(db: Database.Database, ids: readonly string[]): number {
+  if (ids.length === 0) return 0;
+  try {
+    const table = db
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_sources'",
+      )
+      .get() as { present: number } | undefined;
+    if (!table) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    const row = db
+      .prepare(
+        `SELECT COUNT(DISTINCT s.source_id) AS n
+           FROM knowledge_sources s
+           JOIN knowledge_pages p ON p.id = s.page_id
+          WHERE s.source_kind = 'memory' AND p.status = 'active'
+            AND s.source_id IN (${placeholders})`,
+      )
+      .get(...ids) as { n: number } | undefined;
+    return row?.n ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 export class MemoryHygiene {
   constructor(
@@ -135,6 +176,15 @@ export class MemoryHygiene {
       }
 
       const cleanedKinds: Record<string, number> = {};
+      // Plan §8 S2: count the deletions that will orphan an active page's
+      // citation BEFORE deleting — afterwards the citation is dangling and the
+      // question "did this pass cost a page its evidence" is unanswerable. One
+      // indexed query over this pass's ids; 0 on an install without the
+      // knowledge layer (the table probe is inside `countCitedIds`).
+      const citedByActivePages = countCitedIds(
+        this.db,
+        rows.map((row) => row.id),
+      );
       // Delete via the repositories so vec_memory_embeddings and the jieba
       // FTS index stay consistent — raw SQL here would leave orphan vectors
       // (vec_ virtual tables have no FK cascade) and orphan FTS rows.
@@ -194,6 +244,7 @@ export class MemoryHygiene {
       return {
         cleanedCount: rows.length + prunedLogRows + prunedInjectionRows,
         cleanedKinds,
+        ...(citedByActivePages > 0 ? { citedByActivePages } : {}),
         durationMs: Date.now() - startMs,
       };
     } catch (e) {

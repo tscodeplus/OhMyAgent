@@ -30,6 +30,30 @@ describe('isDurableShape', () => {
     ).toBe(false);
   });
 
+  it('keeps third-person sentences that name an attribute slot (revision F2)', () => {
+    // The post-implementation review found the verb list too narrow to admit how
+    // identity is normally stated — all of these were discarded, and a discarded
+    // attribute never comes back because the summarizer window is incremental.
+    expect(isDurableShape('用户的名字是张伟')).toBe(true);
+    expect(isDurableShape('用户的时区是 UTC+8')).toBe(true);
+    expect(isDurableShape('用户使用 Windows 11 和 Termux')).toBe(true);
+    expect(isDurableShape('用户正在学习 Rust')).toBe(true);
+    expect(isDurableShape('用户希望被称为 Boss')).toBe(true);
+    expect(isDurableShape('用户有两只猫')).toBe(true);
+    expect(isDurableShape('User is a backend engineer')).toBe(true);
+  });
+
+  it('still drops third-person task specs and event narration (revision F2)', () => {
+    // Broadening the attribute list must not turn the gate off: these are the rows
+    // that actually sat in the review queue.
+    expect(isDurableShape('用户当前处理的项目根目录包含 src、bin、skills、ui 等目录')).toBe(false);
+    expect(isDurableShape('用户希望文件列表结果中包含每个文件的修改时间')).toBe(false);
+    expect(isDurableShape('用户希望输出文件名、Sheet 数、行数和列数')).toBe(false);
+    expect(isDurableShape('用户指定工作目录为 D:\\tmp\\excel-mcp，源目录为 E:\\Excel')).toBe(false);
+    expect(isDurableShape('用户进行了shadow探针测试，可能用于验证系统准确性')).toBe(false);
+    expect(isDurableShape('用户关注主流 SQLite 向量检索方案的调研与选型')).toBe(false);
+  });
+
   it('keeps first-person statements (no \\b on the CJK branch — revision A2)', () => {
     // `/我\b/` never matches 「我在用」 (JS `\w` is ASCII-only), which was the
     // bug that discarded every Chinese candidate in an earlier draft.

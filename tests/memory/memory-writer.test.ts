@@ -955,5 +955,30 @@ describe('MemoryWriter', () => {
       expect(memoryRepo.findById(first.id)!.content).toBe(CORRECTED);
       expect(pageStatus(page.id)).toBe('active');
     });
+
+    it('re-queues the page that cites a memory a preference superseded (finding F3)', async () => {
+      // Supersede is a correction that keeps the losing row (`status`
+      // 'superseded'), so neither the content-changed branch above nor the S2
+      // doctor's `NOT EXISTS` check could see it: the page kept `active` while
+      // asserting a claim the memory layer had just retracted. It is also the one
+      // correction path that only preferences take, i.e. the five topics §3.1
+      // keeps `preference`.
+      const { writer } = createWriter();
+      const older = await writer.writePreference('S', '以后称呼我为大拿');
+      const repository = setupKnowledgeLayer();
+      const page = citedPage(repository, older.id);
+      expect(page.status).toBe('active');
+
+      await writer.writePreference('S', '称呼我为 Boss');
+
+      expect(memoryRepo.findById(older.id)?.status).toBe('superseded');
+      expect(pageStatus(page.id)).toBe('pending');
+      expect(logRows(page.id).filter((row) => row.action === 'pending')).toEqual([
+        expect.objectContaining({
+          actor: 'system',
+          reason: `memory ${older.id} updated: cited page re-queued for review`,
+        }),
+      ]);
+    });
   });
 });

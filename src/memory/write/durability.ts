@@ -49,8 +49,20 @@ const PAST_EVENT = /问过|说过|助手|回复|asked|said|assistant/i;
  *    can be proven: a length budget is a task spec, a format name is a habit.
  */
 const TASK_OUTPUT_CN = /控制在?\s*\d+\s*(?:词|字)|\d+\s*(?:词|字)(?:以内|内)/;
+/**
+ * English output budget. The verb list is wider than the Chinese one because
+ * English states the same requirement with `keep`/`limit`/`write` far more often
+ * than with `output`/`format` — the motivating row this rule exists for is
+ * literally `User prefers concise, short replies — keep responses under 20
+ * words.`, which the narrower `/output|format|reply|respond|answer/` version
+ * classified as `unknown`.
+ *
+ * The trailing alternation covers the postfix form (`20 words max`, `20 words
+ * under`), which is the other half of the same miss: `under` was not in the
+ * quantifier list, so `keep responses under 20 words` failed on both branches.
+ */
 const TASK_OUTPUT_EN =
-  /(?:output|format|reply|respond|answer)[^.]{0,40}\b\d+\s+(?:words?|characters?|chars?)\b|\b\d+\s+(?:words?|characters?|chars?)\b[^.]{0,20}\b(?:max|maximum|or less|limit)\b/i;
+  /(?:output|format|repl(?:y|ies)|responses?|answers?|keep|write|limit)[^.]{0,40}\b\d+\s+(?:words?|characters?|chars?)\b|\b\d+\s+(?:words?|characters?|chars?)\b[^.]{0,20}\b(?:max|maximum|or less|limit|under|below|within)\b/i;
 
 /**
  * Classify how long a candidate can stay true.

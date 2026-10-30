@@ -27,6 +27,7 @@
     "verify:win-uia": "tsx scripts/verify-win-uia.ts",
     "memory:eval": "tsx src/memory/eval/eval-runner.ts",
     "memory:relink": "tsx scripts/memory-relink.ts",
+    "memory:sweep-volatile": "tsx scripts/memory-sweep-volatile.ts",
     "mcp:import": "tsx scripts/mcp-import.ts",
     "graph:export": "tsx scripts/export-vault.ts",
     "graph:sync": "tsx scripts/graph-sync.ts",

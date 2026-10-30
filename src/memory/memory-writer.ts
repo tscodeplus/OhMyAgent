@@ -434,6 +434,13 @@ export class MemoryWriter {
                 'update',
               );
             }
+            // §8 S1, review finding F3: a superseded row is NOT deleted, so a page
+            // citing it kept `active` and kept asserting the retracted claim —
+            // and the S2 doctor check could not see it either, because it looks
+            // for rows that no longer exist. This is the correction path for the
+            // five topics §3.1 deliberately keeps as `preference`, which is also
+            // the most curatable kind.
+            await this.invalidateCitedKnowledgePages(supersededId, 'update');
           }
           this.mergeConfig?.logger.info(
             {
