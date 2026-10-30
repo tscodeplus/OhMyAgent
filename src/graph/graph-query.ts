@@ -179,8 +179,13 @@ export function graphTablesPresent(db: Database.Database): boolean {
   return row.n === 3;
 }
 
-/** One table's presence, for the read paths that must degrade instead of throwing. */
-function tableExists(db: Database.Database, name: string): boolean {
+/**
+ * One table's presence, for the read paths that must degrade instead of throwing.
+ *
+ * Exported because every graph module needs it (roster, metrics writer, routes) and three
+ * copies of a one-line guard is how they stop agreeing about what "absent" means.
+ */
+export function tableExists(db: Database.Database, name: string): boolean {
   return (
     db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
     undefined
@@ -608,6 +613,14 @@ function rankByDecayedConfidence(
 const COMPONENT_MEMBER_PREVIEW = 12;
 /** Components listed by the statistics panel, largest first. */
 const COMPONENT_LIST_CAP = 8;
+/**
+ * Members a component needs before it is listed as a component at all.
+ *
+ * Exported because the route clamps `?minSize=` with it and the panel prints the same
+ * threshold as "其中 ≥2 节点的 N 个": a lone name is not a gap between clusters, so every
+ * list of components starts here, and a second literal is how one of the three drifts.
+ */
+export const COMPONENT_LIST_MIN_SIZE = 2;
 
 /**
  * A connected part of the graph, as the diagnostics panel lists it.
@@ -1158,16 +1171,32 @@ export function queryEntityComponent(
   const sequence = breadthFirstWithinComponent(structure, entity.id, memberIds);
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
 
-  const [origin, ...nodes] = loadGraphNodes(db, sequence.slice(offset, offset + limit));
+  // The clicked entity stays pinned as `origin` on EVERY page. It is what the UI centres
+  // the drawing on and the header it prints ("this drill-down is about X"), so deriving it
+  // from the page (`sequence.slice(offset)[0]` — the first version) silently changed the
+  // subject of the drill-down when the reader paged: page two re-centred on an unrelated
+  // member and announced its name.
+  const pageIds = sequence.slice(offset, offset + limit);
+  if (pageIds.length === 0) {
+    // Past the end of the component: an empty page, not a 404. The entity exists; there is
+    // simply nothing left of it to draw.
+    const [only] = loadGraphNodes(db, [entity.id]);
+    return only === undefined
+      ? undefined
+      : { origin: only, nodes: [], edges: [], truncated: false };
+  }
+  if (pageIds[0] !== entity.id) pageIds.unshift(entity.id);
+
+  const loaded = loadGraphNodes(db, pageIds);
+  const origin = loaded.find((node) => node.id === entity.id);
+  const nodes = loaded.filter((node) => node.id !== entity.id);
   // The entity has a row (`resolveEntity` read it), so this is only reachable on
   // a database whose graph tables were emptied between the two reads.
   if (!origin) return undefined;
 
-  const { edges: loadedEdges, truncated: edgesTruncated } = loadEdgesBetween(
-    db,
-    [origin.id, ...nodes.map((node) => node.id)],
-    filter,
-  );
+  // Edges join only nodes in this payload, so closure holds page by page — the pinned
+  // origin counts as part of the page it was pinned onto.
+  const { edges: loadedEdges, truncated: edgesTruncated } = loadEdgesBetween(db, pageIds, filter);
   const ranked = decaying
     ? rankByDecayedConfidence(loadedEdges, filter.asOf ?? Date.now(), halfLifeDays)
     : loadedEdges;
@@ -1204,6 +1233,15 @@ export interface ComponentPage {
   items: GraphComponent[];
   /** Components that pass `minSize`, all of them. */
   total: number;
+  /**
+   * The `minSize` actually applied.
+   *
+   * Echoed because the list can never go below `COMPONENT_LIST_MIN_SIZE` (a lone name is
+   * not a gap), so `?minSize=1` is clamped and the caller would otherwise have to guess
+   * why it got nine rows while `/stats.componentCount` said 368. Two numbers, two names,
+   * both in the payload.
+   */
+  minSize: number;
   nextCursor: string | null;
 }
 
@@ -1238,13 +1276,20 @@ export function decodeComponentCursor(raw: string): number | undefined {
  * component this list prints has exactly the size the drill-down will draw.
  */
 export function readComponentPage(db: Database.Database, query: ComponentPageQuery): ComponentPage {
-  const structure = readGraphStructure(db);
-  const minSize = Math.max(2, Math.floor(query.minSize ?? 2));
-  const groups = collectComponentGroups(structure).filter(
-    (group) => group.members.length >= minSize,
+  const minSize = Math.max(
+    COMPONENT_LIST_MIN_SIZE,
+    Math.floor(query.minSize ?? COMPONENT_LIST_MIN_SIZE),
   );
   const offset = Math.max(0, Math.floor(query.offset ?? 0));
   const limit = Math.max(1, Math.floor(query.limit));
+
+  const materialised = readMaterialisedComponentPage(db, minSize, offset, limit);
+  if (materialised) return materialised;
+
+  const structure = readGraphStructure(db);
+  const groups = collectComponentGroups(structure).filter(
+    (group) => group.members.length >= minSize,
+  );
 
   return {
     items: groups.slice(offset, offset + limit).map((group) => ({
@@ -1256,7 +1301,100 @@ export function readComponentPage(db: Database.Database, query: ComponentPageQue
         .map((member) => ({ id: member.id, name: member.name })),
     })),
     total: groups.length,
+    minSize,
     nextCursor: offset + limit < groups.length ? encodeComponentCursor(offset + limit) : null,
+  };
+}
+
+/**
+ * One page of the component list read from the snapshot, or `undefined` without one.
+ *
+ * Paging used to re-walk the whole graph per request, which is the cost `graph_sync`
+ * materialises precisely to avoid: 368 components at 20 per page is nineteen full walks of
+ * every entity and edge. The order is the live order expressed in SQL — size, then the
+ * representative's live degree, then canonical name, then id — so the panel, this list and
+ * the live fallback print the same row in the same place; the parity test compares the two
+ * branches item for item.
+ */
+function readMaterialisedComponentPage(
+  db: Database.Database,
+  minSize: number,
+  offset: number,
+  limit: number,
+): ComponentPage | undefined {
+  if (!metricsMaterialised(db) || !tableExists(db, 'entities')) return undefined;
+
+  const page = db
+    .prepare(
+      `WITH comps AS (
+         SELECT component_id AS id, component_size AS size
+           FROM entity_components
+          WHERE component_size >= @minSize
+          GROUP BY component_id
+       )
+       SELECT comps.id AS id, comps.size AS size
+         FROM comps
+         JOIN entities e ON e.id = comps.id
+         LEFT JOIN entity_graph_metrics m ON m.entity_id = comps.id
+        ORDER BY comps.size DESC,
+                 COALESCE(m.degree_live, 0) DESC,
+                 e.canonical_name ASC,
+                 comps.id ASC
+        LIMIT @limit OFFSET @offset`,
+    )
+    .all({ minSize, limit, offset }) as Array<{ id: string; size: number }>;
+
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT component_id FROM entity_components
+            WHERE component_size >= @minSize GROUP BY component_id
+         )`,
+      )
+      .get({ minSize }) as { n: number }
+  ).n;
+
+  // Same two per-row questions the live branch answers from the structure it already has:
+  // the member preview in panel order, and how many OPEN edges sit inside the component.
+  const memberPreview = db.prepare(
+    `SELECT c.entity_id AS id, e.name AS name
+       FROM entity_components c
+       JOIN entities e ON e.id = c.entity_id
+       LEFT JOIN entity_graph_metrics m ON m.entity_id = c.entity_id
+      WHERE c.component_id = @componentId
+      ORDER BY COALESCE(m.degree_live, 0) DESC, e.canonical_name ASC, e.id ASC
+      LIMIT ${COMPONENT_MEMBER_PREVIEW}`,
+  );
+  const liveEdgesIn = db.prepare(
+    `SELECT COUNT(*) AS n
+       FROM entity_edges x
+       JOIN entity_components s
+         ON s.entity_id = x.source_entity_id AND s.component_id = @componentId
+       JOIN entity_components t
+         ON t.entity_id = x.target_entity_id AND t.component_id = @componentId
+      WHERE x.valid_to IS NULL AND upper(trim(x.relation_type)) <> @mentionRelation`,
+  );
+
+  return {
+    items: page.map((component) => ({
+      id: component.id,
+      size: component.size,
+      edgeCount: Number(
+        (
+          liveEdgesIn.get({
+            componentId: component.id,
+            mentionRelation: MENTION_RELATION_TYPE,
+          }) as { n: number }
+        ).n,
+      ),
+      nodes: (
+        memberPreview.all({ componentId: component.id }) as Array<{ id: string; name: string }>
+      ).map((member) => ({ id: member.id, name: member.name })),
+    })),
+    total,
+    minSize,
+    nextCursor: offset + limit < total ? encodeComponentCursor(offset + limit) : null,
   };
 }
 
@@ -1281,6 +1419,63 @@ export interface EntityMetricRow {
   mentionCount: number;
 }
 
+/** A degree/mention count as a SQL expression over an `entities` row aliased `e`. */
+export interface EntityDegreeExpressions {
+  /** Incident edges as a source, retracted ones included. */
+  degreeOut: string;
+  degreeIn: string;
+  degreeTotal: string;
+  /** Incident edges still open — what the canvas can actually draw. */
+  degreeLive: string;
+  /** `memory_links` rows naming this entity (exact name, both columns). */
+  mentionCount: string;
+}
+
+/**
+ * The one definition of "how many edges/mentions does this entity have".
+ *
+ * Three surfaces count these numbers — the metrics writer, the roster's live fallback and
+ * the overview's live ranking — and they are read side by side, so a second copy of this
+ * SQL is how the list ends up one edge apart from the number printed above it. Two rules
+ * live in here:
+ *
+ *   - `MENTIONED` is excluded, exactly as `readGraphStructure` excludes it. It is a
+ *     node-level mention, not a relation, and counting it would give an entity one more
+ *     edge than the canvas and `/stats` report.
+ *   - `degreeTotal` counts retracted edges (what the record holds), `degreeLive` does not
+ *     (what can be drawn). Both are needed; deriving one from the other is wrong the first
+ *     time a fact is retracted.
+ *
+ * Written as correlated subqueries rather than a `GROUP BY` CTE because the `OR` in
+ * "source OR target" only uses an index when SQLite can turn it into a MULTI-INDEX OR,
+ * which it does for this shape (`migration-v26` asserts the plan) and does *not*
+ * consistently do for a joined `ON ... OR ...` — on one build that degraded to a full
+ * `memory_links` scan per entity, which is the cost the index was added to remove.
+ */
+export function entityDegreeExpressions(db: Database.Database): EntityDegreeExpressions {
+  const notMentioned = `upper(trim(x.relation_type)) <> '${MENTION_RELATION_TYPE}'`;
+  const count = (column: 'source_entity_id' | 'target_entity_id', liveOnly: boolean): string =>
+    `(SELECT COUNT(*) FROM entity_edges x
+       WHERE x.${column} = e.id
+         AND ${notMentioned}${liveOnly ? ' AND x.valid_to IS NULL' : ''})`;
+  const outgoing = count('source_entity_id', false);
+  const incoming = count('target_entity_id', false);
+  const outgoingLive = count('source_entity_id', true);
+  const incomingLive = count('target_entity_id', true);
+  return {
+    degreeOut: outgoing,
+    degreeIn: incoming,
+    degreeTotal: `(${outgoing} + ${incoming})`,
+    degreeLive: `(${outgoingLive} + ${incomingLive})`,
+    // An install without `memory_links` (a hand-built fixture) reports zero mentions
+    // instead of failing: this is the same degradation `graphTablesPresent` provides.
+    mentionCount: tableExists(db, 'memory_links')
+      ? `(SELECT COUNT(*) FROM memory_links ml
+           WHERE ml.target_entity = e.name OR ml.subject_entity = e.name)`
+      : '0',
+  };
+}
+
 /**
  * Every entity's degree and mention numbers, computed once per sync.
  *
@@ -1290,45 +1485,19 @@ export interface EntityMetricRow {
  * answer different questions and must not borrow each other's comparison.
  */
 export function readEntityMetricRows(db: Database.Database): EntityMetricRow[] {
-  // The degree CTEs read `entity_edges`; a database that has entities but not that table
+  // The expressions read `entity_edges`; a database that has entities but not that table
   // (a pre-v10 file, a hand-built fixture) must get an empty answer, not an exception.
   if (!graphTablesPresent(db)) return [];
-  const hasLinks = tableExists(db, 'memory_links');
-  const mentions = hasLinks
-    ? `, mentions AS (
-         SELECT e2.id AS id, COUNT(*) AS n
-           FROM entities e2
-           JOIN memory_links ml
-             ON ml.target_entity = e2.name OR ml.subject_entity = e2.name
-          GROUP BY e2.id
-       )`
-    : '';
-  const mentionJoin = hasLinks ? ' LEFT JOIN mentions m ON m.id = e.id' : '';
-  const mentionColumn = hasLinks ? 'COALESCE(m.n, 0)' : '0';
+  const expr = entityDegreeExpressions(db);
   return db
     .prepare(
-      `WITH dout AS (
-         SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
-       ), din AS (
-         SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
-       ), dout_live AS (
-         SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges
-          WHERE valid_to IS NULL GROUP BY 1
-       ), din_live AS (
-         SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges
-          WHERE valid_to IS NULL GROUP BY 1
-       )${mentions}
-       SELECT e.id AS entityId,
-              COALESCE(dout.n, 0) AS degreeOut,
-              COALESCE(din.n, 0) AS degreeIn,
-              COALESCE(dout.n, 0) + COALESCE(din.n, 0) AS degreeTotal,
-              COALESCE(dout_live.n, 0) + COALESCE(din_live.n, 0) AS degreeLive,
-              ${mentionColumn} AS mentionCount
-         FROM entities e
-         LEFT JOIN dout ON dout.id = e.id
-         LEFT JOIN din ON din.id = e.id
-         LEFT JOIN dout_live ON dout_live.id = e.id
-         LEFT JOIN din_live ON din_live.id = e.id${mentionJoin}`,
+      `SELECT e.id AS entityId,
+              ${expr.degreeOut} AS degreeOut,
+              ${expr.degreeIn} AS degreeIn,
+              ${expr.degreeTotal} AS degreeTotal,
+              ${expr.degreeLive} AS degreeLive,
+              ${expr.mentionCount} AS mentionCount
+         FROM entities e`,
     )
     .all() as EntityMetricRow[];
 }
@@ -1371,20 +1540,38 @@ export function metricsMaterialised(db: Database.Database): boolean {
 /**
  * Entities in overview order — degree desc, mentions desc, canonical name asc.
  *
- * Materialised: a read of a table already ordered for this question. Live: the
- * correlated-subquery form whose cost is O(entities × links) — the term the plan measured
- * at 43 ms for 378 entities and projected to minutes at 20k.
+ * Materialised: a read of a table already ordered for this question. Live: the same
+ * expressions `entityDegreeExpressions` owns, which is O(entities) index probes.
+ *
+ * The snapshot is a **union**, not a filter. An entity mined since the last `graph_sync`
+ * has no row in `entity_graph_metrics`, and joining it away (the first version) meant the
+ * overview and `?whole=1` silently omitted it — the one thing a surface that advertises
+ * coverage must never do. The union keeps its place correct as well, because one `ORDER BY`
+ * runs over both halves: a brand-new entity with three edges sorts above a stored entity
+ * with none, rather than being appended at the end.
  */
 export function readSeedRanking(db: Database.Database): string[] {
   if (!tableExists(db, 'entities')) return [];
+  const expr = entityDegreeExpressions(db);
+
   if (metricsMaterialised(db)) {
     return (
       db
         .prepare(
-          `SELECT m.entity_id AS id
-             FROM entity_graph_metrics m
-             JOIN entities e ON e.id = m.entity_id
-            ORDER BY m.degree_total DESC, m.mention_count DESC, e.canonical_name ASC`,
+          `WITH ranked AS (
+             SELECT m.entity_id AS id,
+                    m.degree_total AS degree,
+                    m.mention_count AS mentions,
+                    e.canonical_name AS name
+               FROM entity_graph_metrics m
+               JOIN entities e ON e.id = m.entity_id
+             UNION ALL
+             SELECT e.id, ${expr.degreeTotal}, ${expr.mentionCount}, e.canonical_name
+               FROM entities e
+              WHERE NOT EXISTS (SELECT 1 FROM entity_graph_metrics m WHERE m.entity_id = e.id)
+           )
+           SELECT id FROM ranked
+            ORDER BY degree DESC, mentions DESC, name ASC`,
         )
         .all() as Array<{ id: string }>
     ).map((row) => row.id);
@@ -1395,10 +1582,8 @@ export function readSeedRanking(db: Database.Database): string[] {
       .prepare(
         `SELECT e.id
            FROM entities e
-          ORDER BY (SELECT COUNT(*) FROM entity_edges x
-                     WHERE x.source_entity_id = e.id OR x.target_entity_id = e.id) DESC,
-                   (SELECT COUNT(*) FROM memory_links ml
-                     WHERE ml.target_entity = e.name OR ml.subject_entity = e.name) DESC,
+          ORDER BY ${expr.degreeTotal} DESC,
+                   ${expr.mentionCount} DESC,
                    e.canonical_name ASC`,
       )
       .all() as Array<{ id: string }>
@@ -1456,19 +1641,33 @@ function readMaterialisedStats(db: Database.Database): Omit<GraphStats, 'enabled
       .prepare(
         `SELECT COUNT(*) AS n FROM (
            SELECT component_id FROM entity_components
-            WHERE component_size >= 2 GROUP BY component_id
+            WHERE component_size >= ${COMPONENT_LIST_MIN_SIZE} GROUP BY component_id
          )`,
       )
       .get() as { n: number }
   ).n;
 
+  // The tiebreak is `compareByDegreeThenName`'s, expressed in SQL: size, then the
+  // representative's LIVE degree (a component's representative is chosen by live degree in
+  // `orderedMembers`), then canonical name, then id. Ordering ties by `component_id` — the
+  // first version — put the rows in UUID order and made the cap keep a different eight
+  // than the live path did, so the panel's list changed identity after every sync.
   const top = db
     .prepare(
-      `SELECT component_id AS id, component_size AS size
-         FROM entity_components
-        WHERE component_size >= 2
-        GROUP BY component_id
-        ORDER BY component_size DESC, component_id
+      `WITH comps AS (
+         SELECT component_id AS id, component_size AS size
+           FROM entity_components
+          WHERE component_size >= ${COMPONENT_LIST_MIN_SIZE}
+          GROUP BY component_id
+       )
+       SELECT comps.id AS id, comps.size AS size
+         FROM comps
+         JOIN entities e ON e.id = comps.id
+         LEFT JOIN entity_graph_metrics m ON m.entity_id = comps.id
+        ORDER BY comps.size DESC,
+                 COALESCE(m.degree_live, 0) DESC,
+                 e.canonical_name ASC,
+                 comps.id ASC
         LIMIT ${COMPONENT_LIST_CAP}`,
     )
     .all() as Array<{ id: string; size: number }>;
@@ -1479,7 +1678,7 @@ function readMaterialisedStats(db: Database.Database): Omit<GraphStats, 'enabled
        JOIN entities e ON e.id = c.entity_id
        LEFT JOIN entity_graph_metrics m ON m.entity_id = c.entity_id
       WHERE c.component_id = @componentId
-      ORDER BY COALESCE(m.degree_total, 0) DESC, e.canonical_name ASC, e.id ASC
+      ORDER BY COALESCE(m.degree_live, 0) DESC, e.canonical_name ASC, e.id ASC
       LIMIT ${COMPONENT_MEMBER_PREVIEW}`,
   );
   const liveEdgesIn = db.prepare(

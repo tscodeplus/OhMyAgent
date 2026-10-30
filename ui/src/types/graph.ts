@@ -356,5 +356,14 @@ export interface EdgeRosterPage {
 export interface ComponentPage {
   items: GraphComponent[];
   total: number;
+  /**
+   * The `minSize` the server actually applied.
+   *
+   * The list can never start below two members, so `?minSize=1` is clamped — echoed here
+   * rather than silently ignored, because `total` answers "how many are listed" and
+   * `GraphStats.componentCount` answers "how many exist", and a caller that confuses them
+   * will think rows are missing.
+   */
+  minSize: number;
   nextCursor: string | null;
 }

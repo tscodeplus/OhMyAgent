@@ -40,6 +40,7 @@ import type {
 import { inferChannel } from '../../memory/session-channel.js';
 import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
 import {
+  COMPONENT_LIST_MIN_SIZE,
   DEFAULT_GRAPH_QUERY_LIMIT,
   MAX_QUERY_DEPTH,
   decodeComponentCursor,
@@ -52,6 +53,7 @@ import {
   readComponentPage,
   readGraphStats,
   readSeedRanking,
+  tableExists,
   type GraphEdgeFilter,
   type GraphMentionNeighbour,
   type GraphQueryEdge,
@@ -60,6 +62,7 @@ import {
 } from '../../graph/graph-query.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import {
+  cursorMatchesSort,
   decodeRosterCursor,
   queryEdgeRoster,
   queryEntityRoster,
@@ -105,8 +108,6 @@ const DEFAULT_ENTITY_ROSTER_LIMIT = 50;
 const DEFAULT_EDGE_ROSTER_LIMIT = 100;
 const DEFAULT_COMPONENT_PAGE_LIMIT = 20;
 const MAX_COMPONENT_PAGE_LIMIT = 100;
-/** A lone entity is not a gap between clusters, so the list starts at two. */
-const MIN_COMPONENT_SIZE = 2;
 const MAX_SEARCH_LIMIT = 50;
 /** The three legs `/api/search` unions; `kinds` selects a subset of them. */
 const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
@@ -288,13 +289,6 @@ function clampInt(raw: string | undefined, fallback: number, min: number, max: n
  * per request rather than cached: the tables appear the first time the graph
  * migration/backfill writes, and a cached "missing" would lie afterwards.
  */
-function tableExists(db: Database.Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
-}
-
 /**
  * Flatten to a single line and strip tags — snippets come from user-authored
  * chat text and memory content, which routinely contains Markdown/HTML.
@@ -726,6 +720,19 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
     // A cursor nobody can decode restarts nothing: silently paging from the top is
     // how a reader concludes the list lost rows.
     if (query.cursor && !cursor) return reply.status(400).send({ error: 'Invalid cursor' });
+    // A cursor is only meaningful under the ordering it was issued for. Replaying it
+    // against another `sort`/`dir` produces a page that neither continues nor repeats the
+    // previous one, which a reader can only read as "the list lost rows".
+    if (
+      cursor &&
+      !cursorMatchesSort(
+        cursor,
+        (query.sort as EntityRosterSort | undefined) ?? 'degree',
+        query.dir === 'asc' ? 'asc' : 'desc',
+      )
+    ) {
+      return reply.status(400).send({ error: 'Cursor was taken under a different sort' });
+    }
 
     const roster: EntityRosterQuery = {
       q: query.q,
@@ -775,6 +782,16 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
     }
     const cursor = query.cursor ? decodeRosterCursor(query.cursor) : undefined;
     if (query.cursor && !cursor) return reply.status(400).send({ error: 'Invalid cursor' });
+    if (
+      cursor &&
+      !cursorMatchesSort(
+        cursor,
+        (query.sort as EdgeRosterSort | undefined) ?? 'validFrom',
+        query.dir === 'asc' ? 'asc' : 'desc',
+      )
+    ) {
+      return reply.status(400).send({ error: 'Cursor was taken under a different sort' });
+    }
 
     const roster: EdgeRosterQuery = {
       source: query.source,
@@ -829,7 +846,12 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
           minSize:
             query.minSize === undefined
               ? undefined
-              : clampInt(query.minSize, MIN_COMPONENT_SIZE, MIN_COMPONENT_SIZE, 1_000_000),
+              : clampInt(
+                  query.minSize,
+                  COMPONENT_LIST_MIN_SIZE,
+                  COMPONENT_LIST_MIN_SIZE,
+                  1_000_000,
+                ),
           offset,
           limit: clampInt(query.limit, DEFAULT_COMPONENT_PAGE_LIMIT, 1, MAX_COMPONENT_PAGE_LIMIT),
         }),

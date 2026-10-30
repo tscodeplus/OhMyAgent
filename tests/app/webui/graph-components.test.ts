@@ -22,6 +22,7 @@ interface ComponentRow {
 interface ComponentPage {
   items: ComponentRow[];
   total: number;
+  minSize: number;
   nextCursor: string | null;
 }
 
@@ -149,15 +150,28 @@ describe('graph component routes', () => {
     // not in this page, and an edge with one endpoint missing would be a fake arrow.
     expect(first.edges).toHaveLength(1);
 
+    // Every page starts with the entity the drill-down was opened on: it is what the UI
+    // centres the layout on and the name it prints as the subject. Deriving `origin` from
+    // the page instead made page two re-centre on an unrelated member.
     const second = await page('component=ent-a&limit=2&cursor=eyJvIjoyfQ');
-    expect(second.nodes.map((node) => node.id)).toEqual(['ent-c', 'ent-d']);
+    expect(second.nodes.map((node) => node.id)).toEqual(['ent-a', 'ent-c', 'ent-d']);
     expect(second.truncated).toBe(true);
+    // Closure still holds: a—c is not an edge, and c—d is the only one whose two
+    // endpoints are both here (besides a—b, whose b is on page one).
     expect(second.edges.map((edge) => [edge.source, edge.target])).toEqual([['ent-c', 'ent-d']]);
 
     const third = await page('component=ent-a&limit=2&cursor=eyJvIjo0fQ');
-    expect(third.nodes.map((node) => node.id)).toEqual(['ent-e']);
+    expect(third.nodes.map((node) => node.id)).toEqual(['ent-a', 'ent-e']);
     expect(third.truncated).toBe(false);
+    // a—e is not an edge, so the pinned origin brings no edge with it.
     expect(third.edges).toEqual([]);
+  });
+
+  it('answers past the end of a component with an empty page, not a 404', async () => {
+    const beyond = await page('component=ent-a&limit=2&cursor=eyJvIjoxMH0');
+    expect(beyond.nodes.map((node) => node.id)).toEqual(['ent-a']);
+    expect(beyond.truncated).toBe(false);
+    expect(beyond.edges).toEqual([]);
   });
 
   it('pages from a component member that is not its representative', async () => {

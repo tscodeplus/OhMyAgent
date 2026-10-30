@@ -123,6 +123,68 @@ describe('graph roster routes', () => {
     ).run();
   }
 
+  /**
+   * A `MENTIONED` row in `entity_edges` must not count as a degree.
+   *
+   * It is a node-level mention, not a statement: `readGraphStructure` skips it, `/stats`
+   * skips it, and the roster has to agree — otherwise an entity reports one more relation
+   * than the panel above the list, and the list's `edges=yes` filter offers a name the
+   * canvas cannot draw.
+   */
+  it('does not count a MENTIONED row as a relation', async () => {
+    insertEdge('edge-mention', ids.dave, ids.acme, 'MENTIONED', 5_000);
+    const dave = (await rosterAll('sort=name&dir=asc')).find((row) => row.id === ids.dave);
+    expect(dave?.degree.total).toBe(0);
+    // Still isolated for the filter, because a mention is not something to draw.
+    const isolated = await rosterPage('edges=no&limit=50');
+    expect(isolated.items.map((row) => row.id)).toContain(ids.dave);
+  });
+
+  /**
+   * `_` and `%` are characters in a name and wildcards in `LIKE`. Unescaped, searching
+   * `D_ve` finds `Dave` and the search box looks broken rather than wildcard-capable.
+   */
+  it('treats LIKE wildcards in the query as literal characters', async () => {
+    const wildcard = await rosterPage('q=D_ve&limit=50');
+    expect(wildcard.total).toBe(0);
+
+    // `%` written as `%25` in the query string, i.e. a literal percent sign in the pattern.
+    const percent = await rosterPage('q=D%25ave&limit=50');
+    expect(percent.total).toBe(0);
+
+    const exact = await rosterPage('q=dave&limit=50');
+    expect(exact.items.map((row) => row.id)).toEqual([ids.dave]);
+  });
+
+  /**
+   * A cursor is bound to the ordering it was issued under. Replaying it against another
+   * `sort` cannot produce a correct page, and silently returning one is how a reader
+   * concludes the list lost rows.
+   */
+  it('rejects a cursor taken under a different sort', async () => {
+    const first = await rosterPage('sort=name&dir=asc&limit=2');
+    expect(first.nextCursor).toBeTruthy();
+
+    const wrongSort = await app.inject({
+      method: 'GET',
+      url: `/api/memory/entities?sort=degree&dir=desc&limit=2&cursor=${encodeURIComponent(first.nextCursor as string)}`,
+    });
+    expect(wrongSort.statusCode).toBe(400);
+    expect(wrongSort.json()).toMatchObject({ error: expect.stringContaining('sort') });
+
+    const wrongDir = await app.inject({
+      method: 'GET',
+      url: `/api/memory/entities?sort=name&dir=desc&limit=2&cursor=${encodeURIComponent(first.nextCursor as string)}`,
+    });
+    expect(wrongDir.statusCode).toBe(400);
+
+    // The same sort and direction is still the page that continues the list.
+    const same = await rosterPage(
+      `sort=name&dir=asc&limit=2&cursor=${encodeURIComponent(first.nextCursor as string)}`,
+    );
+    expect(same.items).toHaveLength(2);
+  });
+
   async function rosterPage(query: string): Promise<RosterPage> {
     const response = await app.inject({ method: 'GET', url: `/api/memory/entities?${query}` });
     expect(response.statusCode).toBe(200);

@@ -26,6 +26,7 @@ import {
   graphTablesPresent,
   readComponentMembership,
   readEntityMetricRows,
+  tableExists,
   type ComponentMembershipRow,
   type EntityMetricRow,
 } from './graph-query.js';
@@ -37,13 +38,6 @@ export interface MaterializeResult {
   components: number;
   computedAt: number;
   dryRun: boolean;
-}
-
-function tableExists(db: Database.Database, table: string): boolean {
-  return (
-    db.prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?').get('table', table) !==
-    undefined
-  );
 }
 
 /**

@@ -22,7 +22,12 @@
 
 import type Database from 'better-sqlite3';
 import { MENTION_RELATION_TYPE } from './entity-mining.js';
-import { graphTablesPresent, metricsMaterialised } from './graph-query.js';
+import {
+  entityDegreeExpressions,
+  graphTablesPresent,
+  metricsMaterialised,
+  tableExists,
+} from './graph-query.js';
 
 /** Entity columns the roster can order by. */
 export type EntityRosterSort = 'degree' | 'mentions' | 'name' | 'updated';
@@ -113,14 +118,43 @@ export interface EdgeRosterPage {
 /** Aliases returned per row; the rest are counted, not sent (a phone renders a line). */
 const ALIAS_PREVIEW = 6;
 
-/** `(sortValue, id)` — the id tiebreak is what makes the order total. */
+/**
+ * `(sortValue, id)` — the id tiebreak is what makes the order total — plus the sort it was
+ * taken under.
+ *
+ * The sort is in here so a cursor cannot be replayed against a different `ORDER BY`: the
+ * value only means something relative to its own ordering, and the failure mode without it
+ * is a page that is silently wrong (rows neither continuing nor repeating the previous
+ * one), which reads as data loss. `session` cursors in this codebase carry the same kind of
+ * binding for the same reason.
+ */
 export interface RosterCursor {
   v: string | number;
   id: string;
+  /** The `sort` the cursor was issued for. */
+  s?: string;
+  /** The `dir` the cursor was issued for. */
+  d?: 'asc' | 'desc';
 }
 
 export function encodeRosterCursor(cursor: RosterCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+/**
+ * Whether a cursor still describes the ordering the caller asked for.
+ *
+ * A cursor with no `s`/`d` (written by an older build) is accepted: the reasonable reading
+ * is "same list, keep going", and refusing it would break a client that did nothing wrong.
+ */
+export function cursorMatchesSort(
+  cursor: RosterCursor,
+  sort: string,
+  dir: 'asc' | 'desc',
+): boolean {
+  if (cursor.s !== undefined && cursor.s !== sort) return false;
+  if (cursor.d !== undefined && cursor.d !== dir) return false;
+  return true;
 }
 
 /**
@@ -134,32 +168,36 @@ export function decodeRosterCursor(raw: string): RosterCursor | undefined {
   try {
     const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown;
     if (!parsed || typeof parsed !== 'object') return undefined;
-    const { v, id } = parsed as { v?: unknown; id?: unknown };
+    const { v, id, s, d } = parsed as { v?: unknown; id?: unknown; s?: unknown; d?: unknown };
     if (typeof id !== 'string' || id.length === 0) return undefined;
     if (v !== null && typeof v !== 'string' && typeof v !== 'number') return undefined;
     if (typeof v === 'number' && !Number.isFinite(v)) return undefined;
-    return { v: v as string | number, id };
+    if (s !== undefined && typeof s !== 'string') return undefined;
+    if (d !== undefined && d !== 'asc' && d !== 'desc') return undefined;
+    return {
+      v: v as string | number,
+      id,
+      ...(s === undefined ? {} : { s }),
+      ...(d === undefined ? {} : { d }),
+    };
   } catch {
     return undefined;
   }
 }
 
-function tableExists(db: Database.Database, name: string): boolean {
-  return (
-    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
-    undefined
-  );
-}
-
 /**
  * The `base` CTE every entity-roster query stands on.
  *
- * Degrees come from two `GROUP BY`s over `entity_edges` rather than from a
- * correlated subquery per row (the shape 43 ms of a 55 ms request used to cost):
- * one indexed pass each, then a hash join. `mentions` is only built when a caller
- * needs the column, because it is the expensive one — a join that probes
- * `memory_links` per entity, which is exactly what `idx_memory_links_subject`
- * (migration-v26) makes cheap in both directions.
+ * Degrees and mentions come from `entityDegreeExpressions` — the same expressions the
+ * metrics writer and the overview ranking count with — so the list cannot report a degree
+ * the panel above it disagrees about. They are correlated subqueries, not a `GROUP BY` CTE
+ * or a joined `ON ... OR ...`: the OR only gets an index plan in the correlated form
+ * (`migration-v26` asserts it), and the joined form degraded to a full `memory_links` scan
+ * per entity on one SQLite build.
+ *
+ * Without a snapshot the mention column is a subquery over `memory_links` per row, so a
+ * caller that does not need it (`COUNT(*)` for `total`) passes `withMentions: false` and
+ * pays nothing for it.
  */
 function entityRosterBase(db: Database.Database, withMentions: boolean): string {
   // Same source as the overview and the statistics panel: when `graph_sync` has written a
@@ -179,40 +217,15 @@ function entityRosterBase(db: Database.Database, withMentions: boolean): string 
             )`;
   }
 
-  const mentions = withMentions
-    ? `, mentions AS (
-         SELECT e2.id AS id, COUNT(*) AS n
-           FROM entities e2
-           JOIN memory_links ml
-             ON ml.target_entity = e2.name OR ml.subject_entity = e2.name
-          GROUP BY e2.id
-       )`
-    : '';
-  const mentionColumns = withMentions
-    ? ', COALESCE(m.n, 0) AS mention_count'
-    : ', 0 AS mention_count';
-  const mentionJoin = withMentions ? ' LEFT JOIN mentions m ON m.id = e.id' : '';
-  return `WITH dout AS (
-            SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
-          ), din AS (
-            SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges GROUP BY 1
-          ), dout_live AS (
-            SELECT source_entity_id AS id, COUNT(*) AS n FROM entity_edges
-             WHERE valid_to IS NULL GROUP BY 1
-          ), din_live AS (
-            SELECT target_entity_id AS id, COUNT(*) AS n FROM entity_edges
-             WHERE valid_to IS NULL GROUP BY 1
-          )${mentions}, base AS (
+  const expr = entityDegreeExpressions(db);
+  return `WITH base AS (
             SELECT e.id, e.name, e.canonical_name, e.entity_type, e.updated_at,
-                   COALESCE(dout.n, 0) AS degree_out,
-                   COALESCE(din.n, 0) AS degree_in,
-                   COALESCE(dout.n, 0) + COALESCE(din.n, 0) AS degree_total,
-                   COALESCE(dout_live.n, 0) + COALESCE(din_live.n, 0) AS degree_live${mentionColumns}
+                   ${expr.degreeOut} AS degree_out,
+                   ${expr.degreeIn} AS degree_in,
+                   ${expr.degreeTotal} AS degree_total,
+                   ${expr.degreeLive} AS degree_live,
+                   ${withMentions ? expr.mentionCount : '0'} AS mention_count
               FROM entities e
-              LEFT JOIN dout ON dout.id = e.id
-              LEFT JOIN din ON din.id = e.id
-              LEFT JOIN dout_live ON dout_live.id = e.id
-              LEFT JOIN din_live ON din_live.id = e.id${mentionJoin}
           )`;
 }
 
@@ -233,6 +246,11 @@ function entityOrderValue(sort: EntityRosterSort): string {
   }
 }
 
+/** `\`, `%` and `_` are literals in a name and syntax in a `LIKE` pattern. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 interface WhereClause {
   sql: string;
   params: Record<string, unknown>;
@@ -248,13 +266,16 @@ function entityRosterWhere(
 
   if (query.q && query.q.trim().length > 0) {
     // `LIKE` on already-folded columns: `canonical_name` is stored folded, and the
-    // alias leg probes the unique index instead of scanning the join.
+    // alias leg probes the unique index instead of scanning the join. The pattern is
+    // escaped because `_` and `%` are wildcards in `LIKE` but ordinary characters in a
+    // name: without this, searching `API_key` matches `APIXkey`, and a search that
+    // over-matches looks like the filter is broken rather than like a syntax feature.
     parts.push(
-      `(b.canonical_name LIKE @q OR lower(b.name) LIKE @q
+      `(b.canonical_name LIKE @q ESCAPE '\\' OR lower(b.name) LIKE @q ESCAPE '\\'
         OR EXISTS (SELECT 1 FROM entity_aliases a
-                    WHERE a.entity_id = b.id AND lower(a.alias) LIKE @q))`,
+                    WHERE a.entity_id = b.id AND lower(a.alias) LIKE @q ESCAPE '\\'))`,
     );
-    params.q = `%${query.q.trim().toLowerCase()}%`;
+    params.q = `%${escapeLikePattern(query.q.trim().toLowerCase())}%`;
   }
   if (query.entityType) {
     parts.push('b.entity_type = @entityType');
@@ -302,6 +323,10 @@ export function queryEntityRoster(
   const limit = Math.max(1, Math.floor(query.limit));
   const withMentions = tableExists(db, 'memory_links');
   const base = entityRosterBase(db, withMentions);
+  // The count runs its own `base` without the mention column: `WHERE` never looks at it,
+  // and on the live path that column is a `memory_links` subquery per row — the whole
+  // expensive half of the query, paid twice for a number that is one `COUNT(*)`.
+  const countBase = entityRosterBase(db, false);
   const paged = entityRosterWhere(db, query, true);
   const counted = entityRosterWhere(db, query, false);
 
@@ -328,7 +353,7 @@ export function queryEntityRoster(
   }>;
 
   const { n: total } = db
-    .prepare(`${base} SELECT COUNT(*) AS n FROM base b ${counted.sql}`)
+    .prepare(`${countBase} SELECT COUNT(*) AS n FROM base b ${counted.sql}`)
     .get(counted.params) as { n: number };
 
   const page = rows.slice(0, limit);
@@ -383,7 +408,12 @@ export function queryEntityRoster(
     total,
     nextCursor:
       rows.length > limit && last
-        ? encodeRosterCursor({ v: orderValueOf(last), id: last.id })
+        ? encodeRosterCursor({
+            v: orderValueOf(last),
+            id: last.id,
+            s: query.sort,
+            d: query.dir,
+          })
         : null,
   };
 }
@@ -541,7 +571,12 @@ export function queryEdgeRoster(db: Database.Database, query: EdgeRosterQuery): 
     total,
     nextCursor:
       rows.length > limit && last
-        ? encodeRosterCursor({ v: orderValueOf(last), id: last.id })
+        ? encodeRosterCursor({
+            v: orderValueOf(last),
+            id: last.id,
+            s: query.sort,
+            d: query.dir,
+          })
         : null,
     counts: { open: Number(breakdown.open ?? 0), retracted: Number(breakdown.retracted ?? 0) },
   };
