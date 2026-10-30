@@ -237,13 +237,15 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
       .findByTitleOrAlias(query, filters)
       .map((page) => ({ page, snippet: buildSnippet(page.content, query) }));
 
-    const bodyLane: SearchCandidate[] = searchKnowledgeIndex(db, query, filters).flatMap((row) => {
-      const page = repository.findById(row.pageId);
-      // The SQL already filters on status; this keeps a stale index row from
-      // becoming a hit if the page vanished between the two statements.
-      if (!page || page.status !== 'active') return [];
-      return [{ page, snippet: buildSnippet(row.contentOriginal, query) }];
-    });
+    // One JOIN, not one `findById` per hit: `searchKnowledgeIndex` already
+    // joins back to `knowledge_pages` for the `status`/scope filters, so the
+    // page row rides along in the same SELECT and the old "stale index row"
+    // guard is structurally unnecessary — a row that lost its page cannot
+    // survive its own JOIN.
+    const bodyLane: SearchCandidate[] = searchKnowledgeIndex(db, query, filters).map((row) => ({
+      page: row.page,
+      snippet: buildSnippet(row.contentOriginal, query),
+    }));
 
     const fused = new Map<string, { hit: KnowledgeSearchHit; laneIndex: number }>();
     [nameLane, bodyLane].forEach((lane, laneIndex) => {
@@ -468,11 +470,18 @@ export function createKnowledgeService(deps: KnowledgeServiceDeps): KnowledgeSer
    * Resolved through the same active-only lookup as `get`, so a `pending` or
    * `archived` page has no backlinks to show: its body is not readable, and a
    * panel of pages pointing at it would be a second way to read it.
+   *
+   * `scope` is the same read rule as `get`'s: it addresses the ref (a slug
+   * without it resolves in the unscoped pool and could name another chat's
+   * same-slug page) and filters the linking pages with it, so a chat's
+   * backlink panel cannot leak another chat's pages. Omitted, the console's
+   * every-scope view is kept.
    */
-  function backlinks(ref: KnowledgePageRef): KnowledgeBacklink[] {
-    const page = findPage(ref);
+  function backlinks(ref: KnowledgePageRef, options?: { scope?: string }): KnowledgeBacklink[] {
+    const scope = options?.scope;
+    const page = findPage(ref, scope);
     if (!page || page.status !== 'active') return [];
-    return repository.linksTo(page.id);
+    return repository.linksTo(page.id, scope);
   }
 
   return {

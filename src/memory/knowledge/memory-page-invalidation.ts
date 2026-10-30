@@ -38,6 +38,14 @@ import { errorForObservation, memoryObservability } from '../observability.js';
 
 export type MemoryPageInvalidationCause = 'write' | 'update';
 
+/**
+ * The marker inside every invalidation log reason
+ * (`memory <id> <cause>: cited page re-queued for review`). The approval
+ * endpoint greps for it so it can warn the reviewer that the pending body they
+ * are about to publish was not re-curated after its source moved.
+ */
+export const INVALIDATION_LOG_MARKER = 'cited page re-queued';
+
 /** Connections already known to carry the knowledge tables (see the note above). */
 const readyDatabases = new WeakSet<Database.Database>();
 
@@ -91,7 +99,7 @@ export async function invalidatePagesCitingMemory(
     if (cited.length === 0) return 0;
 
     const now = Date.now();
-    const reason = `memory ${memoryId} ${cause === 'write' ? 'created' : 'updated'}: cited page re-queued for review`;
+    const reason = `memory ${memoryId} ${cause === 'write' ? 'created' : 'updated'}: ${INVALIDATION_LOG_MARKER} for review`;
 
     // Page row and log row land together, as they do in `KnowledgeRepository`:
     // a page out of the index with no trace of why is a support ticket.

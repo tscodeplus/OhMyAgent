@@ -95,6 +95,7 @@ import { canonicalizeEntityName } from '../repositories/entity-repository.js';
 import { normalizeScope } from './scope.js';
 import { slugify } from './slug.js';
 import type { PageType } from './types.js';
+import { relationForPageType } from './types.js';
 
 /** How a candidate pair was found. Strength is ranked by {@link EVIDENCE_STRENGTH}, not by this order. */
 export const MERGE_EVIDENCE_KINDS = [
@@ -903,9 +904,13 @@ function applyCandidate(
        WHERE to_page_id = ? AND from_page_id <> ? ORDER BY from_page_id`,
     )
     .all(loser.id, loser.id) as Array<{ from_page_id: string; label: string | null }>;
+  // The predicate is derived from the target's page_type — the same invariant
+  // `repository.writeLinks()` keeps. A copied row that carries NULL would sit
+  // untyped until the next boot's backfill fixed it.
+  const relationType = relationForPageType(candidate.pageType) ?? null;
   const insertLink = db.prepare(
-    `INSERT OR IGNORE INTO knowledge_links (from_page_id, to_page_id, label, created_at)
-     VALUES (?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO knowledge_links (from_page_id, to_page_id, label, relation_type, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
   );
   const deleteLink = db.prepare(
     'DELETE FROM knowledge_links WHERE from_page_id = ? AND to_page_id = ?',
@@ -914,7 +919,13 @@ function applyCandidate(
   let collapsedLinks = 0;
   const bodiesNeedingRewrite = new Set<string>();
   for (const row of incoming) {
-    const inserted = insertLink.run(row.from_page_id, survivor.id, row.label, now).changes;
+    const inserted = insertLink.run(
+      row.from_page_id,
+      survivor.id,
+      row.label,
+      relationType,
+      now,
+    ).changes;
     if (inserted > 0) incomingLinks += 1;
     else collapsedLinks += 1;
     deleteLink.run(row.from_page_id, loser.id);

@@ -301,6 +301,38 @@ describe('share curation trigger', () => {
     expect(h.triggerLogs()).toEqual([]);
   });
 
+  it('logs every URL of a multi-link message, and still curates only the first', async () => {
+    h.script(...onePageAnswers('message-multi-1'));
+    const curate = vi.spyOn(h.curator, 'curateMessage');
+
+    h.messages.create({
+      id: 'message-multi-1',
+      session_id: SESSION_ID,
+      role: 'user',
+      content: `${SHARE_CONTENT}，还有 https://example.com/second 和 https://example.com/third。`,
+    });
+    await h.trigger.idle();
+
+    // One page per message is the burst-budget decision — unchanged.
+    expect(curate).toHaveBeenCalledTimes(1);
+    expect(curate).toHaveBeenCalledWith('message-multi-1', {
+      trigger: 'share',
+      scope: SESSION_SCOPE,
+    });
+    expect(h.service.listPending()).toHaveLength(1);
+
+    // But the operator can see why only the first link became a page: the
+    // message id plus every URL, at debug level.
+    const notes = h.triggerLogs('debug').filter((log) => log.msg.includes('multiple URLs'));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].fields.messageId).toBe('message-multi-1');
+    expect(notes[0].fields.urls).toEqual([
+      LINK,
+      'https://example.com/second',
+      'https://example.com/third',
+    ]);
+  });
+
   it('ignores a link in an assistant message', async () => {
     const curate = vi.spyOn(h.curator, 'curateMessage');
 

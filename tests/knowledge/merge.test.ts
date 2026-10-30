@@ -30,6 +30,7 @@ import {
   type MergePlan,
 } from '../../src/memory/knowledge/merge.js';
 import type { CreateKnowledgePageInput } from '../../src/memory/knowledge/types.js';
+import { relationForPageType } from '../../src/memory/knowledge/types.js';
 import {
   MEMORY_A,
   MEMORY_B,
@@ -412,6 +413,18 @@ describe('knowledge:merge', () => {
       expect(count('SELECT COUNT(*) AS cnt FROM knowledge_links WHERE to_page_id = ?', pageB)).toBe(
         0,
       );
+
+      // The repointed row carries its predicate immediately, derived from the
+      // target's page type — not left NULL for the next boot's backfill.
+      expect(
+        (
+          db
+            .prepare(
+              'SELECT relation_type FROM knowledge_links WHERE from_page_id = ? AND to_page_id = ?',
+            )
+            .get(linker, pageA) as { relation_type: string | null }
+        ).relation_type,
+      ).toBe(relationForPageType('topic'));
 
       // Names: the loser's title, alias and slug are now the survivor's aliases.
       // Spellings are kept literally — an alias is matched with

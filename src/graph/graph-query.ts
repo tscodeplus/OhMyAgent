@@ -269,9 +269,14 @@ export function loadGraphNodes(db: Database.Database, ids: string[]): GraphQuery
  * Names co-mentioned with `entity` in the same memories, most shared memories
  * first.
  *
- * `memory_links` carries no entity id — it names the entity as text — so this
- * joins on the origin's stored name. That is the same comparison the docs'
- * re-check query uses (`target_entity = e.name OR subject_entity = e.name`).
+ * `memory_links` carries no entity id — it names the entity as text in whatever
+ * spelling the corpus used — so the anchor matches the entity's RESOLVED name
+ * set: the stored name, the canonical key and every alias (the same order
+ * `resolveEntity` used to find the entity), folded case-sensitively downward
+ * with `lower()`. Matching only the literal `entity.name` missed every memory
+ * that wrote an alias (`PQ` for `power query`) — and with it, the co-mention
+ * of every other name in that memory.
+ *
  * Superseded memories are not filtered out: the count is evidence of what the
  * corpus talks about, not a claim about the entity.
  */
@@ -286,12 +291,37 @@ function readMentionNeighbours(
       .get() !== undefined;
   if (!hasLinks) return { mentions: [], truncated: false };
 
+  const spellings = (
+    db
+      .prepare(
+        `SELECT a.alias AS spelling FROM entity_aliases a WHERE a.entity_id = ?
+         UNION SELECT e.name FROM entities e WHERE e.id = ?
+         UNION SELECT e.canonical_name FROM entities e WHERE e.id = ?`,
+      )
+      .all(entity.id, entity.id, entity.id) as Array<{ spelling: string }>
+  )
+    .map((row) => row.spelling.trim().toLowerCase())
+    .filter((spelling) => spelling !== '');
+  const resolved = [...new Set(spellings)];
+
+  // One bound parameter per resolved spelling, interpolated into the CTE's
+  // VALUES list as placeholders only — the spellings themselves are bound.
+  const params: Record<string, unknown> = { limit: limit + 1 };
+  const nameRows = resolved
+    .map((name, index) => {
+      params[`name${index}`] = name;
+      return `(@name${index})`;
+    })
+    .join(', ');
+
   const rows = db
     .prepare(
-      `WITH anchor(memory_id) AS (
+      `WITH resolved_names(n) AS (VALUES ${nameRows})
+       , anchor(memory_id) AS (
          SELECT DISTINCT ml.source_memory_id
          FROM memory_links ml
-         WHERE trim(ml.target_entity) = @name OR trim(ml.subject_entity) = @name
+         WHERE lower(trim(ml.target_entity)) IN (SELECT n FROM resolved_names)
+            OR lower(trim(ml.subject_entity)) IN (SELECT n FROM resolved_names)
        )
        SELECT name, COUNT(DISTINCT memory_id) AS memories
        FROM (
@@ -301,12 +331,12 @@ function readMentionNeighbours(
          SELECT ml.source_memory_id AS memory_id, trim(ml.subject_entity) AS name
          FROM memory_links ml JOIN anchor a ON a.memory_id = ml.source_memory_id
        ) AS co_mentioned
-       WHERE name <> '' AND lower(name) <> lower(@name)
+       WHERE name <> '' AND lower(name) NOT IN (SELECT n FROM resolved_names)
        GROUP BY name
        ORDER BY memories DESC, name ASC
        LIMIT @limit`,
     )
-    .all({ name: entity.name, limit: limit + 1 }) as Array<{ name: string; memories: number }>;
+    .all(params) as Array<{ name: string; memories: number }>;
 
   return {
     mentions: rows

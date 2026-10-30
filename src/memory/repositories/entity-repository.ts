@@ -216,6 +216,15 @@ export class EntityRepository {
    * Create the SPO edge, or refresh the still-valid one that says the same
    * thing. Re-stating "Alice likes tea" must not stack duplicate edges that
    * then each need retracting.
+   *
+   * A refresh also re-attaches the edge to the asserting memory
+   * (`source_memory_id` / `source_message_id`, when the caller supplies one).
+   * Neighborhood hints filter on `source_memory_id IN (memories just
+   * retrieved)` (`src/graph/neighborhood.ts`), so an edge left pointing at the
+   * memory that first stated it goes orphaned the instant that memory is
+   * deleted — even though a newer memory asserts the same fact. Only still-open
+   * edges are refreshed, and closed rows (`valid_to` set) are never hint
+   * candidates, so history keeps its original attribution unchanged.
    */
   linkEntities(input: LinkEntitiesInput): EntityEdge {
     const validFrom = input.validFrom ?? Date.now();
@@ -231,8 +240,20 @@ export class EntityRepository {
 
     if (existing) {
       this.db
-        .prepare('UPDATE entity_edges SET valid_from = ?, confidence = ? WHERE id = ?')
-        .run(validFrom, confidence, existing.id);
+        .prepare(
+          `UPDATE entity_edges
+           SET valid_from = ?, confidence = ?,
+               source_memory_id = coalesce(?, source_memory_id),
+               source_message_id = coalesce(?, source_message_id)
+           WHERE id = ?`,
+        )
+        .run(
+          validFrom,
+          confidence,
+          input.sourceMemoryId ?? null,
+          input.sourceMessageId ?? null,
+          existing.id,
+        );
       return this.db
         .prepare('SELECT * FROM entity_edges WHERE id = ?')
         .get(existing.id) as EntityEdge;

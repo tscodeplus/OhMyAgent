@@ -128,8 +128,33 @@ describe('graph-sync: mention nodes are admitted independently of edges', () => 
     const second = syncGraphFromMemoryLinks(db, repo);
 
     expect(second.mentionNodesAdmitted).toBe(1);
+    // P8 of the 2026-10-30 review: the already-existing name is reported as
+    // `already`, so the steady-state run no longer reads as "2000 new nodes
+    // every six hours".
+    expect(second.mentionNodesAlready).toBe(1);
     expect(second.mentionNodesCreated).toBe(0);
     expect(count('entities')).toBe(afterFirst);
+  });
+
+  it('still admits a new name once every existing name is already present (never skips the pass)', () => {
+    seedMemory('m1', 'Termux 里的 Node 版本是 26。');
+    seedMention('m1', 'Termux');
+    syncGraphFromMemoryLinks(db, repo);
+    const afterFirst = count('entities');
+
+    // One new memory mentions both the settled name and a fresh one; the
+    // steady-state short-circuit must not swallow the fresh candidate.
+    seedMemory('m2', 'Ubuntu 24.04 在 Termux 里安装 OpenSSH。');
+    seedMention('m2', 'Ubuntu');
+    seedMention('m2', 'Termux');
+
+    const second = syncGraphFromMemoryLinks(db, repo);
+
+    expect(second.mentionNodesAlready).toBeGreaterThanOrEqual(1);
+    expect(second.mentionNodesCreated).toBe(1);
+    expect(second.mentionNodesAdmitted).toBe(2);
+    expect(count('entities')).toBe(afterFirst + 1);
+    expect(repo.findByName('Ubuntu')).toBeDefined();
   });
 
   it('caps admitted nodes by maxMentionNodes, busiest name first', () => {

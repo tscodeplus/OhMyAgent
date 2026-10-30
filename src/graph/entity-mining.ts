@@ -45,6 +45,7 @@ import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import { cutCJK, isJiebaAvailable, ZH_STOP_WORDS } from '../memory/fts-tokenizer.js';
 import { canonicalizeEntityName } from '../memory/repositories/entity-repository.js';
+import { ENTITY_LINK_REFUSALS_TABLE } from '../memory/migration-v23.js';
 
 export interface MineableMemory {
   id: string;
@@ -231,10 +232,14 @@ export function isVouchableEntityName(name: string | null | undefined): boolean 
  * 220 characters away, about a different clause). Both claimed a relation no
  * sentence states.
  *
- * So a typed relation needs its keyword to occur in the memory text, outside both
- * endpoint spans, and within {@link RELATION_EVIDENCE_WINDOW} characters of each
- * endpoint. `MENTIONED` is always true — it asserts nothing, and the projector
- * filters it anyway.
+ * So a typed relation needs a keyword occurrence in the memory text, outside both
+ * endpoints' occurrences, and within {@link RELATION_EVIDENCE_WINDOW} characters
+ * of each endpoint — reachable through ANY occurrence of each endpoint. Every
+ * mention of a name is a chance to attest: this used to read the endpoints'
+ * FIRST occurrences only while {@link directionOf} read all of them, and the
+ * asymmetry refused a true edge whose predicate sat near the second mention and
+ * further than the window from the first. `MENTIONED` is always true — it asserts
+ * nothing, and the projector filters it anyway.
  *
  * Unknown relation types return true: this table is the set of relations the
  * deterministic era could produce and get wrong, not a closed vocabulary for
@@ -384,6 +389,19 @@ export function directionOf(
 }
 
 /**
+ * Version of the link-refusal rules this module's gates implement.
+ *
+ * `graph-sync`'s rejection ledger (`entity_link_refusals`, migration v23) keys
+ * its "do not rescan this memory" decision on this number: when gate vocabulary
+ * or semantics change, bumping it makes every ledgered memory eligible for
+ * re-evaluation under the new rules instead of staying hidden forever. It must
+ * only be bumped together with the change it answers to — the value is a
+ * promise that the ledger's refusals are still what `attestsRelation`,
+ * `isTokenAlignedMention` and `isVouchableEntityName` would decide today.
+ */
+export const LINK_REFUSAL_RULE_VERSION = 1;
+
+/**
  * Case-folded copy of `text` carrying the same length and the same indices.
  *
  * Only 1:1 rewrites belong here: the keyword positions found in the copy are used
@@ -456,15 +474,20 @@ export function attestsRelation(
   // No text (an edge whose source memory is gone): unverifiable, not disproven.
   if (!text) return true;
 
-  const subjectSpan = spanOf(text, subject);
-  const targetSpan = spanOf(text, target);
+  // Endpoint-location symmetry with `directionOf`: spanS, not span. A memory
+  // that names its endpoint twice has one span per mention, and attestation and
+  // direction must both be able to read the clause that sits near any of them —
+  // measuring only the first occurrence is what used to refuse a true edge
+  // whose predicate sat near the second.
+  const subjectSpans = spansOf(text, subject ?? '');
+  const targetSpans = spansOf(text, target ?? '');
   // Neither endpoint located in the text: the relation is unverifiable rather
   // than disproven, and this function fails open here for the same reason
   // `isTokenAlignedMention` does — an extractor may legitimately canonicalise a
   // name (`PQ` → `Power Query`), and rejecting every such row would empty the
   // graph for installs that configured a model. Attestation only judges the case
   // it can actually measure: both names present, predicate demonstrably elsewhere.
-  if (!subjectSpan || !targetSpan) return true;
+  if (subjectSpans.length === 0 || targetSpans.length === 0) return true;
 
   const global = new RegExp(
     pattern.source,
@@ -481,27 +504,34 @@ export function attestsRelation(
     const end = start + match[0].length;
     // A keyword inside an endpoint's own characters is not evidence about the
     // relation between the two: `穿衣建议` contains 建议.
-    if (overlaps(start, end, subjectSpan) || overlaps(start, end, targetSpan)) continue;
+    if (insideAny(start, end, subjectSpans) || insideAny(start, end, targetSpans)) continue;
     hits.push({ start, negated: isNegated(text, start) });
   }
   if (hits.length === 0) return false;
 
-  const inWindow = hits.filter(
+  // Window pass: ANY (subject-occurrence, target-occurrence) pair close enough
+  // to one keyword occurrence suffices. The clauses a memory spends on the
+  // second mention are clauses about the endpoint too, so requiring the first
+  // occurrence to be reachable would refuse what the text states.
+  const attested = hits.some(
     (hit) =>
-      distance(hit.start, subjectSpan) <= RELATION_EVIDENCE_WINDOW &&
-      distance(hit.start, targetSpan) <= RELATION_EVIDENCE_WINDOW,
+      !hit.negated &&
+      subjectSpans.some((span) => distance(hit.start, span) <= RELATION_EVIDENCE_WINDOW) &&
+      targetSpans.some((span) => distance(hit.start, span) <= RELATION_EVIDENCE_WINDOW),
   );
-  if (!inWindow.some((hit) => !hit.negated)) return false;
+  if (!attested) return false;
 
-  // A negated predicate can sit closer to an endpoint than the affirmative one
-  // that made the window. Measured: "通过 excel-mcp 使用 Power Query 获取数据，
-  // 明确不要使用 Python" put one affirmative 使用 twenty characters from Python,
-  // so `Python —USES→ excel-mcp` passed even though the clause about Python says
-  // not to use it. The predicate nearest an endpoint is the one that governs it,
-  // so if that one is negated, the pair is not attested.
-  for (const span of [subjectSpan, targetSpan]) {
+  // But a negated predicate can sit closer to an endpoint than the affirmative
+  // one that made the window. Measured: "通过 excel-mcp 使用 Power Query 获取
+  // 数据，明确不要使用 Python" put one affirmative 使用 twenty characters from
+  // Python, so `Python —USES→ excel-mcp` passed even though the clause about
+  // Python says not to use it. The predicate NEAREST an endpoint — measured
+  // from whichever of its occurrences is closest, so a negation beside the
+  // second mention of a double-mentioned name still governs — is the one that
+  // decides, and if it is negated, the pair is not attested.
+  for (const spans of [subjectSpans, targetSpans]) {
     const nearest = hits.reduce((best, hit) =>
-      distance(hit.start, span) < distance(best.start, span) ? hit : best,
+      minDistanceToSpans(hit.start, spans) < minDistanceToSpans(best.start, spans) ? hit : best,
     );
     if (nearest.negated) return false;
   }
@@ -531,14 +561,6 @@ interface Span {
   end: number;
 }
 
-function spanOf(text: string, name: string | null | undefined): Span | null {
-  const trimmed = (name ?? '').trim();
-  if (trimmed === '') return null;
-  const start = text.indexOf(trimmed);
-  if (start < 0) return null;
-  return { start, end: start + trimmed.length };
-}
-
 /** Every occurrence of `name` in `text`, in order; empty when it does not occur. */
 function spansOf(text: string, name: string): Span[] {
   const trimmed = name.trim();
@@ -556,6 +578,11 @@ function spansOf(text: string, name: string): Span[] {
 /** Does the range `start`..`end` overlap any of `spans`? */
 function insideAny(start: number, end: number, spans: Span[]): boolean {
   return spans.some((span) => overlaps(start, end, span));
+}
+
+/** Distance from a position to the closest of `spans` (0 when inside one). */
+function minDistanceToSpans(position: number, spans: Span[]): number {
+  return Math.min(...spans.map((span) => distance(position, span)));
 }
 
 function overlaps(start: number, end: number, span: Span): boolean {
@@ -1382,6 +1409,38 @@ function readMinableMemories(db: Database.Database, limit: number): MinableMemor
   return db.prepare(MINABLE_MEMORY_SQL).all({ memoryLimit: limit }) as MinableMemoryRow[];
 }
 
+// ─── Link-refusal ledger invalidation ───────────────────────────────
+
+/** Lazily probed (migration v23 builds it, and fixtures may not have it). */
+const linkRefusalTablePresent = new WeakMap<Database.Database, boolean>();
+
+function hasLinkRefusalTable(db: Database.Database): boolean {
+  let present = linkRefusalTablePresent.get(db);
+  if (present === undefined) {
+    present =
+      db
+        .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .get(ENTITY_LINK_REFUSALS_TABLE) !== undefined;
+    linkRefusalTablePresent.set(db, present);
+  }
+  return present;
+}
+
+/**
+ * Clear the graph-sync refusal ledger row for a memory this pass just wrote on.
+ *
+ * Annotating a row with a subject or inserting a `MENTIONED` row changes which
+ * links are edge-eligible, even though it does not bump the memory's own
+ * `updated_at` (the ledger's other freshness cue — see `graph-sync.ts`). A
+ * refusal decided before this write must not outlive it, or a memory whose new
+ * links now project would stay invisible to the batch forever without a rule
+ * bump to re-open it.
+ */
+function clearLinkRefusalLedger(db: Database.Database, memoryId: string): void {
+  if (!hasLinkRefusalTable(db)) return;
+  db.prepare(`DELETE FROM ${ENTITY_LINK_REFUSALS_TABLE} WHERE memory_id = ?`).run(memoryId);
+}
+
 /** Mention must occur in at least this many of the batch's memories. */
 const DEFAULT_MIN_DOCUMENT_FREQUENCY = 2;
 
@@ -1503,6 +1562,8 @@ export function mineMemoryLinkSubjects(
       const subjectType = inferEntityType(subject.name);
 
       try {
+        const annotatedBefore = summary.linksAnnotated;
+        const createdBefore = summary.linksCreated;
         const existing = selectExisting.all(memory.memory_id) as ExistingLinkRow[];
         const linkedKeys = new Set<string>();
         for (const row of existing) {
@@ -1541,6 +1602,12 @@ export function mineMemoryLinkSubjects(
           }
         }
 
+        // Rows were written or annotated: what the ledger refused no longer
+        // holds (see `clearLinkRefusalLedger`). Only real changes count — a
+        // memory whose rows all carried their subject already is untouched.
+        if (summary.linksAnnotated > annotatedBefore || summary.linksCreated > createdBefore) {
+          clearLinkRefusalLedger(db, memory.memory_id);
+        }
         summary.memoriesMined++;
         summary.mentionsMined += mentions.length;
       } catch (err) {

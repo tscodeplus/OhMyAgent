@@ -105,6 +105,21 @@ const TRAILING_PUNCTUATION = /[.,;:!?、。，；：！？)\]}》」]+$/;
 // ── URL detection ───────────────────────────────────────────────────────
 
 /**
+ * Every URL the message text carries, trimmed of trailing punctuation, in order;
+ * empty when the message carries none.
+ */
+function findSharedUrls(content: string): string[] {
+  const matches = content.match(new RegExp(URL_PATTERN.source, 'gi')) ?? [];
+  const urls: string[] = [];
+  for (const match of matches) {
+    const url = match.replace(TRAILING_PUNCTUATION, '');
+    // `https://` with no host is not a link.
+    if (/^https?:\/\/./i.test(url)) urls.push(url);
+  }
+  return urls;
+}
+
+/**
  * The first URL the message text carries, or `undefined`.
  *
  * Exported because it is the whole cost decision: nothing else happens for a
@@ -112,11 +127,7 @@ const TRAILING_PUNCTUATION = /[.,;:!?、。，；：！？)\]}》」]+$/;
  * model call per turn.
  */
 export function findSharedUrl(content: string): string | undefined {
-  const match = URL_PATTERN.exec(content);
-  if (!match) return undefined;
-  const url = match[0].replace(TRAILING_PUNCTUATION, '');
-  // `https://` with no host is not a link.
-  return /^https?:\/\/./i.test(url) ? url : undefined;
+  return findSharedUrls(content)[0];
 }
 
 // ── Deps ────────────────────────────────────────────────────────────────
@@ -204,7 +215,18 @@ export class ShareCurationTrigger {
       // share, and curating it would turn a reply into a page.
       if (message.role !== 'user') return;
 
-      const url = findSharedUrl(message.content);
+      const urls = findSharedUrls(message.content);
+      // One page per message is the burst-budget decision, so a second link in
+      // the same message is silently ignored — but the operator must still be
+      // able to see why only the first link became a page. `/knowledge share
+      // <url>` stays the way to curate one of the others on purpose.
+      if (urls.length > 1) {
+        this.logger.debug(
+          { messageId: message.id, urls },
+          'share curation: message carries multiple URLs, only the first is curated',
+        );
+      }
+      const url = urls[0];
       if (!url) return;
 
       if (this.hasSeen(message.id)) {

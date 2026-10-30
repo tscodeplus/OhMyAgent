@@ -22,9 +22,14 @@ describe('graph: relation attestation', () => {
 
   it('rejects a relation whose keyword is in a different clause', () => {
     const text =
-      'Ubuntu 24.04→26.04 LTS 升级通道监控：截至2026-08-30，meta-release(常规)已含26.04 LTS且Supported:1，但meta-release 建议等待点版本。';
-    // 建议 sits far from both endpoints — 200+ characters in the real row.
+      'Ubuntu 24.04→26.04 LTS 升级通道监控：截至2026-08-30，meta-release(常规)已含26.04 LTS且Supported:1，本周对比记录与升级注意事项仍保持原样，升级等待点位的具体说明留待下一轮监控更新，但meta-release 建议等待点版本。';
+    // 建议 sits farther than the window from EVERY occurrence of either
+    // endpoint (LTS is mentioned twice; the second mention is padded away from
+    // 建议 as in the real 200+-character row).
     expect(text.indexOf('建议')).toBeGreaterThan(RELATION_EVIDENCE_WINDOW);
+    expect(text.slice(text.lastIndexOf('LTS')).indexOf('建议')).toBeGreaterThan(
+      RELATION_EVIDENCE_WINDOW,
+    );
     expect(attestsRelation(text, 'ADVISES', 'LTS', '常规')).toBe(false);
   });
 
@@ -50,6 +55,31 @@ describe('graph: relation attestation', () => {
     expect(attestsRelation('PQ replaced the manual ETL', 'ADVISES', 'Power Query', 'ETL')).toBe(
       true,
     );
+  });
+
+  // Endpoint-location symmetry with `directionOf` (P5 of the 2026-10-30
+  // review): attestation reads EVERY occurrence of an endpoint, not just the
+  // first — a memory that names X twice with the predicate near the second
+  // mention states the relation, it does not lose it to the first mention's
+  // distance.
+  it('attests a double-mention memory whose predicate sits near the second occurrence', () => {
+    // The first 电池 mention sits farther than the window from the only 调用;
+    // the operative clause is the second one. The old first-occurrence-only
+    // reading refused this row.
+    const text =
+      '电池 的旧规格是三天前记录的，等到把它们逐行核对完毕才轮到正式链路，先跑完下面这一段再说。下面这段是日志摘抄，平时不会回看。现在脚本调用 电池 API 校准，很稳。';
+    expect(text.indexOf('电池')).toBe(0);
+    expect(text.indexOf('调用')).toBeGreaterThan(RELATION_EVIDENCE_WINDOW);
+    expect(text.lastIndexOf('电池')).toBeGreaterThan(text.indexOf('调用'));
+    expect(attestsRelation(text, 'USES', '电池', 'API')).toBe(true);
+  });
+
+  it('still refuses a negated predicate near the second occurrence', () => {
+    // The clause right after the SECOND 电池 mention says the relation does not
+    // hold; unlike the window check, negation is read from the occurrence
+    // NEAREST each endpoint — whichever of the two mentions that is.
+    const text = '电池 没电了。可以先调用 API 应急。但文档明确说不要调用 电池 API 这样的组合。';
+    expect(attestsRelation(text, 'USES', '电池', 'API')).toBe(false);
   });
 
   it('is case- and whitespace-insensitive about the relation name', () => {

@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import { applySchema } from '../../src/memory/schema';
 import { migrateV10 } from '../../src/memory/migration-v10';
+import { migrateV23 } from '../../src/memory/migration-v23';
 import { EntityRepository, type EntityEdge } from '../../src/memory/repositories/entity-repository';
+import { LINK_REFUSAL_RULE_VERSION } from '../../src/graph/entity-mining';
 import {
   GRAPH_SYNC_JOB_NAME,
   closeContradictedEdges,
@@ -355,6 +358,8 @@ describe('graph-sync: memory_links → entities/entity_edges', () => {
       skipped: 0,
       memoriesProcessed: 0,
       linksProcessed: 0,
+      memoriesFresh: 0,
+      memoriesStuck: 0,
     });
     expect(count('entities')).toBe(0);
   });
@@ -502,5 +507,252 @@ describe('graph-sync: config gate', () => {
       )
       .all() as Array<{ source: string; target: string }>;
     expect(edges).toEqual([{ source: '知识图谱', target: '飞书' }]);
+  });
+});
+
+/**
+ * The projector's refusal ledger (migration v23): a memory whose every
+ * edge-eligible link the JS gates refuse stops being re-scanned every run, and
+ * Batch slots can no longer be filled by a backlog of refusable rows.
+ */
+describe('graph-sync: link-refusal ledger (migration v23)', () => {
+  let db: Database.Database;
+  let repo: EntityRepository;
+
+  function seedMemory(id: string, content: string, createdAt: number = MEMORY_CREATED_AT): void {
+    db.prepare(
+      `INSERT INTO memories (id, scope, scope_key, kind, content, status, created_at, updated_at)
+       VALUES (?, 'user', 'k', 'fact', ?, 'active', ?, ?)`,
+    ).run(id, content, String(createdAt), String(createdAt));
+  }
+
+  /**
+   * Verbatim deterministic gate-refusal fixtures, both measured refusal shapes:
+   *   - ADVISES whose only 建议 sits 65+ characters from every endpoint mention
+   *     (a keyword in a different clause);
+   *   - PART_OF whose endpoints merely share the sentence with no part-of
+   *     wording.
+   * Names that never occur in the content would fail open (unverifiable, not
+   * disproven), so a refusal fixture has to be refusable — otherwise the link
+   * projects and the ledger is pointless.
+   */
+  const REFUSED_FIXTURES = {
+    advisesFar: {
+      memory_id: '',
+      content:
+        'Alice Smith 和 Acme Corp 谈过一次工作安排。这一段只是叙述背景，包含天气、提交记录、若干路径与配置片段，后面一直没有再展开过任何相关讨论。结尾附录里有一条建议：等待明天。',
+      subject: 'Alice Smith',
+      target: 'Acme Corp',
+      relation: 'ADVISES',
+    },
+    partUnattested: {
+      memory_id: '',
+      content: '效果不错，通过 excel-mcp 使用 Power Query 完成。',
+      subject: 'excel-mcp',
+      target: 'Power Query',
+      relation: 'PART_OF',
+    },
+  } as const;
+
+  function seedRefused(
+    id: string,
+    fixture: keyof typeof REFUSED_FIXTURES,
+    createdAt: number = MEMORY_CREATED_AT,
+  ): void {
+    const row = REFUSED_FIXTURES[fixture];
+    seedMemory(id, row.content, createdAt);
+    db.prepare(
+      `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence,
+                                 subject_entity)
+       VALUES (?, ?, ?, ?, 0.9, ?)`,
+    ).run(`l-${id}`, id, row.target, row.relation, row.subject);
+  }
+
+  function seedProjectableMemory(id: string, createdAt: number = MEMORY_CREATED_AT): void {
+    seedMemory(id, 'Alice Smith 创立了 Acme Corp。', createdAt);
+    db.prepare(
+      `INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type, confidence,
+                                 subject_entity, subject_entity_type)
+       VALUES (?, ?, 'Acme Corp', 'FOUNDED', 0.9, 'Alice Smith', 'person')`,
+    ).run(`l-${id}`, id);
+  }
+
+  const ledgerRows = () =>
+    db.prepare('SELECT * FROM entity_link_refusals ORDER BY memory_id').all() as Array<{
+      memory_id: string;
+      content_hash: string;
+      rule_version: number;
+      decided_at: number;
+    }>;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    applySchema(db);
+    migrateV10(db);
+    migrateV23(db);
+    repo = new EntityRepository(db);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('details a refused backlog run as skipped, distinguishing stuck from fresh', async () => {
+    // Two gate-refused memories: the job reports the refusals as `stuck`
+    // instead of blending them into `skipped`, so an operator can tell "nothing
+    // new" from "new garbage refused once".
+    seedRefused('s1', 'advisesFar');
+    seedRefused('s2', 'partUnattested', MEMORY_CREATED_AT + 1000);
+
+    const result = await createGraphSyncJob(db, resolveGraphSyncConfig(undefined), logger).run({
+      dryRun: false,
+    });
+
+    expect(result.status).toBe('skipped');
+    const details = result.details as {
+      reason: string;
+      memoriesFresh: number;
+      memoriesStuck: number;
+    };
+    expect(details.reason).toBe('no_projectable_links');
+    expect(details.memoriesStuck).toBe(2);
+    expect(details.memoriesFresh).toBe(2);
+  });
+
+  it('creates the table once and replays as a no-op', () => {
+    const first = migrateV23(db);
+    expect(first.created).toBe(false);
+    expect(first.verified).toBe(true);
+    expect(
+      (
+        db
+          .prepare(
+            "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type = 'table' AND name = 'entity_link_refusals'",
+          )
+          .get() as { cnt: number }
+      ).cnt,
+    ).toBe(1);
+  });
+
+  it('ledgers refused memories and frees the batch slots for fresh ones', () => {
+    seedRefused('s1', 'advisesFar');
+    seedRefused('s2', 'partUnattested', MEMORY_CREATED_AT + 1000);
+    // Older than the batch would reach on the first run (memory limit 2):
+    // without the ledger it always stays behind the two stuck memories.
+    seedProjectableMemory('fresh', MEMORY_CREATED_AT + 2000);
+
+    const first = syncGraphFromMemoryLinks(db, repo, { limit: 2 });
+    expect(first.memoriesProcessed).toBe(0);
+    expect(first.memoriesStuck).toBe(2);
+    expect(first.memoriesFresh).toBe(2);
+    expect(ledgerRows()).toEqual([
+      expect.objectContaining({
+        memory_id: 's1',
+        rule_version: LINK_REFUSAL_RULE_VERSION,
+        content_hash: createHash('sha256')
+          .update(REFUSED_FIXTURES.advisesFar.content)
+          .digest('hex'),
+      }),
+      expect.objectContaining({
+        memory_id: 's2',
+        rule_version: LINK_REFUSAL_RULE_VERSION,
+        content_hash: createHash('sha256')
+          .update(REFUSED_FIXTURES.partUnattested.content)
+          .digest('hex'),
+      }),
+    ]);
+
+    // The run after the ledger: the stuck memories are invisible to the batch
+    // and the projectable memory takes the slot that used to be starved.
+    const second = syncGraphFromMemoryLinks(db, repo, { limit: 2 });
+    expect(second.memoriesProcessed).toBe(1);
+    expect(second.linksProcessed).toBe(1);
+    expect(second.memoriesStuck).toBe(0);
+    expect(second.edgesCreated).toBe(1);
+    expect(ledgerRows()).toHaveLength(2);
+  });
+
+  it('re-evaluates (and rewrites) the verdict when the rule version changes', () => {
+    seedRefused('s1', 'advisesFar');
+    const oldVersion = LINK_REFUSAL_RULE_VERSION + 1;
+    db.prepare(
+      `INSERT INTO entity_link_refusals (memory_id, content_hash, rule_version, decided_at)
+       VALUES ('s1', 'stale', ?, ?)`,
+    ).run(oldVersion, Date.now());
+
+    syncGraphFromMemoryLinks(db, repo);
+
+    // A rule-version mismatch puts the memory back into the batch; the gates
+    // still refuse, so the row is rewritten under the current version instead
+    // of hiding the memory forever.
+    const [row] = ledgerRows();
+    expect(row.rule_version).toBe(LINK_REFUSAL_RULE_VERSION);
+    expect(row.content_hash).toBe(
+      createHash('sha256').update(REFUSED_FIXTURES.advisesFar.content).digest('hex'),
+    );
+  });
+
+  it('re-opens a ledgered memory whose content was edited (decided_at < updated_at)', () => {
+    seedProjectableMemory('m1');
+    const decidedAt = Date.now() - 10_000;
+    db.prepare(
+      `INSERT INTO entity_link_refusals (memory_id, content_hash, rule_version, decided_at)
+       VALUES ('m1', 'stale', ?, ?)`,
+    ).run(LINK_REFUSAL_RULE_VERSION, decidedAt);
+
+    // Fresh verdict: the memory stays hidden.
+    syncGraphFromMemoryLinks(db, repo);
+    expect(ledgerRows()).toHaveLength(1);
+
+    // Content edit bumps updated_at past the verdict, so the next run
+    // re-evaluates — and projects, which clears the row.
+    db.prepare(`UPDATE memories SET content = ?, updated_at = ? WHERE id = ?`).run(
+      'Alice Smith 创立了 Acme Corp。',
+      String(decidedAt + 1000),
+      'm1',
+    );
+    const edited = syncGraphFromMemoryLinks(db, repo);
+    expect(edited.memoriesProcessed).toBe(1);
+    expect(edited.edgesCreated).toBe(1);
+    expect(ledgerRows()).toEqual([]);
+  });
+
+  it('never ledgers a memory that projected', () => {
+    seedProjectableMemory('m1');
+
+    const summary = syncGraphFromMemoryLinks(db, repo);
+    expect(summary.memoriesProcessed).toBe(1);
+    expect(summary.memoriesStuck).toBe(0);
+    expect(ledgerRows()).toEqual([]);
+  });
+
+  it('reports the stuck count on a dry run without redirecting the next real run', () => {
+    seedRefused('s1', 'advisesFar');
+
+    const rehearsal = syncGraphFromMemoryLinks(db, repo, { dryRun: true });
+    expect(rehearsal.memoriesStuck).toBe(1);
+    expect(rehearsal.memoriesFresh).toBe(1);
+    expect(ledgerRows()).toEqual([]);
+
+    const real = syncGraphFromMemoryLinks(db, repo);
+    expect(real.memoriesStuck).toBe(1);
+    expect(ledgerRows()).toHaveLength(1);
+  });
+
+  it('keeps the ledger rows across a legacy-cleanup projection (verdicts survive graph:reset)', () => {
+    seedRefused('s1', 'advisesFar');
+
+    syncGraphFromMemoryLinks(db, repo);
+    expect(ledgerRows()).toHaveLength(1);
+
+    // Deleting edges (what graph:reset / self-heal do) must not forget the
+    // verdict, but neither may it outlive the rules: another run reaches the
+    // same refusal from the same gates.
+    db.prepare(
+      'DELETE FROM entity_edges WHERE source_entity_id IN (SELECT id FROM entities)',
+    ).run();
+    syncGraphFromMemoryLinks(db, repo);
+    expect(ledgerRows()).toHaveLength(1);
   });
 });

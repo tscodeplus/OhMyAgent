@@ -67,6 +67,7 @@ import type {
 } from '../../memory/knowledge/service-contract.js';
 import { checkConsistency } from '../../memory/knowledge/indexer.js';
 import { slugify } from '../../memory/knowledge/slug.js';
+import { INVALIDATION_LOG_MARKER } from '../../memory/knowledge/memory-page-invalidation.js';
 
 /** Same page size the memory list uses; the WebUI pages through it. */
 const DEFAULT_LIST_LIMIT = 20;
@@ -239,6 +240,32 @@ function readScopeParam(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const trimmed = raw.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * Whether the page's most recent log entry is the write-side invalidation —
+ * the page went into the review queue because a memory it cites changed, and
+ * `knowledge_curate` has not touched it since (a re-curation writes its own
+ * `knowledge_curate` entry on top).
+ *
+ * Read *before* `setStatus` appends the approval's own row, so "most recent"
+ * means what the requester saw. Not a block: the reviewer may have already
+ * re-merged the body by hand, and refusing would strand the page in the queue.
+ */
+export function staleApprovalWarning(db: Database.Database, pageId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT reason FROM knowledge_log
+        WHERE page_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1`,
+    )
+    .get(pageId) as { reason: string | null } | undefined;
+  if (!row?.reason || !row.reason.includes(INVALIDATION_LOG_MARKER)) return null;
+  return (
+    'This page was re-queued because a memory it cites changed, not curated after — ' +
+    'its body may still contain the superseded facts. Re-check it against the cited memory.'
+  );
 }
 
 /** Query-string `pageType` — an unknown name is a 400, never "no filter". */
@@ -666,22 +693,32 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
   });
 
   /** One page by id, with its sources, its outgoing links and its backlinks. */
-  app.get<{ Params: { id: string } }>('/api/knowledge/page/:id', async (request, reply) => {
-    try {
-      // `service.get` is active-only, so a pending page answers 404 here: its body
-      // is served by `GET /api/knowledge/pending`, the one review-queue accessor.
-      const detail = service.get({ id: request.params.id });
-      if (!detail) {
-        return reply
-          .status(404)
-          .send({ error: 'Not Found', message: `No knowledge page with id ${request.params.id}` });
+  app.get<{ Params: { id: string }; Querystring: { scope?: string } }>(
+    '/api/knowledge/page/:id',
+    async (request, reply) => {
+      try {
+        // `service.get` is active-only, so a pending page answers 404 here: its body
+        // is served by `GET /api/knowledge/pending`, the one review-queue accessor.
+        // `?scope=` (migration-v22) narrows the read — and the backlink panel —
+        // to that conversation plus globals; a chat-sided consumer of this API
+        // must not see another chat's same-slug page.
+        const scope = readScopeParam((request.query as { scope?: string }).scope);
+        const detail = service.get({ id: request.params.id }, { scope });
+        if (!detail) {
+          return reply.status(404).send({
+            error: 'Not Found',
+            message: `No knowledge page with id ${request.params.id}`,
+          });
+        }
+        return reply.send(
+          toDetailPayload(detail, service.backlinks({ id: request.params.id }, { scope })),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
       }
-      return reply.send(toDetailPayload(detail, service.backlinks({ id: request.params.id })));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply.status(500).send({ error: message });
-    }
-  });
+    },
+  );
 
   /** One page by type + slug — the address `[[page_type/slug]]` resolves to. */
   app.get<{ Params: { pageType: string; slug: string } }>(
@@ -694,14 +731,17 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
             .status(400)
             .send({ error: `pageType must be one of: ${PAGE_TYPES.join(', ')}` });
         }
-        const detail = service.get({ pageType, slug });
+        const scope = readScopeParam((request.query as { scope?: string }).scope);
+        const detail = service.get({ pageType, slug }, { scope });
         if (!detail) {
           return reply.status(404).send({
             error: 'Not Found',
             message: `No knowledge page ${pageType}/${slug}`,
           });
         }
-        return reply.send(toDetailPayload(detail, service.backlinks({ slug, pageType })));
+        return reply.send(
+          toDetailPayload(detail, service.backlinks({ slug, pageType }, { scope })),
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });
@@ -844,23 +884,33 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
    * and injection. `page` is the refreshed detail (the same shape as
    * `GET /api/knowledge/page/:id`) so the queue can drop the row without a
    * second round-trip; it is `null` only if the page vanished in between.
+   *
+   * `warning` is set when the page entered the queue through the write-side
+   * invalidation (a memory it cites changed) and has not been re-curated since:
+   * approving then republishes exactly the body the invalidation froze, i.e. the
+   * stale copy. The reviewer decides — the field only makes the risk visible
+   * instead of making the button look like a plain promote.
    */
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Querystring: { scope?: string } }>(
     '/api/knowledge/page/:id/approve',
     async (request, reply) => {
       try {
         const { id } = request.params;
+        // Before `setStatus` writes its own log row — see `staleApprovalWarning`.
+        const warning = staleApprovalWarning(cfg.db, id);
         if (!service.setStatus(id, 'active', 'user')) {
           return reply
             .status(404)
             .send({ error: 'Not Found', message: `No knowledge page with id ${id}` });
         }
-        const detail = service.get({ id });
+        const scope = readScopeParam((request.query as { scope?: string }).scope);
+        const detail = service.get({ id }, { scope });
         return reply.send({
           ok: true,
           id,
           status: 'active',
-          page: detail ? toDetailPayload(detail, service.backlinks({ id })) : null,
+          page: detail ? toDetailPayload(detail, service.backlinks({ id }, { scope })) : null,
+          ...(warning ? { warning } : {}),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -889,12 +939,13 @@ export function registerKnowledgeRoutes(app: FastifyInstance, cfg: KnowledgeRout
             .status(404)
             .send({ error: 'Not Found', message: `No knowledge page with id ${id}` });
         }
-        const detail = service.get({ id });
+        const scope = readScopeParam((request.query as { scope?: string }).scope);
+        const detail = service.get({ id }, { scope });
         return reply.send({
           ok: true,
           id,
           status: 'archived',
-          page: detail ? toDetailPayload(detail, service.backlinks({ id })) : null,
+          page: detail ? toDetailPayload(detail, service.backlinks({ id }, { scope })) : null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

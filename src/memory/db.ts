@@ -21,6 +21,8 @@ import { migrateV19 } from './migration-v19.js';
 import { migrateV20 } from './migration-v20.js';
 import { migrateV21 } from './migration-v21.js';
 import { migrateV22 } from './migration-v22.js';
+import { migrateV23 } from './migration-v23.js';
+import { migrateV24 } from './migration-v24.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -255,6 +257,17 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.info('[V18] Created entity_extraction_log (skips memories already read)');
   }
 
+  // V23: the graph projection's link-refusal ledger (the mirror of v18 for
+  // `graph_sync`): memories whose every edge-eligible link the JS gates refuse
+  // are recorded here so the batch query can stop re-scanning them every run.
+  // After applySchema like v17/v18 — a new table whose DDL lives in the migration
+  // module; the projector probes for it lazily, so a database opened between
+  // applySchema and this point still boots.
+  const v23Result = migrateV23(db);
+  if (v23Result.created) {
+    logger.info('[V23] Created entity_link_refusals (ledger of gate-refused memories)');
+  }
+
   // V19: one entity per name. Rewrites canonical names under the current folding
   // rule and merges the nodes that fold together, in that order (see the module).
   const v19Result = migrateV19(db);
@@ -311,6 +324,22 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.info(
       `[V22] Knowledge migration: added ${v22Result.added.join(', ') || 'nothing'}, ` +
         `rebuilt ${v22Result.created.join(', ') || 'no index'}`,
+    );
+  }
+
+  // V24 stores the page title's comparison key (`normalized_title`, folded by the
+  // same `normalizeMergeName` the merge candidates use) so the name leg of
+  // `knowledge_search` is an indexed prefix over a column instead of a
+  // `lower(trim(title)) LIKE` expression scan, with a count-guarded backfill of
+  // existing rows. After applySchema like v20/v21/v22 for the same reason: the
+  // table is v14's, `schema.ts` references none of it, and the column cannot
+  // exist before the table does.
+  const v24Result = migrateV24(db);
+  if (v24Result.added.length > 0 || v24Result.created.length > 0 || v24Result.backfilled > 0) {
+    logger.info(
+      `[V24] Knowledge migration: added ${v24Result.added.join(', ') || 'nothing'}, ` +
+        `created ${v24Result.created.join(', ') || 'no index'}, ` +
+        `backfilled ${v24Result.backfilled} title(s)`,
     );
   }
 

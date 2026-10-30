@@ -28,7 +28,7 @@
 
 import type Database from 'better-sqlite3';
 import { buildFtsQuery, tokenizeForIndex } from '../fts-tokenizer.js';
-import type { KnowledgePageStatus, PageType } from './types.js';
+import type { KnowledgePage, KnowledgePageStatus, PageType } from './types.js';
 import { scopeSql } from './scope.js';
 
 /** Columns written per page. `content` and `title` are indexed, both segmented. */
@@ -87,6 +87,13 @@ export interface KnowledgeIndexHit {
   contentOriginal: string;
   /** Raw FTS5 BM25 rank: negative, and *more* negative means a better match. */
   bm25Score: number;
+  /**
+   * The page row the match joined back to, carried in the same SELECT so the
+   * caller never has to re-read pages one `findById` per hit (the old N+1).
+   * The JOIN already established the page exists and satisfies the filters, so
+   * a stale index row cannot reach a caller as a hole to be plugged.
+   */
+  page: KnowledgePage;
 }
 
 /**
@@ -115,7 +122,8 @@ export function searchKnowledgeIndex(
   let sql = `
     SELECT f.page_id AS page_id,
            f.content_original AS content_original,
-           bm25(knowledge_fts_jieba, 1.0, 0, 0, 3.0, 0) AS rank
+           bm25(knowledge_fts_jieba, 1.0, 0, 0, 3.0, 0) AS rank,
+           p.*
     FROM knowledge_fts_jieba f
     JOIN knowledge_pages p ON p.id = f.page_id
     WHERE knowledge_fts_jieba MATCH ?
@@ -137,16 +145,25 @@ export function searchKnowledgeIndex(
   params.push(options.limit);
 
   try {
-    const rows = db.prepare(sql).all(...params) as Array<{
-      page_id: string;
-      content_original: string;
-      rank: number;
-    }>;
-    return rows.map((row) => ({
-      pageId: row.page_id,
-      contentOriginal: row.content_original,
-      bm25Score: row.rank,
-    }));
+    const rows = db.prepare(sql).all(...params) as Array<
+      {
+        page_id: string;
+        content_original: string;
+        rank: number;
+      } & KnowledgePage
+    >;
+    return rows.map((row) => {
+      // `p.*` lands the page columns on the row; the join already established
+      // the page exists and satisfies the filters, so the caller can use it
+      // directly instead of one `findById` per hit.
+      const { page_id, content_original, rank, ...page } = row;
+      return {
+        pageId: page_id,
+        contentOriginal: content_original,
+        bm25Score: rank,
+        page: page as KnowledgePage,
+      };
+    });
   } catch {
     return [];
   }

@@ -43,6 +43,7 @@ import { slugify } from './slug.js';
 import { canonicalizeEntityName } from '../repositories/entity-repository.js';
 import { resolveWikilinks } from './links.js';
 import { indexKnowledgePage } from './indexer.js';
+import { normalizeMergeName } from './merge.js';
 
 /** Address a page by slug (optionally within one page type) or by id. */
 export type KnowledgePageRef = { slug: string; pageType?: PageType } | { id: string };
@@ -73,17 +74,6 @@ function serializeArray(values: string[] | undefined): string | null {
   if (values === undefined) return null;
   const cleaned = values.map((value) => value.trim()).filter((value) => value.length > 0);
   return cleaned.length > 0 ? JSON.stringify(cleaned) : null;
-}
-
-/**
- * Escape LIKE metacharacters so a title search for `100%` is a literal search.
- *
- * The backslash is also escaped, because it is the `ESCAPE` character the query
- * itself declares — an unescaped user `\` would otherwise swallow the `%` the
- * prefix match appends.
- */
-function escapeLike(text: string): string {
-  return text.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export class KnowledgeRepository {
@@ -173,7 +163,11 @@ export class KnowledgeRepository {
    * `power que` or `Power` is naming the page, and the body leg cannot help when
    * the body never repeats the words in the title. Prefix is the widest leg that
    * is still deterministic — no stemming, no fuzzy distance, no model — and it is
-   * anchored (`ESCAPE`d `LIKE prefix%`), so it cannot match a title's middle.
+   * anchored, so it cannot match a title's middle. The match runs over
+   * `normalized_title` (migration-v24, the `normalizeMergeName` fold), so
+   * `Power Query`, `power-query` and a full-width `ＰＯＷＥＲ　Ｑ` all name the
+   * same page and the prefix is an indexed `LIKE 'x%'` instead of an expression
+   * scan over `lower(trim(title))`.
    * Aliases stay exact because an alias *is* an address (`PQ` for `Power Query`),
    * and an exact title sorts above a prefix one, newest first after that, so the
    * leg's own order is total: two pages that both prefix-match `Power` do not
@@ -197,17 +191,22 @@ export class KnowledgeRepository {
     const trimmed = text.trim();
     if (!trimmed) return [];
 
-    const params: unknown[] = [
-      options.status,
-      `${escapeLike(trimmed.toLowerCase())}%`,
-      slugify(trimmed),
-      trimmed,
-    ];
+    // The prefix runs over the stored comparison key (migration-v24), so it is
+    // an indexed `LIKE 'x%'` and folds case, width and punctuation. Normalizing
+    // strips everything that is not a letter or digit, so no LIKE wildcard can
+    // survive into the pattern and no `ESCAPE` clause is needed.
+    // A query with no letter or digit left is not a name: the pre-v24 LIKE
+    // answered it literally (nothing, ever), and an empty `%%` prefix would be
+    // the opposite answer (everything), so the old semantics win.
+    const normalizedTitle = normalizeMergeName(trimmed);
+    if (!normalizedTitle) return [];
+    const normalizedPrefix = `${normalizedTitle}%`;
+    const params: unknown[] = [options.status, normalizedPrefix, slugify(trimmed), trimmed];
     let sql = `
       SELECT * FROM knowledge_pages p
       WHERE p.status = ?
         AND (
-          lower(trim(p.title)) LIKE ? ESCAPE '\\'
+          p.normalized_title LIKE ?
           OR p.slug = ?
           OR EXISTS (SELECT 1 FROM json_each(p.aliases) WHERE lower(json_each.value) = lower(?))
         )`;
@@ -249,6 +248,11 @@ export class KnowledgeRepository {
   /**
    * The active pages whose body cites `pageId` — the reverse of {@link linksOf}.
    *
+   * `scope` filters the *linking* pages by the usual read rule (`scope = asked
+   * OR 'global'`, {@link scopeSql}): a panel of who-cites-this is a list of
+   * pages, and a page another chat cannot read must not be named by its panel.
+   * Omitted, the console's every-scope view is kept.
+   *
    * Joined to `knowledge_pages` rather than read straight from
    * `knowledge_links` because the caller wants to *name* the linking pages, and
    * `status = 'active'` is the read filter every other knowledge reader applies:
@@ -260,17 +264,20 @@ export class KnowledgeRepository {
    * full scan of the link table. Newest-updated first, id as the tiebreak, so the
    * order is total.
    */
-  linksTo(pageId: string): KnowledgeBacklink[] {
+  linksTo(pageId: string, scope?: string): KnowledgeBacklink[] {
+    const filter = scope === undefined ? null : scopeSql('p.scope', scope);
+    const scopeClause = filter ? ` AND ${filter.sql}` : '';
+    const scopeParams = filter ? filter.params : [];
     return this.db
       .prepare(
         `SELECT p.slug AS slug, p.title AS title, l.label AS label,
                 l.relation_type AS relation_type
          FROM knowledge_links l
          JOIN knowledge_pages p ON p.id = l.from_page_id
-         WHERE l.to_page_id = ? AND p.status = 'active'
+         WHERE l.to_page_id = ? AND p.status = 'active'${scopeClause}
          ORDER BY p.updated_at DESC, p.id ASC`,
       )
-      .all(pageId) as KnowledgeBacklink[];
+      .all(pageId, ...scopeParams) as KnowledgeBacklink[];
   }
 
   /**
@@ -334,15 +341,18 @@ export class KnowledgeRepository {
       this.db
         .prepare(
           `INSERT INTO knowledge_pages
-             (id, page_type, slug, title, content, aliases, tags, confidence,
+             (id, page_type, slug, title, normalized_title, content, aliases, tags, confidence,
               version, status, entity_id, scope, created_at, updated_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
           input.pageType,
           slug,
           input.title,
+          // The name leg's comparison key (migration-v24); maintained on every
+          // write so the stored fold can never drift from the title.
+          normalizeMergeName(input.title),
           input.content,
           serializeArray(input.aliases),
           serializeArray(input.tags),
@@ -433,12 +443,13 @@ export class KnowledgeRepository {
       this.db
         .prepare(
           `UPDATE knowledge_pages
-           SET title = ?, content = ?, aliases = ?, tags = ?, confidence = ?,
+           SET title = ?, normalized_title = ?, content = ?, aliases = ?, tags = ?, confidence = ?,
                version = ?, status = ?, entity_id = ?, updated_at = ?, updated_by = ?
            WHERE id = ?`,
         )
         .run(
           title,
+          normalizeMergeName(title),
           content,
           input.aliases !== undefined ? serializeArray(input.aliases) : current.aliases,
           input.tags !== undefined ? serializeArray(input.tags) : current.tags,

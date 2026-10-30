@@ -53,11 +53,36 @@
  * `EntityRepository.upsertEntity` matches on canonical name and `linkEntities`
  * refreshes the still-open edge for the same (subject, relation, object)
  * instead of stacking duplicates, so a re-run can only refresh. Progress needs
- * no cursor table: a memory counts as projected once one of its edges carries
- * its id as `source_memory_id`, so the edges themselves are the cursor. A
- * memory whose rows are all unsubjected or `MENTIONED` never records an edge
- * and is therefore re-examined on later runs — bounded by `limit`, and cheap
- * because the batch is ordered and capped.
+ * no cursor table for memories that project: a memory counts as projected once
+ * one of its edges carries its id as `source_memory_id`, so the edges
+ * themselves are the cursor. A memory whose rows are all unsubjected or
+ * `MENTIONED` never records an edge and is therefore re-examined on later runs
+ * — bounded by `limit`, and cheap because the batch is ordered and capped.
+ *
+ * The one case the edge-cursor cannot converge on — a memory whose
+ * edge-eligible rows the JS gates refuse (`isVouchableEntityName`,
+ * `isTokenAlignedMention`, `attestsRelation`, `directionOf` — none of which are
+ * visible to SQL) — is answered by the **link-refusal ledger**
+ * (`entity_link_refusals`, migration v23, the projector's answer to the same
+ * problem v18's `entity_extraction_log` solves for the extraction model). Once
+ * every edge-eligible link of a memory failed the current gates, a ledger row
+ * removes it from the next batches until the gates change (`rule_version`) or
+ * the memory is edited (`updated_at` vs `decided_at`), so a backlog of
+ * gate-refused rows can no longer fill `limit` and starve later memories.
+ *
+ * The ledger row records a **verdict on the content under the current rules**,
+ * never a bookmark on an edge. It is written only from the gate evaluation and
+ * stays independent of edge existence on purpose: when self-heal or
+ * `graph:reset` deletes an edge — for whatever reason — the memory falls back
+ * into the batch, the same gates re-decide it, and the honest outcomes are
+ * re-project or re-ledger. Nothing there can resurrect a permanent skip.
+ *
+ * A run distinguishes what it saw: `memoriesFresh` counts batch memories that
+ * carried at least one edge-eligible candidate (they were actually scanned
+ * against the gates), `memoriesStuck` the subset whose candidates ALL refused
+ * and were ledgered. Zero stuck plus zero processed means "nothing new"; stuck
+ * alone means "new garbage refused once" — two sentences the old `skipped`
+ * statistic conflated.
  *
  * Failures are per-row: a malformed link is logged and skipped, and only a
  * broken database (prepare/transaction failure) reaches the caller.
@@ -65,6 +90,7 @@
 
 import type Database from 'better-sqlite3';
 import type { Logger } from 'pino';
+import { createHash } from 'node:crypto';
 import { createLogger } from '../app/logger.js';
 import type {
   MaintenanceJob,
@@ -79,11 +105,13 @@ import {
   inferEntityType,
   mineMemoryLinkSubjects,
   MENTION_RELATION_TYPE,
+  LINK_REFUSAL_RULE_VERSION,
   attestsRelation,
   isTokenAlignedMention,
   isVouchableEntityName,
   type MemoryLinkMiningSummary,
 } from './entity-mining.js';
+import { ENTITY_LINK_REFUSALS_TABLE } from '../memory/migration-v23.js';
 import { discoverAliases } from './alias-discovery.js';
 import { DEFAULT_GRAPH_SYNC_CONFIG, type GraphSyncConfig } from './graph-config.js';
 import { selfHealGraph } from './graph-prune.js';
@@ -141,10 +169,30 @@ export interface GraphSyncSummary {
   /**
    * Nodes admitted from mentions in this run, i.e. entities that carry no edge
    * yet (`Ubuntu` is mentioned in 38 memories and states no fact in any of them).
+   *
+   * Admissions, not creations: a mention that merges into an already existing
+   * node through an alias is admitted without a new `entities` row. Split into
+   * created/already (P8 of the 2026-10-30 review) because the old
+   * implementation counted every already-existing candidate as "admitted" on
+   * every run, which read as if 2000 new nodes surfaced every six hours.
    */
   mentionNodesAdmitted: number;
-  /** Of those, the ones that did not exist before this run. */
+  /** Of those, the ones that gained an `entities` row this run. */
   mentionNodesCreated: number;
+  /**
+   * Of the admitted ones, the names that already existed as nodes when the run
+   * began (skipped without evidence sampling). Absent when the mention pass
+   * did not run.
+   */
+  mentionNodesAlready?: number;
+  /**
+   * Batch memories this run evaluated that carried at least one edge-eligible
+   * candidate link. `memoriesStuck` is its subset refused under the current
+   * rules and ledgered; the remainder is the work still outstanding.
+   */
+  memoriesFresh?: number;
+  /** Fresh memories whose every edge-eligible link the current rules refuse. */
+  memoriesStuck?: number;
   /** Rows that could not be projected (blank target, inactive memory, self-loop, low confidence). */
   skipped: number;
   memoriesProcessed: number;
@@ -194,7 +242,7 @@ const DRY_RUN_ROLLBACK = Symbol('graph-sync dry-run');
  * `source_memory_id`. Per-link coverage cannot be used here: several links of
  * one memory can restate the same edge.
  */
-const BATCH_MEMORY_SQL = `
+const BATCH_MEMORY_SELECT = `
 SELECT m.id AS memory_id, m.created_at AS memory_created_at, m.content AS memory_content
 FROM memories m
 WHERE m.status = 'active'
@@ -211,10 +259,67 @@ WHERE m.status = 'active'
     SELECT 1
     FROM entity_edges e
     WHERE e.source_memory_id = m.id
-  )
+  )`;
+
+/**
+ * The refusal ledger's exclusion clause, appended when
+ * `entity_link_refusals` (migration v23) exists. The ledger row means "the JS
+ * gates refuse every edge-eligible link of this content under rule version N";
+ * SQL honours it only while the version still matches the gate set in code AND
+ * the memory has not been edited since the verdict (`decided_at` >=
+ * `updated_at`), because a gate bump or a content edit invalidates the verdict
+ * and puts the memory back into the batch for re-evaluation (the row is then
+ * rewritten or deleted — SQLite has no sha256, so the bumps ride on these two
+ * columns rather than the stored hash).
+ */
+const BATCH_MEMORY_LEDGER_CLAUSE = `
+  AND NOT EXISTS (
+    SELECT 1
+    FROM entity_link_refusals r
+    WHERE r.memory_id = m.id
+      AND r.rule_version = @ruleVersion
+      AND r.decided_at >= CAST(m.updated_at AS INTEGER)
+  )`;
+
+function batchMemorySql(withLedger: boolean): string {
+  return withLedger
+    ? `${BATCH_MEMORY_SELECT}${BATCH_MEMORY_LEDGER_CLAUSE}
 ORDER BY m.created_at, m.id
-LIMIT @memoryLimit
-`;
+LIMIT @memoryLimit`
+    : `${BATCH_MEMORY_SELECT}
+ORDER BY m.created_at, m.id
+LIMIT @memoryLimit`;
+}
+
+/** Ledger statements, prepared once per sync call when the table exists. */
+interface LinkRefusalLedger {
+  write: Database.Statement;
+  clear: Database.Statement;
+}
+
+function openLinkRefusalLedger(db: Database.Database): LinkRefusalLedger | undefined {
+  const present =
+    db
+      .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?`)
+      .get(ENTITY_LINK_REFUSALS_TABLE) !== undefined;
+  if (!present) return undefined;
+  return {
+    write: db.prepare(`
+      INSERT INTO entity_link_refusals (memory_id, content_hash, rule_version, decided_at)
+      VALUES (@memoryId, @contentHash, @ruleVersion, @decidedAt)
+      ON CONFLICT(memory_id) DO UPDATE SET
+        content_hash = excluded.content_hash,
+        rule_version = excluded.rule_version,
+        decided_at = excluded.decided_at
+    `),
+    clear: db.prepare(`DELETE FROM ${ENTITY_LINK_REFUSALS_TABLE} WHERE memory_id = @memoryId`),
+  };
+}
+
+/** Stable fingerprint of the text a verdict was decided on (parity with migration v18). */
+function contentHashFor(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 
 /** Links whose memory is gone or not active — never projected, always skipped. */
 const ORPHAN_LINK_COUNT_SQL = `
@@ -233,12 +338,15 @@ function readBatchMemories(
   db: Database.Database,
   limit: number,
   minConfidence: number,
+  withLedger: boolean,
 ): BatchMemoryRow[] {
-  return db.prepare(BATCH_MEMORY_SQL).all({
+  const params: Record<string, unknown> = {
     memoryLimit: limit,
     minConfidence,
     mentionRelation: MENTION_RELATION_TYPE,
-  }) as BatchMemoryRow[];
+  };
+  if (withLedger) params.ruleVersion = LINK_REFUSAL_RULE_VERSION;
+  return db.prepare(batchMemorySql(withLedger)).all(params) as BatchMemoryRow[];
 }
 
 /** All links of the batch's memories, deterministic order (ties the projection must not depend on). */
@@ -282,29 +390,51 @@ function hasSubject(link: LinkRow): boolean {
   return (link.subject_entity ?? '').trim() !== '';
 }
 
-function isUsableLink(link: LinkRow, minConfidence: number): boolean {
-  if (!link.target_entity.trim()) return false;
-  if (!link.relation_type.trim()) return false;
+/**
+ * The structural gates — everything the current rules refuse independent of a
+ * config knob: blank relation/target, ungovernmentalizable names, fragments,
+ * unattested predicates, self-loops. Kept as its own predicate because this is
+ * exactly the refusal class the link-refusal ledger may remember (see the
+ * batch SQL): the verdict is a property of the content and the gate vocabulary.
+ * Confidence is deliberately NOT here — `minConfidence` is an operator knob,
+ * and a memory hidden over a knob could not re-appear when the operator lowers
+ * it without a manual ledger edit.
+ */
+function failsLinkGates(link: LinkRow): boolean {
+  if (!link.target_entity.trim()) return true;
+  if (!link.relation_type.trim()) return true;
   // Both endpoints have to read as entities and have to sit on token boundaries
   // of the memory that claims them. The measured failure mode was
   // `如何称呼 —ADVISES→ 何称 / 张奇` at confidence 0.95: every endpoint there is a
   // substring of the memory text, so only a boundary test can tell a name from a
   // slice. Enforcing it here (rather than deleting the rows) keeps the link as
   // retrieval evidence while stopping it from becoming a statement.
-  if (!isVouchableEntityName(link.subject_entity)) return false;
-  if (!isVouchableEntityName(link.target_entity)) return false;
+  if (!isVouchableEntityName(link.subject_entity)) return true;
+  if (!isVouchableEntityName(link.target_entity)) return true;
   const content = link.memory_content ?? '';
-  if (!isTokenAlignedMention(content, link.subject_entity ?? '')) return false;
-  if (!isTokenAlignedMention(content, link.target_entity)) return false;
+  if (!isTokenAlignedMention(content, link.subject_entity ?? '')) return true;
+  if (!isTokenAlignedMention(content, link.target_entity)) return true;
   // ...and the predicate itself has to be attested by the same text. A real
   // endpoint pair with a relation the sentence never states is still a false
   // statement: 穿衣建议 —ADVISES→ 周五 survived endpoint validation precisely
   // because the verb was part of the entity's own name.
   if (!attestsRelation(content, link.relation_type, link.subject_entity, link.target_entity)) {
-    return false;
+    return true;
   }
+  // A self-loop states nothing: the same name on both ends, however spelled.
+  if (
+    canonicalizeEntityName(link.subject_entity!.trim()) ===
+    canonicalizeEntityName(link.target_entity.trim())
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Projectable in structure but below the caller's confidence floor. */
+function isLowConfidence(link: LinkRow, minConfidence: number): boolean {
   const confidence = Number(link.confidence);
-  return Number.isFinite(confidence) && confidence >= minConfidence;
+  return !(Number.isFinite(confidence) && confidence >= minConfidence);
 }
 
 /**
@@ -381,7 +511,36 @@ LIMIT @sample
 `;
 
 interface MentionNodeOutcome {
+  /** Candidates the gates would admit — created rows plus already-existing names. */
   admitted: number;
+  /** Of those, the names that already existed as nodes (skipped without sampling). */
+  already: number;
+}
+
+/** Bound per `IN` clause of the batched node-existence check. */
+const MENTION_EXISTENCE_CHUNK = 500;
+
+/**
+ * Canonical names that already exist as nodes, in one query per 500 candidates.
+ *
+ * The old implementation sampled evidence and called `findByName` per candidate
+ * (~4000 queries in steady state on the reference device). A name that already
+ * exists as a node gains nothing from this pass — re-admission is a no-op — so
+ * one batched existence check replaces the two per-name queries entirely.
+ */
+function existingEntityCanonicalNames(db: Database.Database, names: string[]): Set<string> {
+  const existing = new Set<string>();
+  for (let index = 0; index < names.length; index += MENTION_EXISTENCE_CHUNK) {
+    const chunk = names.slice(index, index + MENTION_EXISTENCE_CHUNK);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db
+      .prepare(
+        `SELECT DISTINCT canonical_name FROM entities WHERE canonical_name IN (${placeholders})`,
+      )
+      .all(...chunk) as Array<{ canonical_name: string }>;
+    for (const row of rows) existing.add(row.canonical_name);
+  }
+  return existing;
 }
 
 /**
@@ -392,6 +551,20 @@ interface MentionNodeOutcome {
  * of at least one memory that names it (`isTokenAlignedMention`). No relation, no
  * subject, no model — a `MENTIONED` row is precisely the assertion "this text
  * names this", and that is what a node records.
+ *
+ * Names that already exist as nodes are skipped before evidence sampling: the
+ * gates can only re-confirm what some producer already admitted, so sampling is
+ * reserved for genuinely new names and the steady-state run costs one grouped
+ * query plus one batched `IN` check (never skip the pass — the candidate set is
+ * always re-read, so a new mention is always seen).
+ *
+ * Counter semantics (corrected when the pass was batched, P8 of the 2026-10-30
+ * review; AGENTS.md pins `mentionNodesAdmitted` / `mentionNodesCreated` as "the
+ * node pass", not as distinct-nonzero counts): `already` reports the names that
+ * existed before the run, `admitted` stays admissions total, and `created` is
+ * measured by the caller as the `entities`-row delta — so a mention merging into
+ * an existing node through an alias is admitted but not created, and the old
+ * "2000 admitted every run" inflation is visible as `already` instead.
  *
  * Runs inside the caller's transaction so a dry run rolls the nodes back with
  * the edges.
@@ -405,14 +578,39 @@ function projectMentionNodes(
     minConfidence: options.minConfidence,
     cap: options.cap,
   }) as Array<{ name: string; entity_type: string | null; mentions: number }>;
-  if (candidates.length === 0) return { admitted: 0 };
+  if (candidates.length === 0) return { admitted: 0, already: 0 };
+
+  // Existence is checked on both sides in canonical form — the key `entities`
+  // is unique on, SQLite's `IN` is case-sensitive, and `findByName` used to
+  // apply the same fold per candidate.
+  const existing = existingEntityCanonicalNames(
+    db,
+    candidates
+      .map((candidate) => candidate.name.trim())
+      .filter((name) => isVouchableEntityName(name))
+      .map((name) => canonicalizeEntityName(name))
+      .filter((canonical) => canonical !== ''),
+  );
 
   const evidence = db.prepare(MENTION_EVIDENCE_SQL);
   let admitted = 0;
+  let already = 0;
 
   for (const candidate of candidates) {
     const name = candidate.name.trim();
     if (!isVouchableEntityName(name)) continue;
+
+    // Reuse an existing node whatever its type: `entities` is unique on
+    // (canonical_name, entity_type), so a mention whose inferred type disagrees
+    // with the one an edge established would otherwise create a *second* node
+    // for the same name — `Alice Smith` twice, once `person` and once `concept`.
+    // The edge's type is the better-informed one (it came from a typed
+    // relation), so it wins by simply already existing.
+    if (existing.has(canonicalizeEntityName(name))) {
+      already++;
+      admitted++;
+      continue;
+    }
 
     const rows = evidence.all({ name, sample: 5 }) as Array<{ content: string | null }>;
     if (rows.length === 0) continue;
@@ -421,17 +619,6 @@ function projectMentionNodes(
     const attested = rows.some((row) => isTokenAlignedMention(String(row.content ?? ''), name));
     if (!attested) continue;
 
-    // Reuse an existing node whatever its type: `entities` is unique on
-    // (canonical_name, entity_type), so a mention whose inferred type disagrees
-    // with the one an edge established would otherwise create a *second* node
-    // for the same name — `Alice Smith` twice, once `person` and once `concept`.
-    // The edge's type is the better-informed one (it came from a typed
-    // relation), so it wins by simply already existing.
-    if (repo.findByName(name)) {
-      admitted++;
-      continue;
-    }
-
     repo.upsertEntity({
       name,
       entityType: candidate.entity_type?.trim() || inferEntityType(name),
@@ -439,7 +626,7 @@ function projectMentionNodes(
     admitted++;
   }
 
-  return { admitted };
+  return { admitted, already };
 }
 
 /**
@@ -494,6 +681,11 @@ export function syncGraphFromMemoryLinks(
     skipped: 0,
     memoriesProcessed: 0,
     linksProcessed: 0,
+    // Always present so run details never have to guess whether the counters
+    // were measured; `mentionNodesAlready` stays absent when the mention pass
+    // did not run.
+    memoriesFresh: 0,
+    memoriesStuck: 0,
   };
 
   if (countRows(db, 'SELECT COUNT(*) AS cnt FROM memory_links') === 0) {
@@ -512,7 +704,8 @@ export function syncGraphFromMemoryLinks(
 
     summary.skipped = countRows(db, ORPHAN_LINK_COUNT_SQL);
 
-    const batch = readBatchMemories(db, limit, minConfidence);
+    const ledger = openLinkRefusalLedger(db);
+    const batch = readBatchMemories(db, limit, minConfidence, ledger !== undefined);
     const linksByMemory = readLinksByMemory(
       db,
       batch.map((memory) => memory.memory_id),
@@ -525,6 +718,14 @@ export function syncGraphFromMemoryLinks(
       const links = linksByMemory.get(memory.memory_id) ?? [];
       const content = memory.memory_content ?? '';
       let projectedHere = 0;
+      // Per-memory bookkeeping for the refusal ledger. `edgeEligible` counts the
+      // links the batch shape selected (subject named, not `MENTIONED`);
+      // `lowConfidence` and `writeFailure` are the two refusal causes the
+      // ledger must NOT record — one is an operator knob, the other a broken
+      // write that the next pass should retry rather than remember.
+      let edgeEligible = 0;
+      let lowConfidence = 0;
+      let writeFailure = false;
 
       for (const link of links) {
         if (!hasSubject(link)) {
@@ -537,21 +738,27 @@ export function syncGraphFromMemoryLinks(
           summary.mentionLinksFiltered++;
           continue;
         }
-        if (!isUsableLink(link, minConfidence)) {
+        edgeEligible++;
+        if (failsLinkGates(link)) {
           summary.skipped++;
           logger?.debug(
             { linkId: link.link_id, memoryId: memory.memory_id },
-            '[graph-sync] link skipped (blank target/relation or low confidence)',
+            '[graph-sync] link refused by the gates (fragment name, unattested relation, self-loop)',
+          );
+          continue;
+        }
+        if (isLowConfidence(link, minConfidence)) {
+          lowConfidence++;
+          summary.skipped++;
+          logger?.debug(
+            { linkId: link.link_id, memoryId: memory.memory_id },
+            '[graph-sync] link skipped (below min_confidence)',
           );
           continue;
         }
 
         const subjectName = link.subject_entity!.trim();
         const targetName = link.target_entity.trim();
-        if (canonicalizeEntityName(subjectName) === canonicalizeEntityName(targetName)) {
-          summary.skipped++;
-          continue;
-        }
 
         const validFromMs = parseEpochMs(memory.memory_created_at);
         const validFrom = validFromMs > 0 ? validFromMs : Date.now();
@@ -591,6 +798,7 @@ export function syncGraphFromMemoryLinks(
         } catch (err) {
           // One malformed row must not abort the run: it stays unprojected and
           // the next pass retries it.
+          writeFailure = true;
           summary.skipped++;
           logger?.warn(
             { linkId: link.link_id, memoryId: memory.memory_id, err: errMessage(err) },
@@ -599,7 +807,41 @@ export function syncGraphFromMemoryLinks(
         }
       }
 
-      if (projectedHere > 0) summary.memoriesProcessed++;
+      if (edgeEligible > 0) {
+        summary.memoriesFresh = (summary.memoriesFresh ?? 0) + 1;
+      }
+
+      if (projectedHere > 0) {
+        summary.memoriesProcessed++;
+        // The memory carried a gate-passing link: whatever a ledger row said
+        // under older rules is obsolete. Cheap enough to re-check on every
+        // projected memory; the batch rarely delivers ledgered memories at all
+        // (only on a rule bump or an edit), and the verdict changes hands here
+        // rather than surviving stale.
+        if (ledger) ledger.clear.run({ memoryId: memory.memory_id });
+      } else if (edgeEligible > 0 && lowConfidence === 0 && !writeFailure) {
+        // Every edge-eligible link of this memory failed the structural gates.
+        // The count is a gate observation, so it is reported even when the
+        // ledger table is absent (a fixture without migration v23); the write
+        // is what needs the table.
+        summary.memoriesStuck = (summary.memoriesStuck ?? 0) + 1;
+        if (ledger) {
+          // Ledger the refusal: a verdict on the content under the CURRENT
+          // rules — written from the gate evaluation only, never from edge
+          // existence, so a deleted edge (self-heal, `graph:reset`, a deleted
+          // source memory elsewhere) drops the memory back into the batch and
+          // the same gates re-decide it honestly instead of resurrecting an
+          // obsolete skip. Dry runs write it too and the transaction rolls it
+          // back with the projection: a rehearsal must not redirect the next
+          // real run, but its summary still reports what it would have done.
+          ledger.write.run({
+            memoryId: memory.memory_id,
+            contentHash: contentHashFor(content),
+            ruleVersion: LINK_REFUSAL_RULE_VERSION,
+            decidedAt: Date.now(),
+          });
+        }
+      }
     }
 
     // Nodes last, and independently of the loop above: the batch query only
@@ -622,6 +864,7 @@ export function syncGraphFromMemoryLinks(
         ),
       });
       summary.mentionNodesAdmitted = nodes.admitted;
+      summary.mentionNodesAlready = nodes.already;
       summary.mentionNodesCreated =
         countRows(db, 'SELECT COUNT(*) AS cnt FROM entities') - entitiesAfterEdges;
     }
@@ -732,6 +975,12 @@ export function createGraphSyncJob(
             details: {
               reason: 'no_projectable_links',
               skipped: summary.skipped,
+              // stuck vs fresh disambiguate this branch: stuck counts
+              // gate-refused memories this run ledgered, fresh the batch
+              // memories that carried a candidate at all. stuck alone means
+              // "new garbage refused once"; both zero means "nothing new".
+              memoriesFresh: summary.memoriesFresh ?? 0,
+              memoriesStuck: summary.memoriesStuck ?? 0,
               linksWithoutSubject: summary.linksWithoutSubject,
               mentionLinksFiltered: summary.mentionLinksFiltered,
               mined,

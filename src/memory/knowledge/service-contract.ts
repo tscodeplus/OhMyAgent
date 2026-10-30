@@ -213,8 +213,17 @@ export interface KnowledgeService {
    *
    * Empty for a page that is not readable (`get` returns null for the same refs),
    * because a panel of pages pointing at a shadow page is a second way to read it.
+   *
+   * `options.scope` is the read rule of `get` applied twice: the ref itself is
+   * resolved within the scope (a bare slug from another chat cannot be reached),
+   * and the linking pages are filtered to pages visible there, so a chat's
+   * backlink panel never names a page it could not open. Omitted means every
+   * scope — the console's view.
    */
-  backlinks(ref: { slug: string; pageType?: PageType } | { id: string }): KnowledgeBacklink[];
+  backlinks(
+    ref: { slug: string; pageType?: PageType } | { id: string },
+    options?: { scope?: string },
+  ): KnowledgeBacklink[];
 }
 
 /** Tunables the service reads; a subset of the `knowledge:` config block. */

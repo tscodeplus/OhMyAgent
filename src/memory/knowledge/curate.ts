@@ -102,6 +102,7 @@ import type {
 import { parseEpochMs } from '../../shared/timestamp.js';
 import type {
   CreateKnowledgePageInput,
+  KnowledgePage,
   KnowledgeSourceInput,
   KnowledgeSourceKind,
   PageType,
@@ -109,6 +110,8 @@ import type {
 } from './types.js';
 import { isPageType } from './types.js';
 import { scopeSql } from './scope.js';
+import { KnowledgeRepository } from './repository.js';
+import { tokenizeForIndex } from '../fts-tokenizer.js';
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -234,6 +237,8 @@ const CANDIDATE_KINDS = ['fact', 'summary', 'preference'] as const;
 /** Bounded reads: a phone must not scan `memories` (§9.4). */
 const CANDIDATE_LIMIT = 60;
 const MAX_SOURCES_PER_PAGE = 12;
+/** FTS5 `AND` terms stay readable: eight tokens already pin a subject. */
+const MAX_SOURCE_QUERY_TERMS = 8;
 
 /** A first run (no successful predecessor) looks back one night, not the whole table. */
 const FIRST_RUN_LOOKBACK_MS = 24 * 60 * 60 * 1000;
@@ -270,6 +275,8 @@ interface SourceMemory {
   scope: string;
   scope_key: string;
   confidence: number;
+  /** Numeric alias of `memories.created_at` (TEXT epoch-ms), for the combined sort. */
+  created_at_ms: number;
 }
 
 export interface CurateGroup {
@@ -512,6 +519,26 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+/**
+ * FTS5 `MATCH` expression for one subject, or `null` when the subject yields no
+ * searchable token.
+ *
+ * The tokens come from `tokenizeForIndex` — the same function that wrote
+ * `memories_fts_jieba.content`, copied from the `provenance_backfill` pattern —
+ * and are `AND`-joined: every token of a subject that appears literally in a
+ * memory is in that memory too, so `AND` keeps the verified-set recall while
+ * `OR` would let one common token fill the `LIMIT` with false matches.
+ */
+function ftsQueryForSource(subject: string): string | null {
+  const tokens = tokenizeForIndex(subject)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => /[\p{L}\p{N}]/u.test(token));
+  if (tokens.length === 0) return null;
+  const unique = [...new Set(tokens)].slice(0, MAX_SOURCE_QUERY_TERMS);
+  return unique.map((token) => `"${token.replaceAll('"', '')}"`).join(' AND ');
+}
+
 function formatMemoryLines(rows: ReadonlyArray<{ id: string; content: string }>): string {
   return rows.map((row) => `- [${row.id}] ${truncate(row.content, MAX_MEMORY_CHARS)}`).join('\n');
 }
@@ -583,7 +610,14 @@ export function countIndependentSources(sources: readonly CurateSource[]): numbe
 // ── Curator ─────────────────────────────────────────────────────────────
 
 export class KnowledgeCurator {
-  constructor(private readonly deps: KnowledgeCurateDeps) {}
+  private readonly repository: KnowledgeRepository;
+
+  constructor(private readonly deps: KnowledgeCurateDeps) {
+    // The curator is also a reader of non-active pages (see `findExistingPage`),
+    // so it takes the repository directly for that one lookup; every write still
+    // goes through the service.
+    this.repository = new KnowledgeRepository(deps.db);
+  }
 
   private get logger(): Logger {
     return this.deps.logger;
@@ -949,15 +983,115 @@ export class KnowledgeCurator {
    * in steady state — with a one-night window, every topic would otherwise look
    * like a single mention forever. It also means the share flow inherits whatever
    * the memory layer already knows about the subject the message names.
+   *
+   * The subject match runs over `memories_fts_jieba` (`MATCH`, then a literal
+   * verification of each hit, since FTS tokenization matches `oma` for
+   * `oma-run-9` and the needle is the only authority); the old `content LIKE
+   * '%subject%'` path stays as the fallback for a database without the index —
+   * a curation must not fail because retrieval failed. The group's own ids are
+   * always included regardless of what the subject match finds: they are the
+   * citations the grouping call actually made, not a content match.
    */
+  /** One matched memory row, as a citation. */
+  private toSourceMemory(row: SourceMemory): CurateSource {
+    return {
+      kind: 'memory',
+      id: row.id,
+      content: row.content,
+      scope: row.scope,
+      confidence: row.confidence,
+      // `scope_key` is the session key the writer stamped (both `writeSummary()`
+      // and `writePreference()` pass it), so it names the conversation that
+      // attested the subject — see `countIndependentSources()`.
+      conversationKey: row.scope_key,
+    };
+  }
+
   private gatherSources(subject: string, groupIds: readonly string[]): CurateSource[] {
+    const ftsMatches = this.matchSourcesByFts(subject);
+    if (ftsMatches.length === 0) {
+      // LIKE fallback returns its rows ordered/limited in SQL — no dedupe needed
+      // (`memories.id` is the primary key).
+      return this.matchSourcesByLike(subject, groupIds).map((row) => this.toSourceMemory(row));
+    }
+
+    // The ids the group cited join in regardless of match, as they did under
+    // the LIKE path.
+    const knownIds = new Set(ftsMatches.map((row) => row.id));
+    const fromIds = groupIds.filter((id) => !knownIds.has(id));
+    const rows = [...ftsMatches, ...(fromIds.length > 0 ? this.memoriesByIds(fromIds) : [])];
+    rows.sort((a, b) => a.created_at_ms - b.created_at_ms || (a.id < b.id ? -1 : 1));
+    // One row per memory, oldest first, bounded like the LIKE path was.
+    const seen = new Set<string>();
+    const kept: SourceMemory[] = [];
+    for (const row of rows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      kept.push(row);
+      if (kept.length >= MAX_SOURCES_PER_PAGE) break;
+    }
+    return kept.map((row) => this.toSourceMemory(row));
+  }
+
+  /**
+   * Verified FTS hits for one subject, oldest first.
+   *
+   * Returns [] — and hands the caller to the LIKE fallback — when the index is
+   * absent, the tokenized subject yields nothing searchable, or no hit contains
+   * the subject once read literally. Never throws: a broken index is a degraded
+   * source scan, not a failed curation.
+   */
+  private matchSourcesByFts(subject: string): SourceMemory[] {
+    const query = ftsQueryForSource(subject);
+    if (!query) return [];
+    const kinds = [...CANDIDATE_KINDS];
+    const kindPlaceholders = kinds.map(() => '?').join(',');
+    const needle = subject.toLowerCase();
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT m.id, m.content, m.scope, m.scope_key, m.confidence,
+                  CAST(m.created_at AS INTEGER) AS created_at_ms
+             FROM memories_fts_jieba fts
+             JOIN memories m ON m.id = fts.memory_id
+            WHERE memories_fts_jieba MATCH ?
+              AND m.status = 'active'
+              AND m.kind IN (${kindPlaceholders})
+              AND m.confidence >= ?
+            ORDER BY created_at_ms ASC, m.id ASC
+            LIMIT ?`,
+        )
+        .all(
+          query,
+          ...kinds,
+          this.config.minMemoryConfidence,
+          MAX_SOURCES_PER_PAGE,
+        ) as SourceMemory[];
+      // The index tokenizes (`oma` matches `oma-run-9`); the needle decides.
+      return rows.filter((row) => row.content.toLowerCase().includes(needle));
+    } catch (err) {
+      this.logger.debug(
+        { subject, err: errorMessage(err) },
+        'knowledge curate: memories_fts_jieba unavailable, falling back to LIKE',
+      );
+      return [];
+    }
+  }
+
+  /**
+   * The original full-scan path, kept as the fallback for a database whose FTS
+   * index is missing or empty. It is the query this file used before FTS; a
+   * nightly run already passed it, so it is safe in steady state.
+   */
+  private matchSourcesByLike(subject: string, groupIds: readonly string[]): SourceMemory[] {
     const kinds = [...CANDIDATE_KINDS];
     const placeholders = kinds.map(() => '?').join(',');
     const idPlaceholders = groupIds.map(() => '?').join(',');
     const idClause = groupIds.length > 0 ? ` OR id IN (${idPlaceholders})` : '';
     const rows = this.db
       .prepare(
-        `SELECT id, content, scope, scope_key, confidence
+        `SELECT id, content, scope, scope_key, confidence,
+                CAST(created_at AS INTEGER) AS created_at_ms
            FROM memories
           WHERE status = 'active'
             AND kind IN (${placeholders})
@@ -973,17 +1107,35 @@ export class KnowledgeCurator {
         ...groupIds,
         MAX_SOURCES_PER_PAGE,
       ) as SourceMemory[];
-    return rows.map((row) => ({
-      kind: 'memory',
-      id: row.id,
-      content: row.content,
-      scope: row.scope,
-      confidence: row.confidence,
-      // `scope_key` is the session key the writer stamped (both `writeSummary()`
-      // and `writePreference()` pass it), so it names the conversation that
-      // attested the subject — see `countIndependentSources()`.
-      conversationKey: row.scope_key,
-    }));
+    return rows;
+  }
+
+  /**
+   * The memories the grouping call actually cited, fetched by id when the subject
+   * match did not already return them — with the same kind/status/confidence
+   * filter, and in the query order the "counted conversations" rule expects.
+   */
+  private memoriesByIds(ids: readonly string[]): SourceMemory[] {
+    const placeholders = ids.map(() => '?').join(',');
+    const kinds = [...CANDIDATE_KINDS];
+    return this.db
+      .prepare(
+        `SELECT id, content, scope, scope_key, confidence,
+                CAST(created_at AS INTEGER) AS created_at_ms
+           FROM memories
+          WHERE status = 'active'
+            AND kind IN (${placeholders})
+            AND confidence >= ?
+            AND id IN (${placeholders})
+          ORDER BY CAST(created_at AS INTEGER) ASC
+          LIMIT ?`,
+      )
+      .all(
+        ...kinds,
+        this.config.minMemoryConfidence,
+        ...ids,
+        MAX_SOURCES_PER_PAGE,
+      ) as SourceMemory[];
   }
 
   /**
@@ -1149,7 +1301,19 @@ export class KnowledgeCurator {
       // Addressed, not merely visible: a page of the same subject in *this*
       // conversation is what a re-run updates, and another chat's page is not
       // reachable from here.
-      const existing = this.deps.knowledgeService.get({ slug, pageType }, { scope });
+      //
+      // `service.get` is active-only, and that is a gap a plain `create` cannot
+      // route around: an invalidated page (`memory-page-invalidation.ts`
+      // re-queues it as `pending`) and a merged-away page (`merge.ts` archives
+      // the loser) still own `(page_type, slug, scope)`, so a create would find
+      // them in the repository's conflict branch forever — every nightly run
+      // re-spending the page-body call while the stale body sat in the review
+      // queue with no way out. When the service cannot see a row, the
+      // repository is asked directly (it resolves the address without a status
+      // filter), so the write below becomes an `update` and the recovery the
+      // invalidation comment promises actually happens.
+      const active = this.deps.knowledgeService.get({ slug, pageType }, { scope });
+      const existing = active?.page ?? this.repository.findBySlug(slug, pageType, scope);
       if (existing) {
         const update: UpdateKnowledgePageInput = {
           title: page.title,
@@ -1157,10 +1321,21 @@ export class KnowledgeCurator {
           tags: page.tags,
           aliases: page.aliases,
           confidence,
-          expectedVersion: existing.page.version,
+          expectedVersion: existing.version,
           sources: sourceInputs,
           reason: CURATE_REASON,
         };
+        if (existing.status !== 'active') {
+          // A recovered page takes the status a fresh write would have: shadow
+          // keeps it pending (human review still gates it), no shadow puts it
+          // back in the index — and an archived row that the subject is being
+          // re-established for re-enters the same way. Omitted when that equals
+          // the row's own status (a pending page under shadow): the update must
+          // not restamp what it is not changing, and a re-run over a live
+          // pending row must not demote or promote an already-queued page.
+          const fresh = this.config.shadow ? 'pending' : 'active';
+          if (existing.status !== fresh) update.status = fresh;
+        }
         result = this.deps.knowledgeService.update({ slug, pageType }, update, writeOptions);
       } else {
         const create: CreateKnowledgePageInput = {

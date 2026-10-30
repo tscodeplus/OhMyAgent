@@ -176,6 +176,30 @@ describe('queryEntityGraph', () => {
     expect(nodeIds(withMentions!)).not.toContain('Zeta');
   });
 
+  it('anchors co-mentions on the resolved name set — alias spellings count', () => {
+    // `memory_links` stores the corpus spelling ('PQ'), the entity knows that
+    // spelling only as an alias of 'Power Query' (P6 of the 2026-10-30 review).
+    // The old literal `entity.name` match missed every memory written in the
+    // alias, and with them every co-mention of that memory.
+    addEntity('ent-pq', 'Power Query', 'concept');
+    repo.addAlias('ent-pq', 'PQ');
+    seedMemory('mem-pq-1');
+    addMentionLink('link-pq-1', 'mem-pq-1', 'PQ');
+    addMentionLink('link-pq-2', 'mem-pq-1', 'Excel');
+    seedMemory('mem-pq-2');
+    addMentionLink('link-pq-3', 'mem-pq-2', 'power query');
+    addMentionLink('link-pq-4', 'mem-pq-2', 'Delta');
+
+    const query = queryEntityGraph(db, 'ent-pq', { includeMentions: true });
+    // Alias and raw-case spellings are the queried entity itself, never its
+    // neighbours; the memories they anchored are counted by the other name in
+    // each.
+    expect(query?.mentions).toEqual([
+      { name: 'Delta', memories: 1 },
+      { name: 'Excel', memories: 1 },
+    ]);
+  });
+
   it('answers undefined for an unknown entity and for a database with no graph tables', () => {
     expect(queryEntityGraph(db, 'nobody')).toBeUndefined();
 
