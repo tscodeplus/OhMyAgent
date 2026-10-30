@@ -819,7 +819,7 @@ export function registerGraphRoutes(app: FastifyInstance, cfg: GraphRouteConfig)
    * The full component list (plan §4.2).
    *
    * `/stats.components` is capped at eight and the cap is invisible in the payload, so a
-   * reader sees "各通分量 368" above eight rows and cannot tell a full list from a
+   * reader sees "连通分量 368" above eight rows and cannot tell a full list from a
    * truncated one. `multiNodeComponents` gives the honest denominator and this endpoint
    * gives the rows behind it.
    *
