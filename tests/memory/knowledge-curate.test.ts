@@ -14,6 +14,7 @@ import {
   type CurateRunReport,
   type CurateSource,
   type KnowledgeCurateConfig,
+  mergeGroups,
 } from '../../src/memory/knowledge/curate.js';
 import type {
   KnowledgePageDetail,
@@ -446,6 +447,73 @@ describe('KnowledgeCurator', () => {
       // A window is not a batch: one run reads at most `CANDIDATE_LIMIT` of them,
       // which is why `--rounds` exists instead of a silent "done".
       expect(countCurateCandidates(db, { since, minConfidence: 0.6 })).toBeGreaterThan(0);
+    });
+
+    it('sends the window in batches, so a reasoning model can finish its answer', async () => {
+      // Measured: five memories give a clean JSON array, twenty exhaust the
+      // completion on deliberation and answer with prose only. Sixty gave 12.7k
+      // characters of reasoning and no JSON at all — the window must be chunked.
+      for (let index = 0; index < 25; index++) {
+        insertMemory({
+          id: `m-${String(index).padStart(2, '0')}`,
+          content: `Power Query ETL note number ${index}`,
+        });
+      }
+      responses = ['[]', '[]', '[]'];
+
+      const report = await curator().run();
+
+      expect(report.candidates).toBe(25);
+      // 25 candidates at a batch size of 10.
+      expect(llmCalls).toHaveLength(3);
+      expect(llmCalls.map((call) => call.userPrompt.split('\n').length)).toEqual([10, 10, 5]);
+      expect(report.skipped).toBe('no_groups');
+    });
+
+    it('merges a subject named in two batches instead of buying two pages', async () => {
+      for (let index = 0; index < 12; index++) {
+        insertMemory({
+          id: `m-${String(index).padStart(2, '0')}`,
+          content: `Power Query ETL note number ${index}`,
+        });
+      }
+      responses = [
+        // Batch 1 names Power Query; batch 2 names it again (same slug).
+        grouping([{ subject: 'Power Query', memoryIds: ['m-00', 'm-01'] }]),
+        grouping([{ subject: 'Power Query ', memoryIds: ['m-10', 'm-11'] }]),
+        page(),
+      ];
+
+      const report = await curator().run();
+
+      expect(report.groups).toBe(1);
+      expect(report.created).toBe(1);
+      // Two grouping calls, one page call: the merge saved the second page.
+      expect(llmCalls).toHaveLength(3);
+      // Sources span the whole subject, not just the group's own ids (that is the
+      // recurrence rule), so the merge is what these four prove: ids from both
+      // batches reached one page.
+      expect(service.writes[0].input.sources).toEqual(
+        expect.arrayContaining([
+          { kind: 'memory', id: 'm-00' },
+          { kind: 'memory', id: 'm-01' },
+          { kind: 'memory', id: 'm-10' },
+          { kind: 'memory', id: 'm-11' },
+        ]),
+      );
+    });
+
+    it('mergeGroups unions ids under one slug and keeps first-seen subject spelling', () => {
+      const merged = mergeGroups([
+        { subject: 'Power Query', memoryIds: ['a', 'b'] },
+        { subject: 'power-query', memoryIds: ['b', 'c'] },
+        { subject: 'Termux', memoryIds: ['d'] },
+      ]);
+
+      expect(merged).toEqual([
+        { subject: 'Power Query', memoryIds: ['a', 'b', 'c'] },
+        { subject: 'Termux', memoryIds: ['d'] },
+      ]);
     });
 
     it('passes the service refusal through by reason', async () => {

@@ -865,6 +865,21 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       ? {
           primary: memAuxCfg.primary ? str(memAuxCfg.primary, '', 'memAuxCfg.primary') : undefined,
           fallback_models: strList(memAuxCfg.fallback_models, '', 'memAuxCfg.fallback_models'),
+          // Declared by `configSchema.memoryAuxModels` and read by
+          // `auxLLMCall`, but this mapping used to drop it — so `disable_thinking:
+          // true` in config.yaml validated and then did nothing. A reasoning aux
+          // model spends its whole completion on deliberation (measured on
+          // `opencode-go/deepseek-v4.1-flash`: 12.7k characters of reasoning and no
+          // answer for one grouping call), which makes the switch load-bearing
+          // rather than cosmetic.
+          disableThinking:
+            memAuxCfg.disable_thinking === undefined && memAuxCfg.disableThinking === undefined
+              ? undefined
+              : yamlBool(
+                  memAuxCfg.disable_thinking ?? memAuxCfg.disableThinking,
+                  false,
+                  'memAuxCfg.disable_thinking',
+                ),
         }
       : undefined,
 

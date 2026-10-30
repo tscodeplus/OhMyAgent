@@ -42,6 +42,35 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.piAi.reasoningModel).toBe('gpt-4o-mini');
   });
 
+  it('maps memory_aux_models, including the load-bearing disable_thinking switch', () => {
+    // `disableThinking` was declared by the schema and read by `auxLLMCall`, but
+    // this mapping used to drop it — so the key validated and did nothing. A
+    // reasoning aux model burns its whole completion on deliberation, so a
+    // silently ignored switch made `knowledge:curate` unable to group at all.
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      memory_aux_models: {
+        primary: 'opencode-go/deepseek-v4.1-flash',
+        fallback_models: ['agnes/agnes-3.0-flash'],
+        disable_thinking: true,
+      },
+    });
+
+    expect(raw.memoryAuxModels).toEqual({
+      primary: 'opencode-go/deepseek-v4.1-flash',
+      fallback_models: ['agnes/agnes-3.0-flash'],
+      disableThinking: true,
+    });
+  });
+
+  it('leaves disableThinking unset when the key is absent', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      memory_aux_models: { primary: 'agnes/agnes-3.0-flash', fallback_models: [] },
+    });
+    expect(raw.memoryAuxModels.disableThinking).toBeUndefined();
+  });
+
   it('maps channels.feishu to feishu', () => {
     const raw = yamlToAppConfigRaw(minimalYaml);
     expect(raw.feishu).toEqual({

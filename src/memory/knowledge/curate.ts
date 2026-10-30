@@ -302,6 +302,29 @@ const CANDIDATE_KINDS = ['fact', 'summary', 'preference'] as const;
 
 /** Bounded reads: a phone must not scan `memories` (§9.4). */
 const CANDIDATE_LIMIT = 60;
+/**
+ * Memories per grouping call.
+ *
+ * Measured against the configured aux model (`opencode-go/deepseek-v4.1-flash`,
+ * a reasoning model): five memories produce a clean JSON array in one call, and
+ * twenty exhaust the completion budget mid-deliberation — the reply is then prose
+ * with no JSON at all, and `parseGroupingResponse` rightly returns nothing. Sixty
+ * was worse: 12.7k characters of reasoning and still no answer. Chunking is the
+ * fix that does not depend on the model being terse: each call gets a batch it can
+ * finish thinking about.
+ */
+const GROUPING_BATCH_SIZE = 10;
+/**
+ * Completion budget per grouping call.
+ *
+ * The answer itself is tiny (187 characters for five memories); the budget is for
+ * the reasoning that precedes it. 800 was the value that produced truncated
+ * deliberation, so this is the smallest size measured to finish a ten-memory
+ * batch.
+ */
+const GROUPING_MAX_TOKENS = 2000;
+/** The page call reads up to {@link MAX_SOURCES_PER_PAGE} memories; same reasoning as above. */
+const PAGE_MAX_TOKENS = 2000;
 const MAX_SOURCES_PER_PAGE = 12;
 /** FTS5 `AND` terms stay readable: eight tokens already pin a subject. */
 const MAX_SOURCE_QUERY_TERMS = 8;
@@ -610,6 +633,36 @@ function readStringArray(value: unknown): string[] {
  * and `Power-Query` are the same page identity, and writing both in one run
  * would spend a second aux-LLM call to overwrite what the first one wrote.
  */
+/**
+ * Merge groups that name the same subject.
+ *
+ * Grouping runs in batches ({@link GROUPING_BATCH_SIZE}), so one subject can be
+ * named twice. A page's identity is `(page_type, scope, slug)`, so the second
+ * group would update the first page rather than create a new one — correct but
+ * wasteful (a page call, and a citation list competing with the first batch's).
+ * Merging is also more truthful: the subject was attested by all of those memories.
+ */
+export function mergeGroups(groups: readonly CurateGroup[]): CurateGroup[] {
+  const bySubject = new Map<string, CurateGroup>();
+  for (const group of groups) {
+    // Same key `parseGroupingResponse` dedupes within one batch with, so two
+    // spellings that slugify alike are one subject here too.
+    const key = slugifySegment(group.subject) || group.subject.trim().toLowerCase();
+    const existing = bySubject.get(key);
+    if (!existing) {
+      bySubject.set(key, { subject: group.subject, memoryIds: [...group.memoryIds] });
+      continue;
+    }
+    const seen = new Set(existing.memoryIds);
+    for (const id of group.memoryIds) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      existing.memoryIds.push(id);
+    }
+  }
+  return [...bySubject.values()];
+}
+
 export function parseGroupingResponse(raw: string, knownIds: ReadonlySet<string>): CurateGroup[] {
   const value = parseJsonValue(raw);
   const list = Array.isArray(value)
@@ -847,24 +900,43 @@ export class KnowledgeCurator {
       return report;
     }
 
-    const groups = parseGroupingResponse(
-      await callLLM({
-        systemPrompt: GROUPING_SYSTEM_PROMPT,
-        userPrompt: formatMemoryLines(candidates),
-        temperature: 0.1,
-        maxTokens: 800,
-        logger: this.logger,
-      }),
-      new Set(candidates.map((memory) => memory.id)),
-    );
-    report.groups = groups.length;
-    if (groups.length === 0) {
+    const groups: CurateGroup[] = [];
+    // One call per batch instead of one call for the whole window: a reasoning
+    // model spends its completion on deliberation, and sixty memories is far more
+    // than it can think through before answering (see GROUPING_BATCH_SIZE).
+    for (let offset = 0; offset < candidates.length; offset += GROUPING_BATCH_SIZE) {
+      if (options.signal?.aborted) {
+        report.aborted = true;
+        break;
+      }
+      const batch = candidates.slice(offset, offset + GROUPING_BATCH_SIZE);
+      const batchGroups = parseGroupingResponse(
+        await callLLM({
+          systemPrompt: GROUPING_SYSTEM_PROMPT,
+          userPrompt: formatMemoryLines(batch),
+          temperature: 0.1,
+          maxTokens: GROUPING_MAX_TOKENS,
+          logger: this.logger,
+        }),
+        new Set(batch.map((memory) => memory.id)),
+      );
+      this.logger.debug(
+        { batch: batch.length, groups: batchGroups.length, offset },
+        'knowledge curate: grouping batch done',
+      );
+      groups.push(...batchGroups);
+    }
+    // The same subject can be named in two batches; one page per subject is the
+    // identity rule, so merge here rather than buying a page call for each.
+    const merged = mergeGroups(groups);
+    report.groups = merged.length;
+    if (merged.length === 0) {
       report.skipped = 'no_groups';
       this.logger.debug({ candidates: candidates.length }, 'knowledge curate: no page candidates');
       return report;
     }
 
-    return this.writeGroups(groups, trigger, callLLM, report, {
+    return this.writeGroups(merged, trigger, callLLM, report, {
       signal: options.signal,
       scope: options.scope,
     });
@@ -933,7 +1005,7 @@ export class KnowledgeCurator {
         systemPrompt: GROUPING_SYSTEM_PROMPT,
         userPrompt: `${MESSAGE_GROUPING_PREFIX}\n${formatMemoryLines([message])}`,
         temperature: 0.1,
-        maxTokens: 800,
+        maxTokens: GROUPING_MAX_TOKENS,
         logger: this.logger,
       }),
       new Set([message.id]),
@@ -1385,7 +1457,7 @@ export class KnowledgeCurator {
         systemPrompt: PAGE_SYSTEM_PROMPT,
         userPrompt: `SUBJECT: ${subject}\n\nMEMORIES:\n${formatMemoryLines(sources)}\n\nEXISTING PAGES:\n${formatPageHints(this.existingPageHints({ pageType, slug }, scope))}`,
         temperature: 0.2,
-        maxTokens: 1200,
+        maxTokens: PAGE_MAX_TOKENS,
         logger: this.logger,
       });
     } catch (err) {
