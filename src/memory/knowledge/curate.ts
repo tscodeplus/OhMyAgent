@@ -1327,17 +1327,25 @@ export class KnowledgeCurator {
    * filter, and in the query order the "counted conversations" rule expects.
    */
   private memoriesByIds(ids: readonly string[]): SourceMemory[] {
-    const placeholders = ids.map(() => '?').join(',');
+    if (ids.length === 0) return [];
     const kinds = [...CANDIDATE_KINDS];
+    const kindPlaceholders = kinds.map(() => '?').join(',');
+    // Its own placeholder list: reusing the kind one bound three kind slots to
+    // however many ids arrived, so the statement's parameter count only matched
+    // when exactly three ids were missing from the subject search. A group citing
+    // four memories the search missed threw "Too few parameter values were
+    // provided" — a runtime failure that appeared the moment curation actually
+    // produced groups.
+    const idPlaceholders = ids.map(() => '?').join(',');
     return this.db
       .prepare(
         `SELECT id, content, scope, scope_key, confidence,
                 CAST(created_at AS INTEGER) AS created_at_ms
            FROM memories
           WHERE status = 'active'
-            AND kind IN (${placeholders})
+            AND kind IN (${kindPlaceholders})
             AND confidence >= ?
-            AND id IN (${placeholders})
+            AND id IN (${idPlaceholders})
           ORDER BY CAST(created_at AS INTEGER) ASC
           LIMIT ?`,
       )

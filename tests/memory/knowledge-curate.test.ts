@@ -516,6 +516,43 @@ describe('KnowledgeCurator', () => {
       ]);
     });
 
+    it('includes a cited memory the subject search missed, without a parameter mismatch', async () => {
+      // The FTS branch of `gatherSources` appends the group's own ids that the
+      // search did not return. `memoriesByIds` used one placeholder list for both
+      // the kind clause and the id clause, so a group citing four memories the
+      // search missed bound 9 parameters against 10 slots and better-sqlite3
+      // refused the statement — after the grouping call, which is why it only
+      // showed up once curation actually produced groups.
+      insertMemory({ id: 'm-hit', content: 'Power Query replaced the manual VLOOKUP ETL' });
+      const missed = ['m-miss-1', 'm-miss-2', 'm-miss-3', 'm-miss-4'];
+      for (const id of missed) {
+        insertMemory({
+          id,
+          content: `ETL 每月手工整理，团队希望自动化 ${id}`,
+          scopeKey: `session-${id}`,
+        });
+      }
+      // Only the first memory is in the index, so the rest arrive via the id list.
+      db.prepare(
+        `INSERT INTO memories_fts_jieba (content, content_original, memory_id, kind, scope, scope_key, created_at)
+         VALUES (?, ?, 'm-hit', 'fact', 'user', 'session-m-hit', '1')`,
+      ).run(
+        'Power Query replaced the manual VLOOKUP ETL',
+        'Power Query replaced the manual VLOOKUP ETL',
+      );
+      responses = [grouping([{ subject: 'Power Query', memoryIds: ['m-hit', ...missed] }]), page()];
+
+      const report = await curator().run();
+
+      expect(report.created).toBe(1);
+      expect(service.writes[0].input.sources).toEqual(
+        expect.arrayContaining([
+          { kind: 'memory', id: 'm-hit' },
+          ...missed.map((id) => ({ kind: 'memory', id })),
+        ]),
+      );
+    });
+
     it('passes the service refusal through by reason', async () => {
       insertMemory({ id: 'm1', content: 'Power Query replaced the manual VLOOKUP ETL' });
       insertMemory({ id: 'm2', content: 'Power Query is used for all ETL here' });
