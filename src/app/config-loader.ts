@@ -687,6 +687,60 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
 }
 
 /**
+ * Map the `notes:` YAML section (MyDocs/NOTES_LAYER_PLAN.md §9).
+ *
+ * Same rule as `knowledge:`: a *missing* section means the layer stays off
+ * rather than taking the schema's `enabled: true` default, because a new
+ * subsystem must not switch itself on during an upgrade. A present block
+ * (even empty) is the opt-in, and both spellings of every key are accepted so
+ * a hand-edited YAML and a WebUI save load identically.
+ */
+function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
+  if (notesCfg == null) return { enabled: false };
+  const captureCfg = notesCfg.capture as YamlNode;
+  const draftCfg = notesCfg.draft as YamlNode;
+  return {
+    enabled: yamlBool(notesCfg.enabled, true, 'notesCfg.enabled'),
+    capture: {
+      modelRef: str(
+        captureCfg?.model_ref ?? captureCfg?.modelRef,
+        '',
+        'notesCfg.capture.model_ref',
+      ),
+      maxNotesPerCapture: num(
+        captureCfg?.max_notes_per_capture ?? captureCfg?.maxNotesPerCapture,
+        3,
+        'notesCfg.capture.max_notes_per_capture',
+      ),
+      windowTurns: num(
+        captureCfg?.window_turns ?? captureCfg?.windowTurns,
+        5,
+        'notesCfg.capture.window_turns',
+      ),
+      tokenBudget: num(
+        captureCfg?.token_budget ?? captureCfg?.tokenBudget,
+        4000,
+        'notesCfg.capture.token_budget',
+      ),
+      includeTools: str(
+        captureCfg?.include_tools ?? captureCfg?.includeTools,
+        'off',
+        'notesCfg.capture.include_tools',
+      ),
+      redact: yamlBool(captureCfg?.redact, true, 'notesCfg.capture.redact'),
+    },
+    draft: {
+      ttlDays: num(draftCfg?.ttl_days ?? draftCfg?.ttlDays, 14, 'notesCfg.draft.ttl_days'),
+    },
+    logRetentionDays: num(
+      notesCfg.log_retention_days ?? notesCfg.logRetentionDays,
+      90,
+      'notesCfg.log_retention_days',
+    ),
+  };
+}
+
+/**
  * Map the `knowledge:` YAML section (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1)
  * into the camelCase shape `knowledgeSectionSchema` expects.
  *
@@ -1139,6 +1193,8 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     archive: buildArchiveSection(root.archive),
 
     knowledge: buildKnowledgeSection(root.knowledge),
+
+    notes: buildNotesSection(root.notes),
 
     // Accept the WebUI's camelCase spelling of the section key as well.
     conversationSearch: buildConversationSearchSection(

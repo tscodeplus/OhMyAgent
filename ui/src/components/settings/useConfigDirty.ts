@@ -153,15 +153,9 @@ export function useConfigDirty(
           'memory.expansion.minQueryLength',
           'memory.expansion.minScoreTrigger',
           'memory.expansion.maxVariants',
-          // Knowledge settings — `z.coerce.number()` would happily accept the
+          // Numeric fields — `z.coerce.number()` would happily accept the
           // string an <Input> hands over, but `jsConfigToYaml()` copies the value
-          // into YAML verbatim (`max_pages_per_run: "5"`), so coerce like every
-          // other numeric field.
-          'knowledge.curate.maxPagesPerRun',
-          'knowledge.curate.requireSources',
-          'knowledge.curate.minMemoryConfidence',
-          'knowledge.logRetentionDays',
-          'knowledge.inject.maxPages',
+          // into YAML verbatim, so coerce like every other numeric field.
           'conversationSearch.autoInjectMaxItems',
           'webSearch.searchTimeoutMs',
           'webSearch.maxResults',

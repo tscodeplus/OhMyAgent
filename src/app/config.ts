@@ -238,6 +238,51 @@ export const judgeSectionSchema = z.object({
 });
 
 /**
+ * The `notes:` section (MyDocs/NOTES_LAYER_PLAN.md §9).
+ *
+ * Notes are distilled from a conversation on demand and reviewed by a human;
+ * this block decides whether the layer runs and how much of a conversation one
+ * capture reads. Every key has a default, and an *absent* YAML section maps to
+ * `enabled: false` in the loader — the same rule `mcp` and `judge` follow, so a
+ * new subsystem cannot switch itself on during an upgrade.
+ *
+ * What is deliberately not configurable: the review gate. `origin='agent'` is
+ * always `draft`, and no key can make distillation land straight in the library.
+ * `capture.auto` (turn-end capture) is likewise absent: an entry point nobody
+ * asked for is a switch with no reader, so it gets added with the feature.
+ */
+export const notesSectionSchema = z
+  .object({
+    /** Master switch: false = no routes, no capture, no distillation. */
+    enabled: z.boolean().default(true),
+    capture: z
+      .object({
+        /** Distillation model; empty = reuse `memory_aux_models`. */
+        modelRef: z.string().default(''),
+        /** Upper bound on drafts one capture may produce. */
+        maxNotesPerCapture: z.coerce.number().int().nonnegative().default(3),
+        /** `recent` window size, in turns. */
+        windowTurns: z.coerce.number().int().min(1).max(20).default(5),
+        /** Token budget for the window; oldest messages are trimmed first. */
+        tokenBudget: z.coerce.number().int().positive().default(4000),
+        /** `args` adds one line per tool call (no results). Off = conclusions only. */
+        includeTools: z.enum(['off', 'args']).default('off'),
+        /** Redact credential-shaped spans before the model sees them. */
+        redact: z.boolean().default(true),
+      })
+      .default({}),
+    draft: z
+      .object({
+        /** Days an unapproved draft survives before hygiene archives it. 0 = never. */
+        ttlDays: z.coerce.number().int().nonnegative().default(14),
+      })
+      .default({}),
+    /** `note_events` retention in days. 0 = keep forever (grows with writes). */
+    logRetentionDays: z.coerce.number().int().nonnegative().default(90),
+  })
+  .default({});
+
+/**
  * The `knowledge:` section (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1, switch table
  * in §6 K2-5). Curated knowledge pages live in SQLite; this block decides
  * whether the layer runs, how strict a page's admission is, whether a write is
@@ -306,6 +351,7 @@ export const conversationSearchSectionSchema = z
   })
   .default({});
 
+export type NotesSectionConfig = z.infer<typeof notesSectionSchema>;
 export type KnowledgeSectionConfig = z.infer<typeof knowledgeSectionSchema>;
 export type ConversationSearchSectionConfig = z.infer<typeof conversationSearchSectionSchema>;
 
@@ -655,6 +701,10 @@ const configSchema = z.object({
   // the same rule `mcp` and `judge` follow), while an explicit block without
   // an `enabled:` key keeps the `enabled: true` default below.
   knowledge: knowledgeSectionSchema,
+  // `notes` carries its own defaults, so a missing YAML section still yields a
+  // fully-formed object here; the loader turns "absent" into `enabled: false`
+  // (same rule as `knowledge`).
+  notes: notesSectionSchema,
   conversationSearch: conversationSearchSectionSchema,
   cron: z
     .object({

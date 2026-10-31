@@ -18,6 +18,14 @@ export interface HygieneConfig {
    * hygiene pass).
    */
   knowledgeLogRetentionDays: number;
+  /**
+   * Days an unapproved note draft survives (`notes.draft.ttl_days`). `0` =
+   * never expire. Expiring a draft archives it (`status_reason: expired`), it
+   * never deletes the row — plan §6.
+   */
+  notesDraftTtlDays: number;
+  /** Retention days for `note_events` (`notes.log_retention_days`). 0 = forever. */
+  notesLogRetentionDays: number;
 }
 
 export interface HygieneReport {
@@ -104,6 +112,8 @@ export class MemoryHygiene {
       checkIntervalMs: this.config.checkIntervalMs ?? 12 * 60 * 60 * 1000,
       lastCheckKey: this.config.lastCheckKey ?? '__hygiene_last_check__',
       knowledgeLogRetentionDays: this.config.knowledgeLogRetentionDays ?? 90,
+      notesDraftTtlDays: this.config.notesDraftTtlDays ?? 14,
+      notesLogRetentionDays: this.config.notesLogRetentionDays ?? 90,
     };
   }
 
@@ -211,6 +221,20 @@ export class MemoryHygiene {
         cleanedKinds['knowledge_log'] = prunedLogRows;
       }
 
+      // Notes: an unapproved draft is a decision that was never made, so it
+      // expires into `archived(expired)` rather than accumulating in the review
+      // queue forever. Archiving, not deleting — the body may still be the only
+      // record of a useful command (plan §6). `note_events` is the same
+      // append-only shape as `knowledge_log`, so it rides the same pass.
+      const expiredDrafts = this.expireNoteDrafts(config.notesDraftTtlDays);
+      if (expiredDrafts > 0) {
+        cleanedKinds['notes.draft'] = expiredDrafts;
+      }
+      const prunedNoteEvents = this.pruneNoteEvents(config.notesLogRetentionDays);
+      if (prunedNoteEvents > 0) {
+        cleanedKinds['note_events'] = prunedNoteEvents;
+      }
+
       // The per-turn injection rows are the same kind of append-only growth —
       // one row per prompt build — so they take the same ride on this pass.
       const prunedInjectionRows = this.pruneInjectionObservations(
@@ -268,6 +292,37 @@ export class MemoryHygiene {
    * that has not run migration-v14 yet (or a build without the knowledge layer)
    * must still get its memory hygiene.
    */
+  /**
+   * Expire stale drafts. Guarded on the tables existing: a database opened
+   * before v31 ran (or a notes-disabled install) must not throw here — the
+   * hygiene pass is shared and must stay independent of the notes layer.
+   */
+  private expireNoteDrafts(ttlDays: number): number {
+    if (ttlDays <= 0) return 0;
+    if (!this.tableExists('notes')) return 0;
+    const cutoff = Date.now() - ttlDays * 24 * 3600_000;
+    const result = this.db
+      .prepare(
+        `UPDATE notes SET status = 'archived', status_reason = 'expired', updated_at = ?
+                WHERE status = 'draft' AND created_at < ?`,
+      )
+      .run(Date.now(), cutoff);
+    return result.changes;
+  }
+
+  private pruneNoteEvents(retentionDays: number): number {
+    if (retentionDays <= 0) return 0;
+    if (!this.tableExists('note_events')) return 0;
+    const cutoff = Date.now() - retentionDays * 24 * 3600_000;
+    return this.db.prepare('DELETE FROM note_events WHERE created_at < ?').run(cutoff).changes;
+  }
+
+  private tableExists(name: string): boolean {
+    return !!this.db
+      .prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?')
+      .get('table', name);
+  }
+
   private pruneKnowledgeLog(retentionDays: number): number {
     if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
 

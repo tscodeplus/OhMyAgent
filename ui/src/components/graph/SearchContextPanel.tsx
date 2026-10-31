@@ -30,6 +30,11 @@ interface SearchContextPanelProps {
    * the CSS defaults), where the sheet stays full-bleed.
    */
   box?: { left: number; width: number } | null;
+  /**
+   * What the subtitle says the focus is. Defaults to "hit in search", which is
+   * true for the search panel and false for any other reader (a note citation).
+   */
+  hint?: string;
 }
 
 /**
@@ -48,7 +53,7 @@ interface SearchContextPanelProps {
  * on large screens it is centred and capped so it still reads as a sheet
  * rather than as a new page.
  */
-export default function SearchContextPanel({ hit, onClose, box }: SearchContextPanelProps) {
+export default function SearchContextPanel({ hit, onClose, box, hint }: SearchContextPanelProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const [context, setContext] = useState<SearchContextResponse | null>(null);
@@ -252,7 +257,7 @@ export default function SearchContextPanel({ hit, onClose, box }: SearchContextP
             </h2>
             <p className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
               {hit.kind === 'message'
-                ? [hit.channel, t('graph.contextHitIn')].filter(Boolean).join(' · ')
+                ? [hit.channel, hint ?? t('graph.contextHitIn')].filter(Boolean).join(' · ')
                 : t(`graph.kinds.${hit.kind}`)}
             </p>
           </div>

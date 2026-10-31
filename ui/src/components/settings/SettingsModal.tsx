@@ -29,7 +29,6 @@ import AgentSettings from './tabs/AgentSettings';
 import ToolsPolicySettings from './tabs/ToolsPolicySettings';
 import WebSearchSettings from './tabs/WebSearchSettings';
 import MemorySettings from './tabs/MemorySettings';
-import KnowledgeSettings from './tabs/KnowledgeSettings';
 import MultimodalSettings from './tabs/MultimodalSettings';
 import ComputerUseSettings from './tabs/ComputerUseSettings';
 import McpSettings from './tabs/McpSettings';
@@ -122,7 +121,6 @@ export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
   // ── ⚙️ 系统 ──
   { id: 'tools', labelKey: 'settings.groups.toolsPolicy', group: 'system', icon: Wrench },
   { id: 'memory', labelKey: 'settings.groups.memory', group: 'system', icon: BrainCircuit },
-  { id: 'knowledge', labelKey: 'settings.groups.knowledge', group: 'system', icon: BookOpen },
   { id: 'gateway', labelKey: 'settings.groups.gateway', group: 'system', icon: Network },
   { id: 'about', labelKey: 'settings.groups.about', group: 'system', icon: Info },
 ] as const;
@@ -145,7 +143,6 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   tools: ToolsPolicySettings,
   websearch: WebSearchSettings,
   memory: MemorySettings,
-  knowledge: KnowledgeSettings,
   multimodal: MultimodalSettings,
   computer: ComputerUseSettings,
   mcp: McpSettings,
@@ -519,11 +516,6 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
             {mountedTabs.has('memory') && (
               <div style={{ display: activeGroup === 'memory' ? undefined : 'none' }}>
                 <MemorySettings {...tabProps} />
-              </div>
-            )}
-            {mountedTabs.has('knowledge') && (
-              <div style={{ display: activeGroup === 'knowledge' ? undefined : 'none' }}>
-                <KnowledgeSettings {...tabProps} />
               </div>
             )}
             {mountedTabs.has('multimodal') && (

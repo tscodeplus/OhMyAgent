@@ -384,6 +384,11 @@ export async function createMemoryServices(
     // loudly: `MemoryHygiene` falls back to its own 90, which is why
     // `knowledge.log_retention_days` never applied.
     knowledgeLogRetentionDays: config.knowledge?.logRetentionDays ?? 90,
+    // Notes take the same ride: drafts expire into `archived`, `note_events`
+    // is pruned. Both default to their schema values even when the layer is off
+    // (the SQL is table-guarded), so enabling notes later needs no restart.
+    notesDraftTtlDays: config.notes?.draft.ttlDays ?? 14,
+    notesLogRetentionDays: config.notes?.logRetentionDays ?? 90,
   };
 
   const memoryHygiene = new MemoryHygiene(memoryRepository, db, hygieneConfig, sceneClusterer, () =>
@@ -560,6 +565,8 @@ export async function createMemoryServices(
   configEventBus.onReload((c) => {
     hygieneConfig.tempRetentionDays = c.memory.hygiene.retentionDays;
     hygieneConfig.knowledgeLogRetentionDays = c.knowledge?.logRetentionDays ?? 90;
+    hygieneConfig.notesDraftTtlDays = c.notes?.draft.ttlDays ?? 14;
+    hygieneConfig.notesLogRetentionDays = c.notes?.logRetentionDays ?? 90;
     knowledgeRuntime.requireSources = c.knowledge?.curate.requireSources ?? 2;
     knowledgeRuntime.minMemoryConfidence = c.knowledge?.curate.minMemoryConfidence ?? 0.6;
     knowledgeRuntime.shadow = c.knowledge?.curate.shadow ?? false;

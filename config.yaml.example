@@ -371,6 +371,21 @@ channels:
 #     enabled: true                 # inject page titles each turn
 #     max_pages: 2                  # titles per turn (the real budget is ≤150 tokens)
 #
+# notes:                            # capture a note from a conversation, review it, keep it
+#   enabled: true                   # master switch: false = no API, no capture, no distillation
+#   capture:
+#     model_ref: ""                 # empty = reuse memory_aux_models (extraction wants a fast model)
+#     max_notes_per_capture: 3      # upper bound on drafts per capture; 0 = no distillation
+#     window_turns: 5               # how much of the conversation one capture reads
+#     token_budget: 4000            # window budget; oldest messages are trimmed first
+#     include_tools: off            # off = conclusions only | args = one line per tool call, no results
+#     redact: true                  # hide credential-shaped spans before the model sees them
+#   draft:
+#     ttl_days: 14                  # unapproved drafts archive after N days; 0 = never
+#   log_retention_days: 90          # note_events horizon; 0 = keep forever
+#   # NOT configurable: review. Agent-distilled content is always a draft until a
+#   # human approves it — that is the layer's contract, not a setting.
+
 # conversation_search:              # episodic retrieval over past messages
 #   enabled: true
 #   auto_inject_max_items: 2        # 0 = no automatic injection (the tool still works)

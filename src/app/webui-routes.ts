@@ -31,6 +31,7 @@ import { registerPublicDownloadRoutes } from './webui/public-download-routes.js'
 import { registerMemoryRoutes } from './webui/memory-routes.js';
 import { registerGraphRoutes } from './webui/graph-routes.js';
 import { registerKnowledgeRoutes } from './webui/knowledge-routes.js';
+import { registerNotesRoutes } from './webui/notes-routes.js';
 import type { KnowledgeStatsSnapshot } from '../commands/command-handler.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
 import { registerApprovalRoutes } from './webui/approval-routes.js';
@@ -275,6 +276,13 @@ export async function registerWebUIRoutes(
       // `curate.require_sources` uses for admission rule 2.
       requireSources: cfg.getConfig().knowledge.curate.requireSources,
     });
+  }
+
+  // Notes API. Registered only while the service exists, so `notes.enabled:
+  // false` means the routes 404 and the WebUI hides the tab — "no service" is
+  // the off switch rather than a second flag read at every call site.
+  if (cfg.services.notesService) {
+    registerNotesRoutes(app, { service: cfg.services.notesService });
   }
 
   registerCronRoutes(app, cfg.services.cronService);

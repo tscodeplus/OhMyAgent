@@ -56,6 +56,7 @@ import { normalizeComputerUseSettings } from '../computer-use/settings.js';
 
 // v4 Phase 5: Orchestrator
 import { createMemoryServices } from './composers/memory-services.js';
+import { createNotesServices } from './composers/notes-services.js';
 import { createPolicyServices } from './composers/policy-services.js';
 import { createToolServices, registerV4ToolDefinitions } from './composers/tool-services.js';
 import { createChannelServices } from './composers/channel-services.js';
@@ -370,6 +371,18 @@ async function runBootstrap(): Promise<BootstrapResult> {
     personaStore,
     knowledgeService,
   } = memoryServices;
+
+  // Notes: capture → distill → draft → human review (MyDocs/NOTES_LAYER_PLAN.md).
+  // Built here rather than inside `createMemoryServices` because notes are not
+  // part of memory — they share the database and the aux model chain only.
+  // `notes.enabled` is the one construction-time switch; every numeric knob is
+  // read per call, so the settings tab does not need a restart.
+  const notesServices = createNotesServices({
+    config,
+    db,
+    logger,
+    auxConfig: memoryServices.auxModelConfig,
+  });
 
   const policyServices = createPolicyServices(config, db);
   const { approvalGate, replyApprovalRegistry, approvalResolution, policyCenter } = policyServices;
@@ -739,6 +752,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
     // K2). Tools, WebUI routes and per-turn injection all read it from here;
     // undefined means the layer is off and every consumer must treat it so.
     knowledgeService,
+    notesService: notesServices.notesService,
     approvalGate,
     skillRegistry,
     skillMetricsService,

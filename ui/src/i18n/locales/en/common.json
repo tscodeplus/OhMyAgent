@@ -9,7 +9,8 @@
     "files": "Files",
     "panels": "Panels",
     "main": "Navigation",
-    "knowledge": "Knowledge Base"
+    "knowledge": "Knowledge Base",
+    "notes": "Notes"
   },
   "tabs": {
     "chat": "Chat",
@@ -19,7 +20,8 @@
     "skills": "Skills",
     "marketplace": "Marketplace",
     "files": "Files",
-    "knowledge": "Knowledge Base"
+    "knowledge": "Knowledge Base",
+    "notes": "Notes"
   },
   "sidebar": {
     "projects": "Chat",
@@ -1835,5 +1837,166 @@
       "thinSources": "single conversation (needs {{required}})",
       "thinSourcesHint": "Every memory this draft cites comes from the same conversation, so it passed admission on the explicit request rule rather than on recurrence. Judge for yourself whether it is actually reusable."
     }
+  },
+  "notes": {
+    "title": "Notes",
+    "newNote": "New note",
+    "draftsButton": "Drafts",
+    "draftsToggleHint": "Show drafts that are not approved yet",
+    "approve": "Approve as a note",
+    "draftHint": "Drafted by the agent — it joins the notes list once you approve it",
+    "discard": "Delete",
+    "searchPlaceholder": "Search notes, commands, pitfalls…",
+    "clear": "Clear",
+    "clearFilters": "Clear filters",
+    "kind": {
+      "command": "Command",
+      "workflow": "Workflow",
+      "pitfall": "Pitfall",
+      "insight": "Insight",
+      "opinion": "Opinion",
+      "reference": "Reference",
+      "decision": "Decision",
+      "other": "Other"
+    },
+    "filter": {
+      "originAll": "Author: all",
+      "originUser": "Author: me",
+      "originAgent": "Author: agent",
+      "channelAll": "Source: all",
+      "projectAll": "Project: all"
+    },
+    "channel": {
+      "feishu": "Feishu",
+      "telegram": "Telegram",
+      "wechat": "WeChat",
+      "qq": "QQ",
+      "webui": "WebUI",
+      "cron": "Cron"
+    },
+    "facet": {
+      "origin": {
+        "user": "Me",
+        "agent": "agent"
+      },
+      "authorHint": "Author comes from the origin column and cannot be edited",
+      "channelHint": "Channel comes from the channel column and cannot be edited",
+      "projectHint": "Project is resolved from scope_key, so renames follow",
+      "scopeHint": "Scope: who can read this note"
+    },
+    "scope": {
+      "user": "Personal",
+      "project": "Project",
+      "channel": "This chat",
+      "session": "This session"
+    },
+    "status": {
+      "active": "Saved",
+      "draft": "Draft",
+      "archived": "Archived",
+      "unsaved": "Unsaved"
+    },
+    "pinned": "Pinned",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "edit": "Edit",
+    "archive": "Archive",
+    "restore": "Restore",
+    "back": "Back",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "open": "Open notes",
+    "copy": "Copy",
+    "ballLabel": "Capture a note",
+    "viewCount": "Viewed {{count}}×",
+    "sourceCount": "{{count}} sources",
+    "traceTitle": "Source",
+    "traceFrom": "From {{where}}",
+    "traceNone": "Hand-written — no messages cited",
+    "sourcesGone": "Original message was cleaned up; the note still works",
+    "relatedTitle": "Related notes",
+    "empty": "No notes yet. Tap the ball in the corner, or press Ctrl+Shift+N.",
+    "emptySearch": "No notes match",
+    "emptyDrafts": "No drafts waiting for approval",
+    "emptyArchived": "No archived notes",
+    "archivedToggle": "Archived {{count}}",
+    "unsaved": {
+      "title": "This note is not saved",
+      "body": "You changed this note but have not saved it. Save it and go back, or drop the changes?",
+      "save": "Save and go back",
+      "discard": "Discard",
+      "cancel": "Keep editing"
+    },
+    "draftCard": {
+      "title": "Note draft",
+      "save": "Approve",
+      "edit": "Edit",
+      "regenerate": "Another take",
+      "discard": "Delete"
+    },
+    "capture": {
+      "title": "Capture a note",
+      "turn": "This turn",
+      "quote": "Just what I said",
+      "manual": "Write it myself",
+      "drafts": "Drafts",
+      "failed": "Nothing usable came out of that — write one by hand?",
+      "noSession": "No conversation is open here — capture from a chat",
+      "working": "Distilling…",
+      "quoteTitle": "Keep this sentence",
+      "quotePlaceholder": "Type the sentence to keep; it is saved as-is",
+      "quoteEmpty": "Write the sentence first",
+      "keep": "Keep"
+    },
+    "editor": {
+      "titlePlaceholder": "Title",
+      "summaryPlaceholder": "One-line summary (lists and prompts use only this)",
+      "tagsPlaceholder": "Tags, comma separated",
+      "bodyPlaceholder": "Body (markdown)",
+      "untitled": "Untitled note",
+      "bold": "Bold",
+      "italic": "Italic",
+      "inlineCode": "Inline code",
+      "heading": "Heading",
+      "bulletList": "Bullet list",
+      "orderedList": "Numbered list",
+      "quote": "Quote",
+      "codeBlock": "Code block",
+      "link": "Link",
+      "undo": "Undo",
+      "redo": "Redo",
+      "linkText": "link text",
+      "modeEdit": "Edit",
+      "modePreview": "Preview",
+      "emptyPreview": "The body is still empty",
+      "saveAndApprove": "Save & approve"
+    },
+    "field": {
+      "command": "Command",
+      "when": "When",
+      "gotcha": "Gotcha",
+      "steps": "Steps",
+      "checkpoint": "Checkpoint",
+      "symptom": "Symptom",
+      "cause": "Cause",
+      "fix": "Fix",
+      "claim": "Claim",
+      "why": "Why",
+      "stance": "Stance",
+      "source": "Source",
+      "subject": "Subject",
+      "usage": "Usage",
+      "limits": "Limits",
+      "decision": "Decision",
+      "context": "Context",
+      "alternatives": "Alternatives"
+    },
+    "loading": "Loading…",
+    "retry": "Retry",
+    "traceUnknown": "Unknown source",
+    "closeHint": "Click again to close",
+    "traceOpen": "View in conversation",
+    "traceCited": "cited by this note"
   }
 }

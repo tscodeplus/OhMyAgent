@@ -1784,6 +1784,10 @@ export default function ChatInput({
 
   return (
     <div
+      // The floating notes ball lifts itself above this element, so it never sits
+      // on top of the send button. Changing this attribute silently reintroduces
+      // that overlap (see `notes/useBallPlacement.ts`).
+      data-notes-avoid=""
       className={`chat-input-theme relative bg-white dark:bg-neutral-950 ${
         centered
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'

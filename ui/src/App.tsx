@@ -10,8 +10,7 @@ import SkillsView from './components/skills/SkillsView';
 import FilesView from './components/files/FilesView';
 import DashboardView from './components/dashboard/DashboardView';
 import MemoryView from './components/memory/MemoryView';
-import KnowledgeHubView from './components/knowledge/KnowledgeHubView';
-import GraphRosterView from './components/graph/GraphRosterView';
+import NotesView from './components/notes/NotesView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest, fetchProjectSessions } from './utils/api';
@@ -131,18 +130,20 @@ export default function App() {
         <Route path="/files" element={<FilesView />} />
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/memory" element={<MemoryView />} />
-        <Route path="/knowledge" element={<Navigate to="/knowledge/pages" replace />} />
-        <Route path="/knowledge/pages" element={<KnowledgeHubView tab="pages" />} />
-        <Route path="/knowledge/pages/:pageId" element={<KnowledgeHubView tab="pages" />} />
-        <Route path="/knowledge/review" element={<KnowledgeHubView tab="review" />} />
-        <Route path="/knowledge/graph" element={<KnowledgeHubView tab="graph" />} />
-        <Route path="/knowledge/graph/:entityId" element={<KnowledgeHubView tab="graph" />} />
-        {/* The graph's enumeration half: the canvas draws a capped slice, so the complete
-            list is its own route rather than a mode of the drawing. */}
-        <Route path="/knowledge/roster" element={<GraphRosterView />} />
-        {/* The graph used to be its own nav entry; bookmarks and old links keep
-            working by landing on the tab it became. */}
-        <Route path="/graph" element={<Navigate to="/knowledge/graph" replace />} />
+        {/* Notes replaced the knowledge hub: pages, the review queue and the
+            entity graph were one surface built around nightly curation, and the
+            feature that is actually used is "capture this conversation into a
+            note" (MyDocs/NOTES_LAYER_PLAN.md). The graph components stay in the
+            tree, un-routed, until it is decided whether they get their own page. */}
+        <Route path="/notes" element={<NotesView />} />
+        {/* `/notes/new` is deliberately not a route of its own: it matches
+            `/notes/:noteId`, which is what lets `useParams` report the id `new` — a
+            static route would match too, but with no params, and the form would
+            then have to sniff `location`. Note ids are `nt_…`, so the word `new`
+            can never be a real note. */}
+        <Route path="/notes/:noteId" element={<NotesView />} />
+        <Route path="/knowledge/*" element={<Navigate to="/notes" replace />} />
+        <Route path="/graph/*" element={<Navigate to="/notes" replace />} />
         <Route path="/cron" element={<CronView />} />
         <Route path="/inbox/:sessionId" element={<InboxView />} />
       </Route>

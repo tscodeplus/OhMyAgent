@@ -10,7 +10,7 @@ import {
   Folder,
   BarChart3,
   Database,
-  Library,
+  NotebookPen,
   Clock,
   ChevronDown,
 } from 'lucide-react';
@@ -27,6 +27,8 @@ import SettingsModal from '../settings/SettingsModal';
 import SetupWizard from '../setup-wizard/SetupWizard';
 import CreateProjectModal from '../project-wizard/CreateProjectModal';
 import DesktopCaption from './DesktopCaption';
+import { NotesProvider } from '../notes/NotesContext';
+import NotesFloatingBall from '../notes/NotesFloatingBall';
 import type { Project } from '../../types/project';
 
 const SIDEBAR_MIN = 200;
@@ -49,10 +51,11 @@ const TOOL_TABS: Tab[] = [
   { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
   { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
   { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
-  // Pages and the entity graph are one surface with three tabs — see
-  // `KnowledgeHubView`. Two sidebar entries for the same corpus meant two search
-  // boxes ranking it differently.
-  { id: 'knowledge', path: '/knowledge', labelKey: 'tabs.knowledge', icon: Library },
+  // Notes replaced the knowledge hub (pages + review queue + entity graph) —
+  // see `MyDocs/NOTES_LAYER_PLAN.md`. The knowledge tab's three sub-pages fed a
+  // corpus nobody curated by hand, while the interaction that gets used is
+  // "capture this conversation".
+  { id: 'notes', path: '/notes', labelKey: 'tabs.notes', icon: NotebookPen },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
   { id: 'dashboard', path: '/dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
 ];
@@ -358,8 +361,8 @@ export default function AppShell() {
         ? t('nav.dashboard')
         : location.pathname.startsWith('/memory')
           ? t('nav.memory')
-          : location.pathname.startsWith('/knowledge')
-            ? t('nav.knowledge')
+          : location.pathname.startsWith('/notes')
+            ? t('nav.notes')
             : location.pathname.startsWith('/cron')
               ? t('nav.cron')
               : location.pathname.startsWith('/inbox')
@@ -576,103 +579,110 @@ export default function AppShell() {
   );
 
   return (
-    <div className="fixed inset-0 flex bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      {/* Mobile overlay — closes sidebar after navigation */}
-      {mobileSidebar && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setMobileSidebar(false)}
-          />
-          <div className="relative h-full w-[85vw] max-w-sm">{sidebarEl}</div>
+    <NotesProvider>
+      <div className="fixed inset-0 flex bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+        {/* Mobile overlay — closes sidebar after navigation */}
+        {mobileSidebar && (
+          <div className="fixed inset-0 z-50 flex md:hidden">
+            <div
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => setMobileSidebar(false)}
+            />
+            <div className="relative h-full w-[85vw] max-w-sm">{sidebarEl}</div>
+          </div>
+        )}
+
+        {/* Desktop sidebar — the width animates between expanded and the 56px rail */}
+        <div
+          className="hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out md:block"
+          style={{ width: sidebarVisible ? sidebarWidth : SIDEBAR_COLLAPSED }}
+        >
+          {sidebarEl}
         </div>
-      )}
 
-      {/* Desktop sidebar — the width animates between expanded and the 56px rail */}
-      <div
-        className="hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out md:block"
-        style={{ width: sidebarVisible ? sidebarWidth : SIDEBAR_COLLAPSED }}
-      >
-        {sidebarEl}
-      </div>
-
-      {/* Main column — phones get a fixed-location top bar (drawer entry +
+        {/* Main column — phones get a fixed-location top bar (drawer entry +
           current page/session title) instead of a floating button that
           overlays page content; desktop keeps content flush at the top
           (browser) or under the drag-region caption strip (desktop shell). */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Mobile top bar — md:hidden. data-topbar identifies the fixed top
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Mobile top bar — md:hidden. data-topbar identifies the fixed top
             strip (session title) so upward popovers (chat model/agent menus)
             can size themselves to stay below it. */}
-        <div
-          data-topbar
-          className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950"
-        >
-          <button
-            type="button"
-            onClick={() => setMobileSidebar(true)}
-            aria-label={t('sidebar.expand')}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          <div
+            data-topbar
+            className="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 pt-safe md:hidden dark:border-neutral-800 dark:bg-neutral-950"
           >
-            <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
-          </button>
-          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
-            {captionText}
-          </span>
-        </div>
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <DesktopCaption mac={isMac} text={captionText} />
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <Outlet />
+            <button
+              type="button"
+              onClick={() => setMobileSidebar(true)}
+              aria-label={t('sidebar.expand')}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-neutral-700 dark:text-neutral-300">
+              {captionText}
+            </span>
           </div>
-        </main>
-      </div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <DesktopCaption mac={isMac} text={captionText} />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <Outlet />
+            </div>
+          </main>
+        </div>
 
-      {/* Chat navigation flyout — slides out beside the collapsed rail so the
+        {/* Chat navigation flyout — slides out beside the collapsed rail so the
           open conversation stays visible; conversation spaces + session list
           for quick switching. Auto-retracts when not in use. */}
-      <div
-        ref={chatNavRef}
-        aria-label={t('sidebar.projects')}
-        className={`absolute inset-y-0 left-0 z-30 hidden w-[300px] flex-col border-r border-neutral-200 bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-out md:flex dark:border-neutral-800 dark:bg-neutral-900 ${
-          chatNavOpen
-            ? 'translate-x-14 opacity-100'
-            : 'pointer-events-none -translate-x-full opacity-0'
-        }`}
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2">
-          <ProjectList
-            refreshKey={refreshKey}
-            onRefresh={() => setRefreshKey((k) => k + 1)}
-            onCreateProject={() => setShowCreateProject(true)}
-          />
-          <InboxSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
-          <ArchiveSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <div
+          ref={chatNavRef}
+          aria-label={t('sidebar.projects')}
+          className={`absolute inset-y-0 left-0 z-30 hidden w-[300px] flex-col border-r border-neutral-200 bg-white shadow-2xl transition-[transform,opacity] duration-200 ease-out md:flex dark:border-neutral-800 dark:bg-neutral-900 ${
+            chatNavOpen
+              ? 'translate-x-14 opacity-100'
+              : 'pointer-events-none -translate-x-full opacity-0'
+          }`}
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-2">
+            <ProjectList
+              refreshKey={refreshKey}
+              onRefresh={() => setRefreshKey((k) => k + 1)}
+              onCreateProject={() => setShowCreateProject(true)}
+            />
+            <InboxSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+            <ArchiveSidebar refreshKey={refreshKey} onChanged={() => setRefreshKey((k) => k + 1)} />
+          </div>
         </div>
-      </div>
 
-      {settingsOpen && (
-        <SettingsModal
-          onClose={() => setSettingsOpen(false)}
-          initialTab={settingsTab ?? undefined}
-          initialSubTab={settingsSubTab ?? undefined}
-        />
-      )}
-      {showSetupWizard && wizardData && (
-        <SetupWizard
-          initialLanguage={wizardData.language}
-          providers={wizardData.providers}
-          onComplete={() => setShowSetupWizard(false)}
-          onDismiss={() => setShowSetupWizard(false)}
-        />
-      )}
-      {showCreateProject && (
-        <CreateProjectModal
-          onClose={() => setShowCreateProject(false)}
-          onCreated={handleProjectCreated}
-        />
-      )}
-    </div>
+        {settingsOpen && (
+          <SettingsModal
+            onClose={() => setSettingsOpen(false)}
+            initialTab={settingsTab ?? undefined}
+            initialSubTab={settingsSubTab ?? undefined}
+          />
+        )}
+        {showSetupWizard && wizardData && (
+          <SetupWizard
+            initialLanguage={wizardData.language}
+            providers={wizardData.providers}
+            onComplete={() => setShowSetupWizard(false)}
+            onDismiss={() => setShowSetupWizard(false)}
+          />
+        )}
+        {showCreateProject && (
+          <CreateProjectModal
+            onClose={() => setShowCreateProject(false)}
+            onCreated={handleProjectCreated}
+          />
+        )}
+
+        {/* The notes ball rides above every page: capture has to be reachable
+          from the conversation where the thing happened, not only from the
+          notes page. Review lives on the notes page — the ball only captures. */}
+        <NotesFloatingBall />
+      </div>
+    </NotesProvider>
   );
 }
 

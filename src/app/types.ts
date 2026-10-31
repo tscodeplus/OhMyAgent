@@ -432,6 +432,13 @@ export interface AppConfig {
    */
   knowledge: import('./config.js').KnowledgeSectionConfig;
   /**
+   * Notes (MyDocs/NOTES_LAYER_PLAN.md §9). Same convention as `knowledge`:
+   * inferred from `notesSectionSchema`, always present, and `enabled` is false
+   * when `config.yaml` has no `notes:` section so an upgrade does not silently
+   * switch the layer on.
+   */
+  notes: import('./config.js').NotesSectionConfig;
+  /**
    * Episodic retrieval over `messages` (same plan section). Inferred from
    * `conversationSearchSectionSchema`; always present, and `enabled` is false
    * when `config.yaml` has no `conversation_search:` section.
@@ -1036,6 +1043,13 @@ export interface AppServices {
    * when `knowledge.enabled` is false or its construction failed.
    */
   knowledgeService?: import('../memory/knowledge/service-contract.js').KnowledgeService;
+  /**
+   * Notes (MyDocs/NOTES_LAYER_PLAN.md). The ONE instance, built by
+   * `createNotesServices` when `notes.enabled`: the WebUI routes are its only
+   * reader today (no tools, no injection — plan §8). Absent means the layer is
+   * off and every consumer must treat a missing service as "no notes API".
+   */
+  notesService?: import('../notes/service-contract.js').NotesService;
 
   // ── Agent ──
   agentFactory: AgentFactory;

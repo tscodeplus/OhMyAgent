@@ -28,6 +28,7 @@ import { migrateV26 } from './migration-v26.js';
 import { migrateV27 } from './migration-v27.js';
 import { migrateV28 } from './migration-v28.js';
 import { migrateV30 } from './migration-v30.js';
+import { migrateV31 } from './migration-v31.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -407,6 +408,15 @@ export function openDatabase(dbPath: string): Database.Database {
     }
   } catch (err) {
     logger.warn({ err }, '[V30] Session summary restore failed — continuing');
+  }
+
+  // V31: the notes tables (MyDocs/NOTES_LAYER_PLAN.md §4). A new table set, so
+  // it runs after applySchema() like v14/v17/v18 — schema.ts owns no DDL for
+  // these tables and therefore has no index that could reference a missing
+  // column. Every statement is IF NOT EXISTS, so a replay is a no-op.
+  const v31Result = migrateV31(db);
+  if (v31Result.created) {
+    logger.info('[V31] Created notes tables (notes, sources, capture runs, events, FTS)');
   }
 
   // Backfill FTS index for memories that are missing from it (first-time
