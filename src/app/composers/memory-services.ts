@@ -37,11 +37,6 @@ import { rebuildJiebaFts } from '../../memory/fts.js';
 import { PersonaDistillationLog } from '../../memory/persona/persona-distillation-log.js';
 import { PersonaAuditService } from '../../memory/persona/persona-audit-service.js';
 import type { openDatabase } from '../../memory/db.js';
-import { createKnowledgeService } from '../../memory/knowledge/service.js';
-import type { KnowledgeService } from '../../memory/knowledge/service-contract.js';
-import { ShareCurationTrigger } from '../../memory/knowledge/share-trigger.js';
-import { scopeFromContext } from '../../memory/knowledge/scope.js';
-import { currentKnowledgeCurator } from '../../commands/command-handler.js';
 import { currentJudgeEngine } from '../../judge/engine-lookup.js';
 
 export interface MemoryServices {
@@ -54,11 +49,6 @@ export interface MemoryServices {
    * connection — `openDatabase()` is not re-entrant on one file.
    */
   database: ReturnType<typeof openDatabase>;
-  /**
-   * Curated knowledge pages (plan §6 K2). Absent when `knowledge.enabled` is
-   * false or construction failed — every consumer must read that as "layer off".
-   */
-  knowledgeService?: KnowledgeService;
   embeddingClient: ReturnType<typeof createEmbeddingClient>;
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
@@ -325,8 +315,7 @@ export async function createMemoryServices(
     embeddingClient,
     embeddingCacheRepo,
     // Shared connection for the derived writes with no repository of their own:
-    // `memory_sources`, `memories.embedding_status`, and re-queueing the
-    // knowledge pages that cite a memory this writer just changed (§8 S1).
+    // `memory_sources` and `memories.embedding_status`.
     db,
     mergeConfig,
     extractionConfig,
@@ -379,11 +368,6 @@ export async function createMemoryServices(
   const hygieneConfig = {
     tempRetentionDays: config.memory.hygiene.retentionDays,
     checkIntervalMs: 12 * 60 * 60 * 1000,
-    // `knowledge_log` grows with write count (a nightly batch of 5 pages is
-    // ~1800 rows a year), so it needs a horizon. Omitting this key did not fail
-    // loudly: `MemoryHygiene` falls back to its own 90, which is why
-    // `knowledge.log_retention_days` never applied.
-    knowledgeLogRetentionDays: config.knowledge?.logRetentionDays ?? 90,
     // Notes take the same ride: drafts expire into `archived`, `note_events`
     // is pruned. Both default to their schema values even when the layer is off
     // (the SQL is table-guarded), so enabling notes later needs no restart.
@@ -542,105 +526,8 @@ export async function createMemoryServices(
     logger,
   });
 
-  // Knowledge pages (plan §6 K2) are built HERE, where the database handle
-  // already exists, so that every consumer — the four tool definitions, the
-  // WebUI page-editor routes, the per-turn `<knowledge_available>` provider and
-  // the nightly curation job — shares ONE instance over ONE connection.
-  //
-  // Failure must never break bootstrap: a broken knowledge layer degrades to
-  // "off" (no service, so no tools/routes/injection) while memory keeps working.
-  let knowledgeService: KnowledgeService | undefined;
-  // The write-time knobs, re-read through a getter by `createKnowledgeService`:
-  // a WebUI edit to `require_sources` / `min_memory_confidence` / `curate.shadow`
-  // applies to the next write instead of the next restart.
-  const knowledgeRuntime = {
-    requireSources: config.knowledge?.curate.requireSources ?? 2,
-    minMemoryConfidence: config.knowledge?.curate.minMemoryConfidence ?? 0.6,
-    shadow: config.knowledge?.curate.shadow ?? false,
-  };
-
-  // One listener for both: the hygiene horizon (prune on a timer) and the
-  // knowledge write knobs (read per write). Everything else about the layer is
-  // fixed at construction — see `KnowledgeServiceDeps.getConfig`.
-  configEventBus.onReload((c) => {
-    hygieneConfig.tempRetentionDays = c.memory.hygiene.retentionDays;
-    hygieneConfig.knowledgeLogRetentionDays = c.knowledge?.logRetentionDays ?? 90;
-    hygieneConfig.notesDraftTtlDays = c.notes?.draft.ttlDays ?? 14;
-    hygieneConfig.notesLogRetentionDays = c.notes?.logRetentionDays ?? 90;
-    knowledgeRuntime.requireSources = c.knowledge?.curate.requireSources ?? 2;
-    knowledgeRuntime.minMemoryConfidence = c.knowledge?.curate.minMemoryConfidence ?? 0.6;
-    knowledgeRuntime.shadow = c.knowledge?.curate.shadow ?? false;
-  });
-  // `?.` on purpose: `AppConfig` declares `knowledge` as always present, but
-  // createMemoryServices is also called with hand-built partial configs (the
-  // bootstrap tests build one object per scenario). An absent block means the
-  // layer is off — the same rule the config loader applies to a missing YAML
-  // section — not a crash during bootstrap.
-  if (config.knowledge?.enabled) {
-    try {
-      knowledgeService = createKnowledgeService({
-        db,
-        config: {
-          enabled: config.knowledge.enabled,
-          requireSources: config.knowledge.curate.requireSources,
-          minMemoryConfidence: config.knowledge.curate.minMemoryConfidence,
-          shadow: config.knowledge.curate.shadow,
-          logRetentionDays: config.knowledge.logRetentionDays,
-        },
-        getConfig: () => knowledgeRuntime,
-        logger,
-      });
-      logger.info('Knowledge service initialized (knowledge pages are editable and searchable)');
-    } catch (err) {
-      logger.warn(
-        { err },
-        'Knowledge service init failed — knowledge tools, routes and injection stay off',
-      );
-    }
-  }
-
-  // Share curation (plan §6 K2-5, the half nobody types a command for): a user
-  // message that carries a link becomes at most one page, through the same
-  // `curateMessage` call `/knowledge share` makes. `share-trigger.ts` carries the
-  // seam argument (message repository, not the four channel extensions and not
-  // the turn path).
-  //
-  // Installed only when the layer is usable: with no `knowledgeService` there is
-  // nothing a trigger could reach, so a disabled install pays exactly zero — no
-  // listener, no URL test, no resolver call. `curate.mode: off` is deliberately
-  // NOT part of this check: the mode is hot-reloadable and this composer is not
-  // re-run on reload, so registering on it would leave the trigger dead after the
-  // operator switches curation back on. The trigger reads the live mode from
-  // `curator.limits` on every fire instead.
-  //
-  // The curator is resolved lazily through `currentKnowledgeCurator()` (the
-  // resolver `createSchedulers` installs after this composer runs), which is why
-  // this needs no ordering between the two composers.
-  //
-  // The scope a shared link's page belongs to comes from the session row the
-  // message was stored in: a message carries only `session_id`, while the channel
-  // and the transport chat handle are on `sessions` (v9). `scopeFromContext`
-  // prefers the chat over the session, so a group chat's page stays readable in
-  // that group and not in every other conversation on this database.
-  if (knowledgeService) {
-    const shareTrigger = new ShareCurationTrigger({
-      logger,
-      getCurator: currentKnowledgeCurator,
-      scopeOfSession: (sessionId) => {
-        const session = sessionRepository.findById(sessionId);
-        return scopeFromContext({
-          channel: session?.channel,
-          chatId: session?.external_chat_id,
-          sessionId,
-        });
-      },
-    });
-    messageRepository.onUserMessage((message) => shareTrigger.observeUserMessage(message));
-  }
-
   return {
     database: db,
-    knowledgeService,
     embeddingClient,
     memoryRepository,
     embeddingRepository,

@@ -206,48 +206,8 @@ export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapa
       pathAccess: 'none',
       approvalDefault: 'mutating',
     },
-    // Knowledge pages and message transcripts live in SQLite, so these are
-    // file-less even though they read data: `readsFiles: true` would push them
-    // through the filesystem path sandbox. They must be listed here rather than
-    // registered at runtime — the fail-closed default below (mutating /
-    // writesFiles) would otherwise demand approval for every read.
-    knowledge_search: {
-      category: 'memory',
-      readOnly: true,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'none',
-    },
-    knowledge_get: {
-      category: 'memory',
-      readOnly: true,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'none',
-    },
-    // Persistent, shared knowledge: same approval level as `file_write`.
-    knowledge_write: {
-      category: 'memory',
-      readOnly: false,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'mutating',
-    },
-    // The graph is the same read tier as the knowledge pages: file-less SQLite
-    // reads, no approval, and `readOnly` so a policy patch cannot treat it as a
-    // write surface.
+    // The graph is a file-less SQLite read: no approval, and `readOnly` so a
+    // policy patch cannot treat it as a write surface.
     entity_query: {
       category: 'memory',
       readOnly: true,
@@ -260,8 +220,7 @@ export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapa
       approvalDefault: 'none',
     },
     // A session tool like `session_summarize`, not a memory tool: it reads raw
-    // transcripts rather than the memory layer's curated tier, even though it is
-    // listed next to the knowledge rows above.
+    // transcripts rather than the memory layer's curated tier.
     session_search: {
       category: 'session',
       readOnly: true,

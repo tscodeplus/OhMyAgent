@@ -369,7 +369,6 @@ async function runBootstrap(): Promise<BootstrapResult> {
     approvalRequestRepo,
     approvalDecisionRepository,
     personaStore,
-    knowledgeService,
   } = memoryServices;
 
   // Notes: capture → distill → draft → human review (MyDocs/NOTES_LAYER_PLAN.md).
@@ -748,10 +747,6 @@ async function runBootstrap(): Promise<BootstrapResult> {
     messageRepository,
     episodeRepository,
     toolRunRepository,
-    // Knowledge pages: the one instance built in createMemoryServices (plan §6
-    // K2). Tools, WebUI routes and per-turn injection all read it from here;
-    // undefined means the layer is off and every consumer must treat it so.
-    knowledgeService,
     notesService: notesServices.notesService,
     approvalGate,
     skillRegistry,

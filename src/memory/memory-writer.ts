@@ -16,7 +16,6 @@ import { redactSecrets } from './memory-filter.js';
 import type { MemoryAccessPolicy } from './memory-access-policy.js';
 import { PreferenceConflictResolver, detectTopic } from './write/preference-conflict-resolver.js';
 import { errorForObservation, hashForObservation, memoryObservability } from './observability.js';
-import { invalidatePagesCitingMemory } from './knowledge/memory-page-invalidation.js';
 
 export interface WriteOptions {
   id?: string;
@@ -262,9 +261,6 @@ export class MemoryWriter {
                       // Content changed → terms + embedding must be recomputed,
                       // otherwise retrieval scores the row against its old text.
                       await this.refreshDerivedData(existing.id, result.mergedContent);
-                      // …and every knowledge page that cites this memory now
-                      // quotes the superseded text (plan §8 S1).
-                      await this.invalidateCitedKnowledgePages(existing.id, 'update');
                       this.notifyMemoryChanged(result.mergedContent, kind, options.scope, scopeKey);
                       this.mergeConfig?.logger.info(
                         { memoryId: existing.id, similarity: similar.score },
@@ -411,13 +407,6 @@ export class MemoryWriter {
     // NOTE: session summaries are incremental (each covers only the messages
     // since the last episode), so they are windows, not generations — none of
     // them supersedes another.
-    // A memory row exists under this id again, so any page citing the id is
-    // citing text that has just been replaced (plan §8 S1). Only a caller that
-    // supplied the id (import/backfill) can land here with citations already
-    // pointing at it — a generated id cannot have any — so the query is skipped
-    // on the ordinary create path, which runs on every memory write.
-    if (options.id) await this.invalidateCitedKnowledgePages(memory.id, 'write');
-
     // 3.1. For preferences: resolve topic conflicts with the new resolver.
     // Must happen AFTER creation so the new memory exists in DB.
     // Uses action='update' (not 'delete') for superseded preferences to avoid
@@ -443,13 +432,6 @@ export class MemoryWriter {
                 'update',
               );
             }
-            // §8 S1, review finding F3: a superseded row is NOT deleted, so a page
-            // citing it kept `active` and kept asserting the retracted claim —
-            // and the S2 doctor check could not see it either, because it looks
-            // for rows that no longer exist. This is the correction path for the
-            // five topics §3.1 deliberately keeps as `preference`, which is also
-            // the most curatable kind.
-            await this.invalidateCitedKnowledgePages(supersededId, 'update');
           }
           this.mergeConfig?.logger.info(
             {
@@ -522,20 +504,6 @@ export class MemoryWriter {
       supersededBy,
       warnings: warnings.length > 0 ? warnings : undefined,
     };
-  }
-
-  /**
-   * Re-queue the knowledge pages that cite a memory whose text this write
-   * created or changed (plan §8 S1). Never throws: a stale page is a stale
-   * page, not a reason to lose the memory.
-   */
-  private async invalidateCitedKnowledgePages(
-    memoryId: string,
-    cause: 'write' | 'update',
-  ): Promise<void> {
-    const db = this.db;
-    if (!db) return;
-    await invalidatePagesCitingMemory(db, memoryId, cause, this.mergeConfig?.logger);
   }
 
   private notifyMemoryChanged(

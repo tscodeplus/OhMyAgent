@@ -30,9 +30,8 @@ import { registerFilesRoutes } from './webui/files-routes.js';
 import { registerPublicDownloadRoutes } from './webui/public-download-routes.js';
 import { registerMemoryRoutes } from './webui/memory-routes.js';
 import { registerGraphRoutes } from './webui/graph-routes.js';
-import { registerKnowledgeRoutes } from './webui/knowledge-routes.js';
+import { registerSearchRoutes } from './webui/search-routes.js';
 import { registerNotesRoutes } from './webui/notes-routes.js';
-import type { KnowledgeStatsSnapshot } from '../commands/command-handler.js';
 import { registerCronRoutes } from './webui/cron-routes.js';
 import { registerApprovalRoutes } from './webui/approval-routes.js';
 import { registerSubscriptionRoutes } from './subscription/subscription-routes.js';
@@ -148,18 +147,6 @@ export async function registerWebUIRoutes(
     isRunning: (sessionId) => cfg.services.agentService.isRunning(sessionId),
   });
 
-  /**
-   * Knowledge pages (plan §6 K2). The service is NOT built here: it is the one
-   * instance `createMemoryServices` constructs next to the database handle, so
-   * the tool definitions, the per-turn injection provider, the `/knowledge`
-   * chat command and the page-editor routes below cannot drift into reading and
-   * writing through different objects. Gated on `knowledge.enabled` upstream —
-   * absent means the layer is off, and an editor or command over a frozen table
-   * would be dead ends. `curate.mode: off` is NOT this switch: it freezes
-   * writing and keeps reading, which is exactly what these routes exist to serve.
-   */
-  const knowledgeService = cfg.services.knowledgeService;
-
   const chatConfig: ChatRouteConfig = {
     agentService: cfg.services.agentService,
     projectStore,
@@ -190,8 +177,6 @@ export async function registerWebUIRoutes(
         const newConfig = loadConfig();
         cfg.onConfigSaved?.(newConfig);
       },
-      knowledgeService,
-      knowledgeStats: knowledgeService ? () => countKnowledgePages(cfg.db) : undefined,
     },
     commandRegistry: cfg.services.commandRegistry,
     wsManager: undefined,
@@ -250,33 +235,21 @@ export async function registerWebUIRoutes(
     sceneBaseDir: cfg.getConfig().memory.offloading?.refDir || './data',
   });
 
-  // Read-only knowledge-graph API + unified search. Reuses the memory
-  // retriever so /api/search ranks memories like chat recall does.
+  // Read-only knowledge-graph API.
   registerGraphRoutes(app, {
     db: cfg.db,
-    memoryRetriever: cfg.services.memoryRetriever,
     getFooterConfig: () => cfg.getConfig().footer,
     decayHalfLifeDays: cfg.getConfig().memory.graph?.decay_half_life_days ?? 0,
-    // The knowledge lane of `/api/search`. Without it the fused search silently
-    // loses its page leg — and with it the page-wins dedupe — while every test
-    // still passes, because the tests register the service themselves.
-    ...(knowledgeService ? { knowledge: knowledgeService } : {}),
     graphEnabled: () => cfg.getConfig().memory.graph?.enabled ?? true,
   });
 
-  // Knowledge-page API (plan §6 K2 and §12 item 4). Pages live in SQLite, so the
-  // WebUI editor is an API rather than a file path; the service owns the
-  // transaction, the FTS sync and the version check. Registered only while the
-  // layer is enabled — see `knowledgeService` above.
-  if (knowledgeService) {
-    registerKnowledgeRoutes(app, {
-      db: cfg.db,
-      service: knowledgeService,
-      // Threshold the review queue should measure drafts against — the same number
-      // `curate.require_sources` uses for admission rule 2.
-      requireSources: cfg.getConfig().knowledge.curate.requireSources,
-    });
-  }
+  // Unified search (`/api/search`, `/api/search/context`). Reuses the memory
+  // retriever so memories rank here exactly like chat recall.
+  registerSearchRoutes(app, {
+    db: cfg.db,
+    memoryRetriever: cfg.services.memoryRetriever,
+    getFooterConfig: () => cfg.getConfig().footer,
+  });
 
   // Notes API. Registered only while the service exists, so `notes.enabled:
   // false` means the routes 404 and the WebUI hides the tab — "no service" is
@@ -324,39 +297,4 @@ export async function registerWebUIRoutes(
   }
 
   return { wsManager, bridgeRegistry };
-}
-
-/**
- * Row counts for `/knowledge stats` (`CommandDeps.knowledgeStats`).
- *
- * The `KnowledgeService` contract has no aggregate accessor and its `list` is
- * paginated, so a count taken through it would silently cap at the page size.
- * This reads the counts from the table instead — the same reason
- * `GET /api/knowledge/stats` queries it. A database created before
- * migration-v14 has no `knowledge_pages` table, which answers "no pages" rather
- * than throwing on a stats command.
- */
-function countKnowledgePages(db: Database.Database): KnowledgeStatsSnapshot {
-  const grouped = (sql: string): Record<string, number> => {
-    const counts: Record<string, number> = {};
-    for (const row of db.prepare(sql).all() as Array<{ key: string; n: number | string }>) {
-      counts[row.key] = Number(row.n);
-    }
-    return counts;
-  };
-
-  try {
-    const total = (
-      db.prepare('SELECT COUNT(*) AS n FROM knowledge_pages').get() as { n: number | string }
-    ).n;
-    return {
-      total: Number(total),
-      byStatus: grouped('SELECT status AS key, COUNT(*) AS n FROM knowledge_pages GROUP BY status'),
-      byPageType: grouped(
-        'SELECT page_type AS key, COUNT(*) AS n FROM knowledge_pages GROUP BY page_type',
-      ),
-    };
-  } catch {
-    return { total: 0, byStatus: {}, byPageType: {} };
-  }
 }

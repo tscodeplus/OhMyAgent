@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Fastify from 'fastify';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../../../src/memory/db';
-import { registerGraphRoutes } from '../../../src/app/webui/graph-routes';
+import { registerSearchRoutes } from '../../../src/app/webui/search-routes';
 import { loadMessageContext } from '../../../src/app/webui/session-message-view';
 import { MessageRepository } from '../../../src/memory/repositories/message-repository';
 
@@ -29,7 +29,7 @@ describe('search context route', () => {
     db = openDatabase(':memory:');
     seed();
     app = Fastify({ logger: false });
-    registerGraphRoutes(app, { db });
+    registerSearchRoutes(app, { db });
     await app.ready();
   });
 

@@ -424,16 +424,8 @@ export interface AppConfig {
    */
   archive?: ArchiveSectionConfig;
   /**
-   * Curated knowledge pages (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1). The shape
-   * is inferred from `knowledgeSectionSchema` in src/app/config.ts, which
-   * defaults every key, so the section is always present in the parsed config;
-   * `enabled` is false when `config.yaml` has no `knowledge:` section, which
-   * leaves the layer inert (no tools, no curation job, no injection).
-   */
-  knowledge: import('./config.js').KnowledgeSectionConfig;
-  /**
-   * Notes (MyDocs/NOTES_LAYER_PLAN.md §9). Same convention as `knowledge`:
-   * inferred from `notesSectionSchema`, always present, and `enabled` is false
+   * Notes (MyDocs/NOTES_LAYER_PLAN.md §9). Inferred from `notesSectionSchema`,
+   * always present, and `enabled` is false
    * when `config.yaml` has no `notes:` section so an upgrade does not silently
    * switch the layer on.
    */
@@ -1036,13 +1028,6 @@ export interface AppServices {
   messageRepository: MessageRepository;
   episodeRepository: EpisodeRepository;
   toolRunRepository: ToolRunRepository;
-  /**
-   * Curated knowledge pages (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §6 K2). The ONE
-   * instance, built in `createMemoryServices` alongside the database handle, so
-   * the tools, the WebUI routes and the per-turn injection share it. Absent
-   * when `knowledge.enabled` is false or its construction failed.
-   */
-  knowledgeService?: import('../memory/knowledge/service-contract.js').KnowledgeService;
   /**
    * Notes (MyDocs/NOTES_LAYER_PLAN.md). The ONE instance, built by
    * `createNotesServices` when `notes.enabled`: the WebUI routes are its only

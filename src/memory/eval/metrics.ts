@@ -1,5 +1,5 @@
 /**
- * The report contract for `src/memory/eval/knowledge-eval.ts` (plan §6 K0).
+ * The report contract for the retrieval evaluation harness (plan §6 K0).
  *
  * Every field below is actually computed by that runner. The previous
  * declaration of this interface listed `recallPrecisionAtK` / `personaFreshness`

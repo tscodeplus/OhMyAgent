@@ -5,7 +5,7 @@
  * `graph:reset` → `graph:mine` → `graph:sync` sequence: `memory:<id>` placeholder
  * nodes, `MENTIONED` co-occurrence edges, subject-less `memory_links` rows — plus
  * the things that must survive it (a real `FOUNDED` edge with a real subject, a
- * real entity, a memory, a knowledge page).
+ * real entity, a memory).
  *
  * Two properties are load-bearing here. `migrateV17` is a *replay*: every
  * migration in this project runs on every `openDatabase()`, so a second run must
@@ -21,7 +21,6 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema';
 import { migrateV10 } from '../../src/memory/migration-v10';
-import { migrateV14 } from '../../src/memory/migration-v14';
 import { migrateV17 } from '../../src/memory/migration-v17';
 import { openDatabase } from '../../src/memory/db';
 import { EntityRepository } from '../../src/memory/repositories/entity-repository';
@@ -58,7 +57,6 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
     db.pragma('foreign_keys = ON');
     applySchema(db);
     migrateV10(db);
-    migrateV14(db);
     repo = new EntityRepository(db);
   });
 
@@ -146,7 +144,6 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       edges: edges(),
       links: links(),
       memories: db.prepare('SELECT id, content, status FROM memories ORDER BY id').all(),
-      pages: db.prepare('SELECT id, slug, status FROM knowledge_pages ORDER BY id').all(),
     });
   }
 
@@ -229,12 +226,6 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       relation: 'USES',
       confidence: 0.6,
     });
-
-    // Knowledge pages are a different store; the cleanup may not touch them.
-    db.prepare(
-      `INSERT INTO knowledge_pages (id, page_type, slug, title, content, status, created_at, updated_at)
-       VALUES ('page-1', 'topic', 'graph', 'Graph', 'body', 'active', ?, ?)`,
-    ).run(NOW, NOW);
   }
 
   it('turns the pre-K3 shape into the post-migration shape', () => {
@@ -314,15 +305,12 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
     expect(links().every((row) => (row.subject_entity ?? '') !== '')).toBe(true);
   });
 
-  it('never deletes a memory, a knowledge page or a real entity', () => {
+  it('never deletes a memory or a real entity', () => {
     seedLegacyDatabase();
 
     migrateV17(db);
 
     expect(db.prepare('SELECT COUNT(*) AS cnt FROM memories').get()).toEqual({ cnt: 4 });
-    expect(db.prepare('SELECT id, slug, status FROM knowledge_pages').all()).toEqual([
-      { id: 'page-1', slug: 'graph', status: 'active' },
-    ]);
     expect(entities().filter((row) => row.entity_type === LEGACY_PLACEHOLDER_ENTITY_TYPE)).toEqual(
       [],
     );
@@ -560,9 +548,8 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
   });
 
   /**
-   * A build from before the graph feature existed: no graph tables, no
-   * knowledge tables, `memory_links` without a subject, `sessions` without a
-   * channel. `openDatabase()` has to upgrade it in one call, with v17 running in
+   * A build from before the graph feature existed: no graph tables,
+   * `memory_links` without a subject, `sessions` without a channel. `openDatabase()` has to upgrade it in one call, with v17 running in
    * the same open() that creates `entities`/`entity_edges`.
    */
   function writePreGraphDatabase(file: string, memoryCount: number): void {
@@ -633,7 +620,6 @@ describe('migration-v17: repairing the pre-K3 graph', () => {
       // and must have left them empty instead of erroring or projecting.
       expect(count(opened, 'SELECT COUNT(*) AS cnt FROM entities')).toBe(0);
       expect(count(opened, 'SELECT COUNT(*) AS cnt FROM entity_edges')).toBe(0);
-      expect(count(opened, 'SELECT COUNT(*) AS cnt FROM knowledge_pages')).toBe(0);
       // v15 added the column and v17 did not fill it: 123 links stay unsubjected
       // until graph_sync runs.
       expect(count(opened, 'SELECT COUNT(*) AS cnt FROM memory_links')).toBe(123);

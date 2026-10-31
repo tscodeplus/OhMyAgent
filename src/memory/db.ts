@@ -12,18 +12,12 @@ import { migrateV10 } from './migration-v10.js';
 import { migrateV11 } from './migration-v11.js';
 import { migrateV12 } from './migration-v12.js';
 import { migrateV13 } from './migration-v13.js';
-import { migrateV14 } from './migration-v14.js';
 import { migrateV15 } from './migration-v15.js';
 import { migrateV16 } from './migration-v16.js';
 import { migrateV17 } from './migration-v17.js';
 import { migrateV18 } from './migration-v18.js';
 import { migrateV19 } from './migration-v19.js';
-import { migrateV20 } from './migration-v20.js';
-import { migrateV21 } from './migration-v21.js';
-import { migrateV22 } from './migration-v22.js';
 import { migrateV23 } from './migration-v23.js';
-import { migrateV24 } from './migration-v24.js';
-import { migrateV25 } from './migration-v25.js';
 import { migrateV26 } from './migration-v26.js';
 import { migrateV27 } from './migration-v27.js';
 import { migrateV28 } from './migration-v28.js';
@@ -219,16 +213,6 @@ export function openDatabase(dbPath: string): Database.Database {
   // layer is used, so an install that ignores it pays only the DDL.
   migrateV10(db);
 
-  // V14 migration: the knowledge layer (knowledge_pages / knowledge_sources /
-  // knowledge_links / knowledge_log / knowledge_fts_jieba). Runs AFTER
-  // applySchema because it is all new tables — nothing schema.ts references — so
-  // there is no column for an upgraded database to be missing. The whole layer is
-  // inert until the knowledge tools write to it.
-  const v14Result = migrateV14(db);
-  if (v14Result.created.length > 0) {
-    logger.info(`[V14] Knowledge migration: created: ${v14Result.created.join(', ')}`);
-  }
-
   // V17 migration: repair legacy graph DATA (no schema change) — delete the
   // pre-K3 `memory:<id>` placeholder nodes, the `MENTIONED` co-occurrence edges
   // and the orphan edges, backfill `memory_links.subject_entity`, then project.
@@ -282,82 +266,6 @@ export function openDatabase(dbPath: string): Database.Database {
       `[V19] merged ${v19Result.merged} duplicate node(s), rewrote ` +
         `${v19Result.renamedCanonical} canonical name(s)`,
     );
-  }
-
-  // V20: the page index gets a searchable title (v14 marked it UNINDEXED, so
-  // BM25 could only measure bodies) and knowledge_links gets the to_page_id
-  // index a backlink needs. After applySchema like v14/v17/v18/v19: it reworks
-  // the table v14 created and adds no column for schema.ts to reference. The
-  // recreate is guarded by the table's own DDL, so it runs once per database
-  // rather than on every open (see the module comment).
-  const v20Result = migrateV20(db);
-  if (v20Result.rebuiltFts) {
-    logger.info(
-      `[V20] Knowledge migration: rebuilt knowledge_fts_jieba with the title indexed ` +
-        `(${v20Result.indexedPages} page(s) re-indexed)`,
-    );
-  }
-  if (v20Result.createdIndexes.length > 0) {
-    logger.info(`[V20] Knowledge migration: created: ${v20Result.createdIndexes.join(', ')}`);
-  }
-
-  // V21: the page graph meets the entity graph. `knowledge_pages.entity_id`
-  // points a page at the entity node its title folds to; `knowledge_links`
-  // gains the predicate derived from the target's page_type. After applySchema
-  // like v14/v20 — both tables are v14's, so schema.ts references neither
-  // column and there is nothing for an upgraded database to be missing. Both
-  // backfills are NULL-only and count-guarded, so a migrated database pays one
-  // read-only COUNT per open.
-  const v21Result = migrateV21(db);
-  if (v21Result.added.length > 0) {
-    logger.info(`[V21] Knowledge migration: added columns: ${v21Result.added.join(', ')}`);
-  }
-  if (v21Result.pagesLinked > 0 || v21Result.linksTyped > 0) {
-    logger.info(
-      `[V21] Knowledge migration: linked ${v21Result.pagesLinked} page(s) to entities, ` +
-        `typed ${v21Result.linksTyped} page link(s)`,
-    );
-  }
-
-  // V22 scopes a page to the conversation that wrote it: `knowledge_pages.scope`
-  // defaults to 'global' (today's behaviour for every existing row) and the slug
-  // uniqueness widens from (page_type, slug) to (page_type, scope, slug) so two
-  // chats can hold the same subject. After applySchema like v20/v21, because the
-  // table is v14's. Idempotent by PRAGMA inspection, so a migrated database pays
-  // two cheap reads per open.
-  const v22Result = migrateV22(db);
-  if (v22Result.added.length > 0 || v22Result.created.length > 0) {
-    logger.info(
-      `[V22] Knowledge migration: added ${v22Result.added.join(', ') || 'nothing'}, ` +
-        `rebuilt ${v22Result.created.join(', ') || 'no index'}`,
-    );
-  }
-
-  // V24 stores the page title's comparison key (`normalized_title`, folded by the
-  // same `normalizeMergeName` the merge candidates use) so the name leg of
-  // `knowledge_search` is an indexed prefix over a column instead of a
-  // `lower(trim(title)) LIKE` expression scan, with a count-guarded backfill of
-  // existing rows. After applySchema like v20/v21/v22 for the same reason: the
-  // table is v14's, `schema.ts` references none of it, and the column cannot
-  // exist before the table does.
-  const v24Result = migrateV24(db);
-  if (v24Result.added.length > 0 || v24Result.created.length > 0 || v24Result.backfilled > 0) {
-    logger.info(
-      `[V24] Knowledge migration: added ${v24Result.added.join(', ') || 'nothing'}, ` +
-        `created ${v24Result.created.join(', ') || 'no index'}, ` +
-        `backfilled ${v24Result.backfilled} title(s)`,
-    );
-  }
-
-  // V25 gives a rejected draft a cause the reviewer can pick and a place for their
-  // own words: `knowledge_log.note`, beside the reason code that `knowledge_log.reason`
-  // already stores (the code stays groupable, the sentence stays out of the tally).
-  // After applySchema like v20/v21/v22/v24 for the same reason — the table is
-  // v14's — and guarded by `PRAGMA table_info`, so a migrated database pays two
-  // cheap reads per open and nothing else.
-  const v25Result = migrateV25(db);
-  if (v25Result.added.length > 0) {
-    logger.info(`[V25] Knowledge migration: added columns: ${v25Result.added.join(', ')}`);
   }
 
   // V26 indexes `memory_links.subject_entity`, which v15 added without one. Every

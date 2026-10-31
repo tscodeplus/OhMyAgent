@@ -19,8 +19,6 @@ import { loadConfig } from '../config.js';
 import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
-import { KnowledgeCurator, buildKnowledgeCurateConfig } from '../../memory/knowledge/curate.js';
-import type { KnowledgeCurateConfig } from '../../memory/knowledge/curate.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CronDeliveryRegistry } from '../../cron/delivery-registry.js';
 import { CronStore } from '../../cron/store.js';
@@ -29,7 +27,6 @@ import { CronScheduler } from '../../cron/scheduler.js';
 import { CronService } from '../../cron/service.js';
 import { CollectingReplyDispatcher } from '../../cron/collecting-dispatcher.js';
 import { configEventBus } from '../config-event-bus.js';
-import { setKnowledgeCuratorResolver } from '../../commands/command-handler.js';
 import type { MemoryServices } from './memory-services.js';
 
 export interface SchedulerServices {
@@ -82,34 +79,6 @@ function createCronAgentRunner(agentService: AgentService, modelName: string): A
       agentService.destroyRuntime(sessionId);
     },
   };
-}
-
-/**
- * `knowledge.curate` → the shape the curator takes.
- *
- * The mapping itself lives in `curate.ts` (`buildKnowledgeCurateConfig`) because
- * the on-demand backfill (`pnpm knowledge:curate`) builds a curator too, and two
- * mappings of the same six knobs is how a CLI ends up using thresholds the
- * nightly phase does not. What stays here is the one thing only the composer
- * knows: where the live `AuxModelConfig` lives.
- */
-function knowledgeCurateConfig(
-  config: AppConfig,
-  auxModelConfig: AuxModelConfig,
-): KnowledgeCurateConfig {
-  const curate = config.knowledge.curate;
-  return buildKnowledgeCurateConfig(
-    {
-      enabled: config.knowledge.enabled,
-      mode: curate.mode,
-      shadow: curate.shadow,
-      maxPagesPerRun: curate.maxPagesPerRun,
-      requireSources: curate.requireSources,
-      minMemoryConfidence: curate.minMemoryConfidence,
-      modelRef: curate.modelRef,
-    },
-    () => auxModelConfig,
-  );
 }
 
 export function createSchedulers(input: {
@@ -260,25 +229,6 @@ export function createSchedulers(input: {
     logger,
   };
 
-  // ── Knowledge curation (plan §6 K2-5, entry point 1) ──────────────────
-  // DreamCycle's `knowledge_curate` phase is a no-op without a curator, so this
-  // is the only line that makes `curate.mode: nightly` do anything. The instance
-  // is built from the one `knowledgeService` the tools and the WebUI routes read,
-  // so a curation write goes through the same service over the same connection.
-  // `knowledge.enabled: false` (or a failed service build) leaves no service,
-  // hence no curator, hence no writes — the phase stays inert, not half-wired.
-  const knowledgeCurator = memory.knowledgeService
-    ? new KnowledgeCurator({
-        db,
-        knowledgeService: memory.knowledgeService,
-        logger,
-        config: knowledgeCurateConfig(config, memory.auxModelConfig),
-      })
-    : undefined;
-  // `/knowledge curate` runs this same object with the `manual` trigger; it is
-  // composed before the command deps exist, hence the resolver (§6 K2-5 entry 2).
-  setKnowledgeCuratorResolver(() => knowledgeCurator);
-
   const dreamCycle = new DreamCycle(
     dreamCycleConfig,
     db,
@@ -291,7 +241,6 @@ export function createSchedulers(input: {
     memory.sceneClusterer,
     mergeConfig,
     logger,
-    knowledgeCurator,
   );
 
   const cronStore = new CronStore(config.cron.dataDir);

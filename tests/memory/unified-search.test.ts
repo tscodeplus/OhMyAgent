@@ -1,22 +1,18 @@
 /**
- * `unified-search.ts` — the K5 fusion point for the message / memory /
- * knowledge lanes.
+ * `unified-search.ts` — the fusion point for the message / memory lanes.
  *
  * Everything here runs against the real database (`openDatabase(':memory:')`,
- * i.e. the real migration chain) and the real `conversation-search.ts` +
- * `KnowledgeService`, because the property that matters most is provenance:
- * the page→memory dedupe only exists if `knowledge_sources` rows are readable
- * through the service. A stubbed lane would test the merge arithmetic and
- * nothing else.
+ * i.e. the real migration chain) and the real `conversation-search.ts`, because
+ * the property that matters most is that the two lanes are fused by rank and not
+ * by their own arithmetic. A stubbed message lane would test the merge
+ * arithmetic and nothing else.
  *
  * Covered:
  *   - fan-out: every configured lane contributes hits, each tagged with its
  *     lane, and each lane reports its own count;
- *   - provenance dedupe (plan §6 K2-3.1 same-source rule): a memory cited by a
- *     returned page is dropped from the memory lane and recorded;
  *   - ordering: fused score is non-increasing, equal-rank ties follow the
- *     documented lane order (`message` → `memory` → `knowledge`);
- *   - empty result: no hits, no lane errors, nothing deduped;
+ *     documented lane order (`message` → `memory`);
+ *   - empty result: no hits, no lane errors;
  *   - lane failure: one broken lane degrades to an error report instead of
  *     failing the search;
  *   - unconfigured lanes are absent, not empty-with-errors.
@@ -26,18 +22,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../../src/memory/db.js';
 import { MessageRepository } from '../../src/memory/repositories/message-repository.js';
-import { createKnowledgeService } from '../../src/memory/knowledge/service.js';
-import type { KnowledgeService } from '../../src/memory/knowledge/service-contract.js';
 import { unifiedSearch } from '../../src/memory/unified-search.js';
 import type { RetrievedMemory } from '../../src/memory/memory-retriever.js';
 
 const SESSION_ID = 's-unified';
 const MESSAGE_HIT_ID = 'm-hit';
-const MEMORY_CITED = 'mem-cited-by-page';
-const MEMORY_FREE = 'mem-not-on-any-page';
+const MEMORY_A = 'mem-a';
+const MEMORY_B = 'mem-b';
 
 let db: Database.Database;
-let knowledge: KnowledgeService;
 
 beforeEach(() => {
   db = openDatabase(':memory:');
@@ -63,27 +56,12 @@ beforeEach(() => {
     created_at: 1_700_000_001_000,
   });
 
-  // Citation targets: a page may only cite rows that exist (the anonymous
-  // anti-hallucination gate), so the memories are seeded before the page.
   const insertMemory = db.prepare(
     `INSERT INTO memories (id, scope, scope_key, kind, content, confidence, created_at, updated_at)
      VALUES (?, 'user', 'user-1', 'fact', ?, 0.9, '1700000000000', '1700000000000')`,
   );
-  insertMemory.run(MEMORY_CITED, 'Excel ETL uses Power Query instead of manual VLOOKUP');
-  insertMemory.run(MEMORY_FREE, 'unrelated memory that no page cites');
-
-  knowledge = createKnowledgeService({ db });
-  const created = knowledge.create(
-    {
-      pageType: 'topic',
-      slug: 'excel-etl',
-      title: 'Excel ETL',
-      content: 'Excel ETL 用 Power Query 替代手工 VLOOKUP。',
-      sources: [{ kind: 'memory', id: MEMORY_CITED }],
-    },
-    { actor: 'agent' },
-  );
-  expect(created.ok).toBe(true);
+  insertMemory.run(MEMORY_A, 'Excel ETL uses Power Query instead of manual VLOOKUP');
+  insertMemory.run(MEMORY_B, 'another memory the retriever may return');
 });
 
 afterEach(() => {
@@ -98,7 +76,7 @@ function memoryRetriever(memories: RetrievedMemory[]) {
 function seededMemories(): RetrievedMemory[] {
   return [
     {
-      id: MEMORY_CITED,
+      id: MEMORY_A,
       content: 'Excel ETL uses Power Query instead of manual VLOOKUP',
       scope: 'user',
       kind: 'fact',
@@ -106,8 +84,8 @@ function seededMemories(): RetrievedMemory[] {
       createdAt: 1_700_000_000_000,
     },
     {
-      id: MEMORY_FREE,
-      content: 'unrelated memory that no page cites',
+      id: MEMORY_B,
+      content: 'another memory the retriever may return',
       scope: 'user',
       kind: 'fact',
       score: 0.41,
@@ -117,151 +95,27 @@ function seededMemories(): RetrievedMemory[] {
 }
 
 describe('unifiedSearch: lane fan-out', () => {
-  it('returns hits from all three lanes, each attributed to its lane', async () => {
+  it('returns hits from both lanes, each attributed to its lane', async () => {
     const result = await unifiedSearch({
       query: 'excel',
       messages: { db },
       memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
       perLaneLimit: 5,
     });
 
+    expect(result.hits.some((hit) => hit.lane === 'message')).toBe(true);
+    expect(result.hits.some((hit) => hit.lane === 'memory')).toBe(true);
     expect(result.lanes.message.hits).toBeGreaterThan(0);
-    expect(result.lanes.memory.hits).toBeGreaterThan(0);
-    expect(result.lanes.knowledge.hits).toBeGreaterThan(0);
-
-    const lanes = new Set(result.hits.map((hit) => hit.lane));
-    expect(lanes).toEqual(new Set(['message', 'memory', 'knowledge']));
-
-    for (const hit of result.hits) {
-      expect(hit.key).toBe(`${hit.lane}:${hit.ref}`);
-      expect(hit.laneRank).toBeGreaterThanOrEqual(1);
-      expect(hit.laneScore).toBeGreaterThanOrEqual(0);
-      expect(hit.laneScore).toBeLessThanOrEqual(1);
-      expect(hit.score).toBeGreaterThan(0);
-    }
-
-    const messageHit = result.hits.find((hit) => hit.lane === 'message');
-    expect(messageHit).toMatchObject({ ref: MESSAGE_HIT_ID, sessionId: SESSION_ID });
-    const knowledgeHit = result.hits.find((hit) => hit.lane === 'knowledge');
-    expect(knowledgeHit).toMatchObject({ slug: 'excel-etl', pageType: 'topic' });
+    expect(result.lanes.memory.hits).toBe(2);
+    // The fusion key is lane-prefixed, so no id can appear twice.
+    expect(new Set(result.hits.map((hit) => hit.key)).size).toBe(result.hits.length);
   });
 
   it('leaves an unconfigured lane out without reporting an error', async () => {
-    const result = await unifiedSearch({
-      query: 'excel',
-      messages: { db },
-      perLaneLimit: 5,
-    });
+    const result = await unifiedSearch({ query: 'excel', messages: { db } });
 
     expect(result.hits.every((hit) => hit.lane === 'message')).toBe(true);
     expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
-    expect(result.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
-  });
-});
-
-describe('unifiedSearch: provenance dedupe', () => {
-  it('drops a memory the returned page cites, and says which page covers it', async () => {
-    const result = await unifiedSearch({
-      query: 'excel',
-      messages: { db },
-      memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-    });
-
-    const memoryRefs = result.hits.filter((hit) => hit.lane === 'memory').map((hit) => hit.ref);
-    expect(memoryRefs).not.toContain(MEMORY_CITED);
-    expect(memoryRefs).toContain(MEMORY_FREE);
-
-    expect(result.deduped).toEqual([
-      {
-        lane: 'memory',
-        ref: MEMORY_CITED,
-        reason: 'cited_by_knowledge_page',
-        pageSlug: 'excel-etl',
-      },
-    ]);
-    expect(result.lanes.memory).toMatchObject({ hits: 2, dropped: 1 });
-
-    // The page keeps its provenance, so the drop is explainable from the result.
-    const page = result.hits.find((hit) => hit.lane === 'knowledge');
-    expect(page && page.lane === 'knowledge' && page.memoryIds).toEqual([MEMORY_CITED]);
-  });
-
-  it('drops nothing when no page covers the memories', async () => {
-    const result = await unifiedSearch({
-      query: 'excel',
-      memories: { retriever: memoryRetriever(seededMemories()) },
-      perLaneLimit: 5,
-    });
-
-    expect(result.deduped).toEqual([]);
-    expect(result.lanes.memory).toEqual({ hits: 2, dropped: 0 });
-  });
-
-  // ── §8 S1: the newer copy wins, not unconditionally the page ──
-
-  it('keeps a memory that was corrected after the page citing it was written', async () => {
-    // The page was written "now"; the memory is corrected a minute later. Before
-    // revision A3 the page won this outright and the stale body reached the
-    // prompt.
-    const corrected = Date.now() + 60_000;
-    const memories: RetrievedMemory[] = seededMemories().map((memory) =>
-      memory.id === MEMORY_CITED ? { ...memory, updatedAt: corrected } : memory,
-    );
-
-    const result = await unifiedSearch({
-      query: 'excel',
-      messages: { db },
-      memories: { retriever: memoryRetriever(memories) },
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-    });
-
-    const memoryRefs = result.hits.filter((hit) => hit.lane === 'memory').map((hit) => hit.ref);
-    expect(memoryRefs).toContain(MEMORY_CITED);
-    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(false);
-    expect(result.deduped).toEqual([
-      {
-        lane: 'knowledge',
-        ref: expect.any(String),
-        reason: 'superseded_by_cited_memory',
-        pageSlug: 'excel-etl',
-      },
-    ]);
-    expect(result.lanes.knowledge).toMatchObject({ dropped: 1 });
-  });
-
-  it('keeps the page when the memory has no timestamp to compare', async () => {
-    // An unmeasurable memory cannot win: "unknown" is not "newer".
-    const result = await unifiedSearch({
-      query: 'excel',
-      memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-    });
-
-    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(true);
-    expect(result.deduped.map((record) => record.reason)).toEqual(['cited_by_knowledge_page']);
-  });
-
-  it('does not drop a page for a citation the search did not return', async () => {
-    // MEMORY_CITED is cited by the page but absent from this result set, so there
-    // is no evidence the page is stale — dropping it would lose both copies.
-    const memories: RetrievedMemory[] = [
-      { ...seededMemories()[1]!, updatedAt: Date.now() + 60_000 },
-    ];
-
-    const result = await unifiedSearch({
-      query: 'excel',
-      memories: { retriever: memoryRetriever(memories) },
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-    });
-
-    expect(result.hits.some((hit) => hit.lane === 'knowledge')).toBe(true);
-    expect(result.deduped).toEqual([]);
   });
 });
 
@@ -271,33 +125,26 @@ describe('unifiedSearch: ordering', () => {
       query: 'excel',
       messages: { db },
       memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
       perLaneLimit: 5,
     });
 
     const scores = result.hits.map((hit) => hit.score);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
 
-    // Every lane's best hit fuses to the same score, so the documented lane
-    // order decides: raw text, then memory, then page.
-    expect(result.hits.slice(0, 3).map((hit) => hit.lane)).toEqual([
-      'message',
-      'memory',
-      'knowledge',
-    ]);
+    // Both lanes' best hits fuse to the same score, so the documented lane
+    // order decides: raw text before memory.
+    expect(result.hits.slice(0, 2).map((hit) => hit.lane)).toEqual(['message', 'memory']);
     expect(result.hits[0]!.laneRank).toBe(1);
   });
 
-  it('ranks a neighbourhood row below every real hit of the other lanes', async () => {
+  it('ranks a neighbourhood row below the real hit it was quoted with', async () => {
     const result = await unifiedSearch({
       query: 'excel',
       messages: { db },
-      knowledge: { service: knowledge },
       perLaneLimit: 5,
     });
 
     const messageHits = result.hits.filter((hit) => hit.lane === 'message');
-    expect(messageHits).toHaveLength(2);
     // conversation-search returns hits chronologically; fusion re-ranks the
     // BM25 hit above the score-0 neighbour it was quoted with.
     const neighbour = messageHits.find((hit) => hit.lane === 'message' && hit.expanded)!;
@@ -313,46 +160,45 @@ describe('unifiedSearch: empty and failing lanes', () => {
       query: '完全无关的查询词 xyzzy',
       messages: { db },
       memories: { retriever: memoryRetriever([]) },
-      knowledge: { service: knowledge },
     });
 
     expect(result.hits).toEqual([]);
-    expect(result.deduped).toEqual([]);
     expect(result.lanes).toEqual({
       message: { hits: 0, dropped: 0 },
       memory: { hits: 0, dropped: 0 },
-      knowledge: { hits: 0, dropped: 0 },
     });
   });
 
   it('returns an empty result for an empty query without touching the lanes', async () => {
-    const retriever = { retrieve: async () => seededMemories() };
+    let called = false;
+    const retriever = {
+      retrieve: async () => {
+        called = true;
+        return seededMemories();
+      },
+    };
     const result = await unifiedSearch({ query: '   ', memories: { retriever }, messages: { db } });
 
     expect(result.hits).toEqual([]);
-    expect(result.lanes.message.hits).toBe(0);
+    expect(called).toBe(false);
   });
 
   it('reports a broken lane and still answers with the others', async () => {
-    const broken: Pick<KnowledgeService, 'search' | 'get'> = {
-      search: () => {
-        throw new Error('no such table: knowledge_fts_jieba');
-      },
-      get: () => null,
-    };
-
     const result = await unifiedSearch({
       query: 'excel',
       messages: { db },
-      memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: broken },
-      perLaneLimit: 5,
+      memories: {
+        retriever: {
+          retrieve: async () => {
+            throw new Error('vector store down');
+          },
+        },
+      },
     });
 
-    expect(result.lanes.knowledge.error).toContain('knowledge_fts_jieba');
-    expect(result.lanes.knowledge.hits).toBe(0);
-    expect(result.hits.some((hit) => hit.lane === 'message')).toBe(true);
-    expect(result.hits.some((hit) => hit.lane === 'memory')).toBe(true);
+    expect(result.lanes.memory.error).toContain('vector store down');
+    expect(result.lanes.message.hits).toBeGreaterThan(0);
+    expect(result.hits.every((hit) => hit.lane === 'message')).toBe(true);
   });
 });
 
@@ -363,7 +209,6 @@ describe('unifiedSearch: lane set', () => {
       lanes: ['message'],
       messages: { db },
       memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
       perLaneLimit: 5,
     });
 
@@ -372,98 +217,99 @@ describe('unifiedSearch: lane set', () => {
     // A lane that was not asked for is indistinguishable from a lane that
     // matched nothing: `{ hits: 0, dropped: 0 }` and no `error`.
     expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
-    expect(result.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
   });
 
-  it('runs message + knowledge without the memory lane', async () => {
+  it('runs the memory lane alone when it is the only one asked for', async () => {
     const result = await unifiedSearch({
       query: 'excel',
-      lanes: ['message', 'knowledge'],
+      lanes: ['memory'],
       messages: { db },
       memories: { retriever: memoryRetriever(seededMemories()) },
-      knowledge: { service: knowledge },
       perLaneLimit: 5,
     });
 
-    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['message', 'knowledge']));
-    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
-    expect(result.deduped).toEqual([]);
+    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['memory']));
+    expect(result.lanes.message).toEqual({ hits: 0, dropped: 0 });
   });
 
   it('does not run a lane that is named but has no options', async () => {
     const result = await unifiedSearch({
       query: 'excel',
-      lanes: ['message', 'knowledge'],
+      lanes: ['message', 'memory'],
       messages: { db },
       perLaneLimit: 5,
     });
 
     expect(result.hits.every((hit) => hit.lane === 'message')).toBe(true);
-    // Named without a service to query = not run, and not an error.
-    expect(result.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
+    // Named without a retriever to ask = not run, and not an error.
+    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
   });
 
   it('defaults to every configured lane when no set is given', async () => {
     const result = await unifiedSearch({
       query: 'excel',
       messages: { db },
-      knowledge: { service: knowledge },
+      memories: { retriever: memoryRetriever(seededMemories()) },
       perLaneLimit: 5,
     });
 
-    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['message', 'knowledge']));
-    expect(result.lanes.memory).toEqual({ hits: 0, dropped: 0 });
+    expect(new Set(result.hits.map((hit) => hit.lane))).toEqual(new Set(['message', 'memory']));
   });
 
   it('applies a per-lane allowance without lowering the shared per-lane limit', async () => {
-    const second = knowledge.create(
-      {
-        pageType: 'topic',
-        slug: 'excel-etl-second',
-        title: 'Excel ETL, second page',
-        content: 'Excel ETL 的第二个页面：Power Query 之后再接 Python。',
-        sources: [{ kind: 'memory', id: MEMORY_FREE }],
+    const asked: Array<number | undefined> = [];
+    const result = await unifiedSearch({
+      query: 'excel',
+      messages: { db },
+      memories: {
+        retriever: {
+          retrieve: async (options) => {
+            asked.push(options.topK);
+            return seededMemories();
+          },
+        },
       },
-      { actor: 'agent' },
-    );
-    expect(second.ok).toBe(true);
-
-    const capped = await unifiedSearch({
-      query: 'excel',
-      lanes: ['knowledge'],
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-      perLaneLimits: { knowledge: 1 },
-    });
-    const uncapped = await unifiedSearch({
-      query: 'excel',
-      lanes: ['knowledge'],
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
+      limit: 10,
+      perLaneLimit: 10,
+      perLaneLimits: { memory: 1 },
     });
 
-    expect(capped.lanes.knowledge.hits).toBe(1);
-    expect(uncapped.lanes.knowledge.hits).toBe(2);
-    expect(capped.hits).toHaveLength(1);
+    // The allowance is what the lane is asked for, not a post-filter: the
+    // retriever is the thing that spends the work.
+    expect(asked).toEqual([1]);
+    expect(result.lanes.memory.hits).toBe(2);
+    expect(result.lanes.message.hits).toBeGreaterThan(0);
+  });
+
+  it('clamps the final list to `limit` while each lane keeps its own allowance', async () => {
+    const result = await unifiedSearch({
+      query: 'excel',
+      messages: { db },
+      memories: { retriever: memoryRetriever(seededMemories()) },
+      limit: 1,
+      perLaneLimit: 5,
+    });
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.lanes.memory.hits).toBe(2);
+    expect(result.lanes.message.hits).toBeGreaterThan(0);
   });
 });
 
 describe('unifiedSearch: deterministic ordering', () => {
   it('orders equal lane ranks message-first and repeats identically', async () => {
-    const options = {
-      query: 'excel',
-      lanes: ['message', 'knowledge'] as const,
-      messages: { db },
-      knowledge: { service: knowledge },
-      perLaneLimit: 5,
-    };
+    const run = () =>
+      unifiedSearch({
+        query: 'excel',
+        messages: { db },
+        memories: { retriever: memoryRetriever(seededMemories()) },
+        perLaneLimit: 5,
+      });
 
-    const first = await unifiedSearch({ ...options, lanes: [...options.lanes] });
-    const second = await unifiedSearch({ ...options, lanes: [...options.lanes] });
+    const first = await run();
+    const second = await run();
 
-    // Same-ranks fuse to the same score, so the documented lane order decides —
-    // raw text before a curated page.
-    expect(first.hits.slice(0, 2).map((hit) => hit.lane)).toEqual(['message', 'knowledge']);
+    expect(first.hits[0]!.lane).toBe('message');
     expect(first.hits.map((hit) => hit.key)).toEqual(second.hits.map((hit) => hit.key));
   });
 });

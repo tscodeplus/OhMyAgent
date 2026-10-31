@@ -18,14 +18,13 @@ import Fastify from 'fastify';
 import type Database from 'better-sqlite3';
 import { openDatabase } from '../../../src/memory/db';
 import { registerGraphRoutes } from '../../../src/app/webui/graph-routes';
+import { registerSearchRoutes } from '../../../src/app/webui/search-routes';
 import { EntityRepository } from '../../../src/memory/repositories/entity-repository';
 import { MemoryRepository } from '../../../src/memory/repositories/memory-repository';
 import { EmbeddingRepository } from '../../../src/memory/repositories/embedding-repository';
 import { EmbeddingCacheRepo } from '../../../src/memory/repositories/embedding-cache-repository';
 import { MemoryRetriever } from '../../../src/memory/memory-retriever';
 import { tokenizeForIndex } from '../../../src/memory/fts-tokenizer';
-import { createKnowledgeService } from '../../../src/memory/knowledge/service';
-import type { KnowledgeService } from '../../../src/memory/knowledge/service-contract';
 
 describe('knowledge-graph routes', () => {
   let db: Database.Database;
@@ -50,7 +49,8 @@ describe('knowledge-graph routes', () => {
     seedGraph();
     app = Fastify({ logger: false });
     retriever = createRetriever(db);
-    registerGraphRoutes(app, { db, memoryRetriever: retriever });
+    registerGraphRoutes(app, { db });
+    registerSearchRoutes(app, { db, memoryRetriever: retriever });
     await app.ready();
   });
 
@@ -537,23 +537,6 @@ describe('knowledge-graph routes', () => {
 
     it('reports connectivity, mentions and components from the stored graph', async () => {
       seedStatsExtras();
-      // One page bound to a conversation, linking to an archived one: a link a
-      // reader cannot follow, which is what `danglingLinks` counts.
-      db.prepare(
-        `INSERT INTO knowledge_pages
-           (id, page_type, slug, title, content, version, status, scope, created_at, updated_at)
-         VALUES ('p-scoped', 'topic', 'scoped', 'Scoped', 'body', 1, 'active', 'channel:c1', 1, 1)`,
-      ).run();
-      db.prepare(
-        `INSERT INTO knowledge_pages
-           (id, page_type, slug, title, content, version, status, scope, created_at, updated_at)
-         VALUES ('p-gone', 'topic', 'gone', 'Gone', 'body', 1, 'archived', 'global', 1, 1)`,
-      ).run();
-      db.prepare(
-        `INSERT INTO knowledge_links (from_page_id, to_page_id, created_at)
-         VALUES ('p-scoped', 'p-gone', 1)`,
-      ).run();
-
       const response = await app.inject({ method: 'GET', url: '/api/memory/graph/stats' });
       expect(response.statusCode).toBe(200);
 
@@ -589,8 +572,6 @@ describe('knowledge-graph routes', () => {
             ],
           },
         ],
-        danglingLinks: 1,
-        scopedPages: 1,
         // Alphabetical among equal counts: every seeded relation type has one row,
         // and the retracted `was_at` still counts as vocabulary — it is a relation
         // a caller may legitimately ask about with `asOf`.
@@ -653,18 +634,6 @@ describe('knowledge-graph routes', () => {
       }
     });
 
-    it('omits the knowledge diagnostics when those tables do not exist', async () => {
-      db.exec('DROP TABLE knowledge_links; DROP TABLE knowledge_pages');
-
-      const payload = (await app.inject({ method: 'GET', url: '/api/memory/graph/stats' })).json();
-
-      // Absent, not zero: an install without the knowledge layer has no answer to
-      // give, and "0 dangling links" would be a claim it cannot make.
-      expect(payload).not.toHaveProperty('danglingLinks');
-      expect(payload).not.toHaveProperty('scopedPages');
-      expect(payload.nodes).toBe(5);
-    });
-
     it('is not shadowed by /api/memory/:id or by /api/memory/graph', async () => {
       const shared = Fastify({ logger: false });
       shared.get('/api/memory/:id', async (_request, reply) => reply.send({ shadowed: true }));
@@ -698,51 +667,6 @@ describe('knowledge-graph routes', () => {
       expect(payload.entity.id).toBe(ids.alice);
       expect(payload.entity.entity_type).toBe('person');
       expect(payload.aliases).toEqual(['艾丽丝']);
-      // The page layer is off for `app`, so the section is served empty rather
-      // than half-rendered against routes that do not exist.
-      expect(payload.pages).toEqual([]);
-    });
-
-    it('lists the active pages whose title folds to this entity', async () => {
-      new MemoryRepository(db).create({
-        id: 'mem-alice',
-        scope: 'user',
-        scope_key: 'user-1',
-        kind: 'fact',
-        content: 'Alice likes tea',
-      });
-      const knowledge = createKnowledgeService({ db });
-      const created = knowledge.create(
-        {
-          pageType: 'entity',
-          slug: 'alice',
-          title: 'Alice',
-          content: 'Alice 喜欢茶。',
-          sources: [{ kind: 'memory', id: 'mem-alice' }],
-        },
-        { actor: 'agent' },
-      );
-      expect(created.ok).toBe(true);
-
-      const wired = Fastify({ logger: false });
-      registerGraphRoutes(wired, { db, knowledge });
-      await wired.ready();
-
-      try {
-        const payload = (
-          await wired.inject({ method: 'GET', url: `/api/memory/entity/${ids.alice}` })
-        ).json();
-        expect(payload.pages).toHaveLength(1);
-        expect(payload.pages[0]).toMatchObject({ title: 'Alice', slug: 'alice' });
-
-        // Nothing on Bob: a page belongs to the node its title folded to.
-        const bob = (
-          await wired.inject({ method: 'GET', url: `/api/memory/entity/${ids.bob}` })
-        ).json();
-        expect(bob.pages).toEqual([]);
-      } finally {
-        await wired.close();
-      }
     });
 
     it('404s for an unknown entity id', async () => {
@@ -917,7 +841,7 @@ describe('knowledge-graph routes', () => {
 
     it('answers entities and messages only when no memory retriever is wired', async () => {
       const bareApp = Fastify({ logger: false });
-      registerGraphRoutes(bareApp, { db });
+      registerSearchRoutes(bareApp, { db });
       await bareApp.ready();
 
       try {
@@ -936,35 +860,22 @@ describe('knowledge-graph routes', () => {
 
       const response = await app.inject({ method: 'GET', url: '/api/search?q=nothingmatches' });
       expect(response.statusCode).toBe(200);
-      // `q` and `results` are the original contract; `pages` / `lanes` / `deduped`
-      // are additive and stay well-formed when nothing matched.
+      // `q` and `results` are the original contract; `lanes` and `hints` are
+      // additive and stay well-formed when nothing matched.
       expect(response.json()).toEqual({
         q: 'nothingmatches',
         // Additive: the graph's view of the returned memories. `[]` here is the
         // ordinary answer on an empty graph, not an error.
         hints: [],
         results: [],
-        pages: [],
         lanes: {
           message: { hits: 0, dropped: 0 },
           memory: { hits: 0, dropped: 0 },
-          knowledge: { hits: 0, dropped: 0 },
         },
-        deduped: [],
       });
     });
 
     // ─── K5: the ranking comes from unifiedSearch(), not from this handler ───
-
-    /** A second app with the knowledge lane wired — `app` stays the layer-off case. */
-    async function appWithKnowledge(
-      knowledge: Pick<KnowledgeService, 'search' | 'get'>,
-    ): Promise<ReturnType<typeof Fastify>> {
-      const wired = Fastify({ logger: false });
-      registerGraphRoutes(wired, { db, memoryRetriever: retriever, knowledge });
-      await wired.ready();
-      return wired;
-    }
 
     function seedMemory(id: string, content: string, kind = 'preference'): void {
       new MemoryRepository(db).create({
@@ -975,95 +886,6 @@ describe('knowledge-graph routes', () => {
         content,
       });
     }
-
-    /**
-     * One active page. `sources` must resolve to real rows — a page with no
-     * citation is refused by the same anti-hallucination gate — so a test that
-     * wants no page-wins dedupe cites a message instead of a memory.
-     */
-    function seedPage(
-      knowledge: KnowledgeService,
-      slug: string,
-      content: string,
-      sources: Array<{ kind: 'memory' | 'message'; id: string }>,
-    ): void {
-      const created = knowledge.create(
-        { pageType: 'topic', slug, title: `Alice 的偏好 (${slug})`, content, sources },
-        { actor: 'agent' },
-      );
-      expect(created.ok).toBe(true);
-    }
-
-    it('answers from all three lanes and reports what each contributed', async () => {
-      seedMemory('mem-alice', 'Alice prefers dark mode');
-      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
-      const knowledge = createKnowledgeService({ db });
-      seedPage(knowledge, 'alice-topic', 'Alice 偏好深色主题。', [
-        { kind: 'message', id: 'msg-alice' },
-      ]);
-
-      const wired = await appWithKnowledge(knowledge);
-      try {
-        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
-        expect(response.statusCode).toBe(200);
-        const payload = response.json();
-
-        // Lane attribution: every lane says how many rows it returned.
-        expect(payload.lanes.message.hits).toBeGreaterThan(0);
-        expect(payload.lanes.memory.hits).toBeGreaterThan(0);
-        expect(payload.lanes.knowledge.hits).toBeGreaterThan(0);
-
-        const resultKinds = payload.results.map((result: { kind: string }) => result.kind);
-        expect(resultKinds).toContain('message');
-        expect(resultKinds).toContain('memory');
-
-        // Pages ride in their own array, in the row shape the UI already renders.
-        expect(payload.pages).toHaveLength(1);
-        expect(payload.pages[0]).toMatchObject({ kind: 'knowledge', title: expect.any(String) });
-        expect(payload.pages[0].title).toContain('Alice');
-        expect(payload.deduped).toEqual([]);
-
-        // One ordering across the fused lanes: within a kind the scores descend.
-        const scores = payload.results.map((result: { score: number }) => result.score);
-        expect([...scores].sort((a: number, b: number) => b - a)).toEqual(scores);
-      } finally {
-        await wired.close();
-      }
-    });
-
-    it('drops a memory the returned page cites, and says which page covers it', async () => {
-      seedMemory('mem-cited', 'Alice prefers dark mode');
-      const knowledge = createKnowledgeService({ db });
-      seedPage(knowledge, 'alice-topic', 'Alice 偏好深色主题。', [
-        { kind: 'memory', id: 'mem-cited' },
-      ]);
-
-      const wired = await appWithKnowledge(knowledge);
-      try {
-        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
-        expect(response.statusCode).toBe(200);
-        const payload = response.json();
-
-        const memoryIds = payload.results
-          .filter((result: { kind: string }) => result.kind === 'memory')
-          .map((result: { id: string }) => result.id);
-        // Page wins: the memory it was curated from is not a second answer.
-        expect(memoryIds).not.toContain('mem-cited');
-        expect(payload.deduped).toEqual([
-          {
-            lane: 'memory',
-            id: 'mem-cited',
-            reason: 'cited_by_knowledge_page',
-            page_slug: 'alice-topic',
-          },
-        ]);
-        expect(payload.lanes.memory).toEqual({ hits: 1, dropped: 1 });
-        expect(payload.pages).toHaveLength(1);
-        expect(payload.pages[0].title).toContain('alice-topic');
-      } finally {
-        await wired.close();
-      }
-    });
 
     it('keeps the original response shape for a memory-only query', async () => {
       seedMemory('mem-alice', 'Alice prefers dark mode');
@@ -1078,16 +900,8 @@ describe('knowledge-graph routes', () => {
       // Nothing removed or renamed: `q` + `results` are the old payload, the rest
       // is additive (which is why the WebUI needs no change to keep working).
       // `hints` is additive by design: a client that ignores it sees the old shape.
-      expect(Object.keys(payload).sort()).toEqual([
-        'deduped',
-        'hints',
-        'lanes',
-        'pages',
-        'q',
-        'results',
-      ]);
+      expect(Object.keys(payload).sort()).toEqual(['hints', 'lanes', 'q', 'results']);
       expect(payload.q).toBe('Alice');
-      expect(payload.pages).toEqual([]);
       expect(payload.lanes.memory).toEqual({ hits: 1, dropped: 0 });
 
       expect(payload.results).toHaveLength(1);
@@ -1107,51 +921,6 @@ describe('knowledge-graph routes', () => {
         // title + snippet read as one string, as they did before the fusion.
         snippet: '',
       });
-    });
-
-    it('answers from the memory and message lanes when the knowledge layer is off', async () => {
-      seedMemory('mem-alice', 'Alice prefers dark mode');
-      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
-
-      // `app` was registered without a knowledge service — the state of every
-      // install where `knowledge.enabled` is false.
-      const response = await app.inject({ method: 'GET', url: '/api/search?q=Alice' });
-      expect(response.statusCode).toBe(200);
-      const payload = response.json();
-
-      expect(payload.pages).toEqual([]);
-      expect(payload.lanes.knowledge).toEqual({ hits: 0, dropped: 0 });
-      expect(payload.lanes.knowledge.error).toBeUndefined();
-      expect(payload.deduped).toEqual([]);
-      expect(payload.results.map((result: { kind: string }) => result.kind)).toEqual(
-        expect.arrayContaining(['memory', 'message']),
-      );
-    });
-
-    it('does not fail the request when the knowledge lane throws', async () => {
-      seedMessage('msg-alice', 'sess-alice', 'Alice and Bob met in Berlin');
-      const broken = {
-        search: (): never => {
-          throw new Error('knowledge index unavailable');
-        },
-        get: () => null,
-      };
-
-      const wired = await appWithKnowledge(broken);
-      try {
-        const response = await wired.inject({ method: 'GET', url: '/api/search?q=Alice' });
-        expect(response.statusCode).toBe(200);
-        const payload = response.json();
-
-        expect(payload.lanes.knowledge.error).toContain('knowledge index unavailable');
-        expect(payload.pages).toEqual([]);
-        // The other lanes still answer — a broken lane is a thinner page, not a 500.
-        expect(payload.results.some((result: { kind: string }) => result.kind === 'message')).toBe(
-          true,
-        );
-      } finally {
-        await wired.close();
-      }
     });
   });
 });

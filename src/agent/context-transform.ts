@@ -17,36 +17,26 @@
  * Persona is appended after the user text and other dynamic context so repeated
  * user-message prefixes stay stable while current preferences remain available.
  *
- * Two optional per-turn blocks sit between the memory block and persona, OFF
- * unless their provider is supplied (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §6 K1-4
- * and K2-6):
+ * One optional per-turn block sits between the memory block and persona, OFF
+ * unless its provider is supplied:
  *
  *   <recent_conversation> — up to 2 raw message excerpts for a recall-shaped
  *       query ("上次那个方案叫什么"), from conversation search. Conditional on
  *       intent: a turn that asks for new work never pays for it.
- *   <knowledge_available> — up to 2 curated page titles + slugs, so the model
- *       knows a page exists and can read its body with `knowledge_get` instead
- *       of guessing from a title.
  *
- * The knowledge block is read in the turn's scope (`scopeFromContext`, migration
- * v22): a page curated in one chat is not a candidate title in another, while a
- * turn with no conversation identity (cron, console) keeps asking without a
- * scope and therefore sees every page.
+ * It is budgeted (together with the memory block, the plan's ≤400 G4 limit,
+ * configurable through `injectionBudget`) and a no-op when its provider throws —
+ * retrieval must never be a reason a turn fails.
  *
- * Both are budgeted (together the plan's ≤400 G4 limit, configurable through
- * `injectionBudget`) and both are no-ops when their provider throws — retrieval
- * must never be a reason a turn fails.
- *
- * Since plan §6 K5 item 4 the ≤400 tokens are ONE pool, not two independent
- * budgets appended in a fixed order: both providers are consulted, then a single
- * ranking pass (`allocateInjectionCandidates`) decides which entries fit. The
- * blocks themselves stay separate and keep their labels — they are what the
- * model reads — but a weak knowledge title no longer takes tokens a stronger
- * excerpt needed. Cross-lane comparability is the whole difficulty: per-lane
- * scores are not numbers on one scale (`KnowledgeService`'s search contract only
- * promises scores comparable within one result set), so each in-tree provider
- * normalises its relevance onto the same BM25 curve before reporting it, and a
- * provider that reports nothing is ordered by position.
+ * The ≤400 tokens are ONE pool, not independent budgets appended in a fixed
+ * order: every provider is consulted, then a single ranking pass
+ * (`allocateInjectionCandidates`) decides which entries fit. The blocks
+ * themselves stay separate and keep their labels — they are what the model
+ * reads — but a weak excerpt cannot take tokens a stronger one needed.
+ * Cross-lane comparability is the whole difficulty: per-lane scores are not
+ * numbers on one scale, so each in-tree provider normalises its relevance onto
+ * the same BM25 curve before reporting it, and a provider that reports nothing
+ * is ordered by position.
  *
  * Since plan §8 S5 the memory lane is in that same pool. `<memory_context>` was
  * the one injected block outside the per-turn budget — `RecallConfig`'s char
@@ -57,7 +47,6 @@
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
 import { memoryObservability } from '../memory/observability.js';
-import { scopeFromContext, SCOPE_GLOBAL } from '../memory/knowledge/scope.js';
 import type { MermaidCanvas } from '../runtime-artifacts/mermaid-canvas.js';
 import type { AutoCompressConfig } from '../app/types.js';
 import { compressContext, estimateTokensCached } from './compress.js';
@@ -164,7 +153,6 @@ const INJECTED_BLOCK_PREFIXES = [
   // XML-wrapped injection blocks (pi-style structure)
   '<memory_context>',
   '<recent_conversation>',
-  '<knowledge_available>',
   '<persona>',
   '<task_progress>',
   '<archived_tool_results>',
@@ -211,7 +199,6 @@ const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
 interface InjectedOffer {
   memories: InjectionOfferItem[];
   messages: InjectionOfferItem[];
-  knowledge: InjectionOfferItem[];
 }
 const injectedOfferBySession = new LRUCache<string, InjectedOffer>({
   max: 2000,
@@ -267,7 +254,7 @@ const lastCompressionSummaryBySession = new LRUCache<string, string>({ max: 500 
  *
  * Fragments are extracted at build time from the item's own text (memory
  * content, excerpt) rather than from the rendered block, so the block's headers
- * — date, channel, `user:` — never become evidence. The knowledge lane carries
+ * — date, channel, `user:` — never become evidence. A lane carries
  * none: a page is matched by slug, which is exact and needs no text.
  */
 interface InjectionOfferItem {
@@ -519,38 +506,15 @@ export interface EpisodicContextItem {
   messageId?: string;
 }
 
-/** One curated page offered as a title, per plan §6 K2-6. */
-export interface KnowledgeContextItem {
-  /** `page_type/slug`, e.g. `topic/excel-etl` or bare `excel-etl` as stored. */
-  slug: string;
-  title: string;
-  /**
-   * Relevance in (0, 1], best first, when the provider can report one.
-   *
-   * This is the only cross-block signal there is (plan §6 K5 item 4), so it has
-   * to be on a comparable scale: raw BM25 magnitudes are not, which is why
-   * `titlesForInjection` normalises onto the same curve `conversation-search`
-   * uses. Omitted means "ordered, not scored", and the transform ranks such an
-   * entry by its position.
-   */
-  score?: number;
-}
-
 // ── Per-turn injection budget (plan §4 principle 5 / §6 G4, §6 K5 item 4) ───
-// The whole automatic injection may add ≤400 tokens per turn. That was two
-// independent budgets (250 episodic + 150 knowledge) appended in a fixed order,
-// which let a weak knowledge title spend tokens a stronger excerpt needed; the
-// 400 is now one pool allocated by one ranking pass, and the lanes' item and
-// line caps are what bound each block. The numbers stay configuration
+// The whole automatic injection may add ≤400 tokens per turn, as ONE pool
+// allocated by one ranking pass; the lanes' item and line caps are what bound
+// each block. The numbers stay configuration
 // (`TransformOptions.injectionBudget`) — the constants below are the defaults.
-const EPISODIC_BLOCK_TOKEN_BUDGET = 250;
+const INJECTION_BLOCK_TOKEN_BUDGET = 400;
 const EPISODIC_MAX_ITEMS = 2;
 /** Plan K1-4: "≤2 条片段 × ≤200 字". */
 const EPISODIC_EXCERPT_MAX_CHARS = 200;
-const KNOWLEDGE_BLOCK_TOKEN_BUDGET = 150;
-const KNOWLEDGE_MAX_ITEMS = 2;
-/** One `slug — title` line; a title long enough to blow the budget is not a title. */
-const KNOWLEDGE_LINE_MAX_CHARS = 80;
 /** Header (date · channel · title) is metadata, not content — keep it short. */
 const INJECTION_HEADER_MAX_CHARS = 60;
 
@@ -562,37 +526,29 @@ const INJECTION_HEADER_MAX_CHARS = 60;
  * fixed split). Set a lane ceiling to reserve the other lanes' share.
  */
 export interface InjectionBudgetConfig {
-  /** Ceiling for `<memory_context>` + `<recent_conversation>` + `<knowledge_available>`, in tokens. */
+  /** Ceiling for `<memory_context>` + `<recent_conversation>`, in tokens. */
   totalTokens?: number;
   /** Optional ceiling for the memory block alone. */
   memoryTokens?: number;
   /** Optional ceiling for the episodic block alone. */
   episodicTokens?: number;
-  /** Optional ceiling for the knowledge block alone. */
-  knowledgeTokens?: number;
   /** Episodic entries per turn (the provider may return more; the tail is cut). */
   episodicMaxItems?: number;
-  /** Knowledge titles per turn. */
-  knowledgeMaxItems?: number;
 }
 
 interface ResolvedInjectionBudget {
   totalTokens: number;
   memoryTokens?: number;
   episodicTokens?: number;
-  knowledgeTokens?: number;
   episodicMaxItems: number;
-  knowledgeMaxItems: number;
 }
 
 function resolveInjectionBudget(config?: InjectionBudgetConfig): ResolvedInjectionBudget {
   return {
-    totalTokens: config?.totalTokens ?? EPISODIC_BLOCK_TOKEN_BUDGET + KNOWLEDGE_BLOCK_TOKEN_BUDGET,
+    totalTokens: config?.totalTokens ?? INJECTION_BLOCK_TOKEN_BUDGET,
     memoryTokens: config?.memoryTokens,
     episodicTokens: config?.episodicTokens,
-    knowledgeTokens: config?.knowledgeTokens,
     episodicMaxItems: config?.episodicMaxItems ?? EPISODIC_MAX_ITEMS,
-    knowledgeMaxItems: config?.knowledgeMaxItems ?? KNOWLEDGE_MAX_ITEMS,
   };
 }
 
@@ -619,19 +575,6 @@ export interface TransformOptions {
   dateLanguage?: string;
   /** Session key for scoped memory retrieval. */
   sessionKey?: string;
-  /**
-   * The conversation this prompt is being built for: channel id and chat id as
-   * the channel layer knows them (`feishu` / `oc_1`).
-   *
-   * Used for one thing — resolving the read scope of the knowledge block
-   * (`scopeFromContext`) — so a turn in chat A is not offered chat B's page
-   * titles. Both absent means "no conversation" (cron, an install that passes
-   * no identity), which keeps the block unscoped. The console channel is folded
-   * to `global` inside `scopeFromContext`, so a WebUI turn passes a channel and
-   * still reads everything.
-   */
-  channel?: string;
-  chatId?: string;
   /**
    * Agent ID for agent-scoped snapshot memory injection (V2).
    * When set, uses retrieveGrouped with 3-pool retrieval (current/shared/other)
@@ -681,24 +624,6 @@ export interface TransformOptions {
    * both, with each lane bounded by its item and line caps.
    */
   injectionBudget?: InjectionBudgetConfig;
-  /**
-   * Optional knowledge provider (plan §6 K2-6): at most a couple of page
-   * titles worth offering this turn, most relevant first — typically
-   * `KnowledgeService.titlesForInjection(query, max, { scope })`.
-   *
-   * Titles only, never bodies: the body is a `knowledge_get` call away, and the
-   * budget for this block is 150 tokens. Undefined provider = no block.
-   *
-   * `scope` is the turn's read scope, computed once per build from
-   * {@link TransformOptions.channel} / {@link TransformOptions.chatId} /
-   * {@link TransformOptions.sessionKey} through `scopeFromContext`, and
-   * `undefined` when the turn is unscoped (no channel, no chat, no session —
-   * cron, an install that never passes identity). `undefined` is not the same
-   * ask as `'global'`: it means every scope, which is what an unscoped caller
-   * saw before pages had scopes, while `'global'` would hide every chat's pages
-   * from it. A provider that ignores the argument keeps returning everything.
-   */
-  knowledgeContextProvider?: (query: string, scope?: string) => KnowledgeContextItem[] | undefined;
   /**
    * Optional provider that returns a system-reminder string when a Desktop Bridge
    * is active for the current session. Injected into the context so the LLM knows
@@ -827,8 +752,8 @@ function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string
  * first before K5-4 and still do, so an unscored tie never silently demotes the
  * lane the model has always seen first.
  */
-type InjectedBlockLane = 'memories' | 'messages' | 'knowledge';
-const INJECTION_LANES: readonly InjectedBlockLane[] = ['memories', 'messages', 'knowledge'];
+type InjectedBlockLane = 'memories' | 'messages';
+const INJECTION_LANES: readonly InjectedBlockLane[] = ['memories', 'messages'];
 
 /** One entry competing for the shared injection budget (plan §6 K5 item 4). */
 interface InjectionCandidate {
@@ -872,8 +797,7 @@ function candidateWeight(candidate: InjectionCandidate): number {
 function compareInjectionCandidates(a: InjectionCandidate, b: InjectionCandidate): number {
   const byWeight = candidateWeight(b) - candidateWeight(a);
   if (byWeight !== 0) return byWeight;
-  // Ties keep the pre-K5-4 order: memories, then the episodic block, then
-  // knowledge.
+  // Ties keep the pre-K5-4 order: memories, then the episodic block.
   if (a.lane !== b.lane) return INJECTION_LANES.indexOf(a.lane) - INJECTION_LANES.indexOf(b.lane);
   return a.rank - b.rank;
 }
@@ -889,7 +813,7 @@ function compareInjectionCandidates(a: InjectionCandidate, b: InjectionCandidate
  * and keeping the weaker of two excerpts while dropping the stronger is exactly
  * the outcome the pre-K5-4 tail-drop produced anyway.
  *
- * Work is bounded by the item caps (5 + 2 + 2 by default), so the re-render per
+ * Work is bounded by the item caps (5 + 2 by default), so the re-render per
  * candidate is at most a handful of short strings — no allocation loop can grow
  * with query size.
  */
@@ -903,17 +827,14 @@ function allocateInjectionCandidates(
   const kept: Record<InjectedBlockLane, InjectionCandidate[]> = {
     memories: [],
     messages: [],
-    knowledge: [],
   };
   const blocks: Record<InjectedBlockLane, string | null> = {
     memories: null,
     messages: null,
-    knowledge: null,
   };
   const laneCeiling: Record<InjectedBlockLane, number> = {
     memories: budget.memoryTokens ?? budget.totalTokens,
     messages: budget.episodicTokens ?? budget.totalTokens,
-    knowledge: budget.knowledgeTokens ?? budget.totalTokens,
   };
 
   /** Rebuild every block from what is currently kept, and measure the total. */
@@ -921,7 +842,6 @@ function allocateInjectionCandidates(
     const rendered: Record<InjectedBlockLane, string | null> = {
       memories: null,
       messages: null,
-      knowledge: null,
     };
     let total = 0;
     for (const lane of INJECTION_LANES) {
@@ -939,7 +859,7 @@ function allocateInjectionCandidates(
 
   for (const candidate of [...candidates].sort(compareInjectionCandidates)) {
     const lane = candidate.lane;
-    // Rebuilt from scratch per candidate (≤9 candidates × 3 short blocks): the
+    // Rebuilt from scratch per candidate (≤7 candidates × 2 short blocks): the
     // rendered block is what the token estimate is measured on, so deciding on
     // anything else would be measuring a different object than the one injected.
     const { rendered, total } = renderKept({ lane, candidate });
@@ -954,10 +874,8 @@ function allocateInjectionCandidates(
   return { kept, blocks };
 }
 
-function blockTag(
-  lane: Exclude<InjectedBlockLane, 'memories'>,
-): 'recent_conversation' | 'knowledge_available' {
-  return lane === 'messages' ? 'recent_conversation' : 'knowledge_available';
+function blockTag(_lane: Exclude<InjectedBlockLane, 'memories'>): 'recent_conversation' {
+  return 'recent_conversation';
 }
 
 // ── Per-turn injection telemetry (plan §6 K0 item 3) ────────────────────────
@@ -968,8 +886,8 @@ function blockTag(
 // only when a block was actually appended — a turn with nothing to inject
 // stays silent, because one row per empty turn is noise on a phone.
 
-/** The three lanes whose blocks are counted; persona/date/canvas are not. */
-type InjectionLane = 'memories' | 'messages' | 'knowledge';
+/** The lanes whose blocks are counted; persona/date/canvas are not. */
+type InjectionLane = 'memories' | 'messages';
 /**
  * Every lane the turn-end reference check can credit. `graph` is a reference
  * lane but not an injection lane: the transform never builds a hint block —
@@ -994,10 +912,10 @@ interface TurnInjection {
 
 function newTurnInjection(): TurnInjection {
   return {
-    offer: { memories: [], messages: [], knowledge: [] },
-    itemCounts: { memories: 0, messages: 0, knowledge: 0 },
-    tokens: { memories: 0, messages: 0, knowledge: 0 },
-    latencyMs: { memories: 0, messages: 0, knowledge: 0 },
+    offer: { memories: [], messages: [] },
+    itemCounts: { memories: 0, messages: 0 },
+    tokens: { memories: 0, messages: 0 },
+    latencyMs: { memories: 0, messages: 0 },
     blocks: 0,
     degraded: false,
   };
@@ -1027,8 +945,8 @@ function recordInjectedLane(
  * — the turn completed, but an incomplete injection is invisible to the offline
  * eval and is the one thing only this row can report.
  *
- * Also republishes the offer for `recordInjectionReference` — every lane, not
- * just knowledge — and clears it when nothing was injected: a later reader must
+ * Also republishes the offer for `recordInjectionReference` — every lane — and
+ * clears it when nothing was injected: a later reader must
  * never be credited to an older prompt build's offer. The scope key the build
  * used is published per session so the turn-end reader, which does not know the
  * effective agent id, can resolve back to this entry.
@@ -1041,81 +959,58 @@ function reportTurnInjection(
   const offer: InjectedOffer = {
     memories: injection.offer.memories,
     messages: injection.offer.messages,
-    knowledge: injection.offer.knowledge,
   };
-  if (offer.memories.length + offer.messages.length + offer.knowledge.length > 0) {
+  if (offer.memories.length + offer.messages.length > 0) {
     injectedOfferBySession.set(scopeKey, offer);
     publishedInjectionScope.set(sessionKey || 'default', scopeKey);
   } else {
     injectedOfferBySession.delete(scopeKey);
   }
   if (injection.blocks === 0) return;
-  const totalTokens =
-    injection.tokens.memories + injection.tokens.messages + injection.tokens.knowledge;
+  const totalTokens = injection.tokens.memories + injection.tokens.messages;
   memoryObservability.record('memory.injection', {
     memoryIds: offer.memories.map((item) => item.id),
-    knowledgeSlugs: offer.knowledge.map((item) => item.id),
     messageIds: offer.messages.map((item) => item.id),
     itemCounts: {
       memories: injection.itemCounts.memories,
       messages: injection.itemCounts.messages,
-      knowledge: injection.itemCounts.knowledge,
     },
     estimatedTokens: {
       memories: injection.tokens.memories,
       messages: injection.tokens.messages,
-      knowledge: injection.tokens.knowledge,
       total: totalTokens,
     },
     latencyMs: {
       memories: injection.latencyMs.memories,
       messages: injection.latencyMs.messages,
-      knowledge: injection.latencyMs.knowledge,
     },
     status: injection.degraded ? 'degraded' : 'ok',
   });
 }
 
 /**
- * Do two page references name the same page?
- *
- * A slug may be offered bare (`excel-etl`) and read with its type prefix
- * (`knowledge_get(ref: 'topic/excel-etl')`), or the other way round, so one is
- * the other with a page-type segment in front. That is the only equivalence:
- * `topic/x` and `entity/x` are different pages.
- */
-function isSameKnowledgeSlug(offered: string, ref: string): boolean {
-  if (offered === ref) return true;
-  return offered.endsWith(`/${ref}`) || ref.endsWith(`/${offered}`);
-}
-
-/**
  * Record that a consumer acted on something this session's last prompt build
- * injected (plan §6 K0 item 3, ②「是否被引用」), for any of the three lanes.
+ * injected (plan §6 K0 item 3, ②「是否被引用」), for any lane.
  *
- * Two kinds of caller exist. A tool that reads an offer back (`knowledge_get`,
- * reported from `agent-factory`'s `afterToolCall`) names the ids it acted on and
- * passes them here. A turn-end reader (`readInjectionReferences`) has no tool to
- * quote, so it proves use from the answer text and calls the same emitter.
- * Between them all three lanes are covered: the knowledge lane by slug, the
- * memory and message lanes by literal fragment.
+ * A turn-end reader (`readInjectionReferences`) has no tool to quote, so it
+ * proves use from the answer text and calls this emitter with the ids whose
+ * fragments it found.
  *
  * Calling this with an id that was not offered — or offering the same id twice
  * in one build — records nothing.
  *
  * `refs` are the candidate references from the consumer, unparsed: matching
- * (and the page-type prefix equivalence, which only applies to slugs) belongs
- * here, next to the offer list.
+ * belongs here, next to the offer list.
  */
 export function recordInjectionReference(params: {
   agentId?: string;
   sessionKey?: string;
   toolName: string;
   refs: string[];
-  /** Which lane's offer these refs may match. Defaults to `knowledge`. */
+  /** Which lane's offer these refs may match. */
   lane?: InjectionLane;
 }): void {
-  const lane = params.lane ?? 'knowledge';
+  const lane = params.lane ?? 'messages';
   const scopeKey = injectionScopeKey(params.agentId, params.sessionKey);
   const offer = injectedOfferBySession.get(scopeKey);
   if (!offer) return;
@@ -1127,9 +1022,7 @@ export function recordInjectionReference(params: {
     const trimmed = ref.trim();
     if (trimmed === '') continue;
     for (const item of offered) {
-      const matches =
-        lane === 'knowledge' ? isSameKnowledgeSlug(item.id, trimmed) : item.id === trimmed;
-      if (matches) referenced.add(item.id);
+      if (item.id === trimmed) referenced.add(item.id);
     }
   }
   if (referenced.size === 0) return;
@@ -1174,7 +1067,6 @@ function emitInjectionReference(lane: ReferenceLane, toolName: string, ids: stri
   memoryObservability.record('memory.injection.referenced', {
     lane,
     toolName,
-    knowledgeSlugs: lane === 'knowledge' ? ids : [],
     memoryIds: lane === 'memories' || lane === 'graph' ? ids : [],
     messageIds: lane === 'messages' ? ids : [],
   });
@@ -1242,7 +1134,7 @@ function resolveOfferScope(agentId: string | undefined, sessionKey: string | und
  * item 3, ②「是否被引用」)?
  *
  * The transform returns before the answer exists, so the two lanes that have no
- * tool to read them back (`knowledge_get` covers the third) can only be checked
+ * tool to read them back can only be checked
  * after generation. The evidence is literal: an item counts when a fragment of
  * the text that was injected appears in the answer, matched through the same
  * normalisation `referenceFragments` applied at build time. Nothing else — not
@@ -1278,8 +1170,8 @@ export function readInjectionReferences(params: {
 
   const offer = injectedOfferBySession.get(scopeKey);
   if (offer) {
-    // The knowledge lane is deliberately absent: its reference is a slug the
-    // model asked for by name (`knowledge_get`), which is proof, not a likeness
+    // A lane is deliberately absent here when its reference is an id the model
+    // asked for by name, which is proof, not a likeness
     // test.
     for (const lane of ['memories', 'messages'] as const) {
       const matched = offer[lane]
@@ -1293,7 +1185,7 @@ export function readInjectionReferences(params: {
 
   // The graph lane is its own registry: a hint is injected by a tool result, not
   // by a prompt build, so it is not replaced when the next build republishes the
-  // memory/message/knowledge offer.
+  // memory/message offer.
   const hints = injectedGraphHintsBySession.get(scopeKey);
   if (!hints || hints.length === 0) return;
   const matchedHints = hints.filter((item) => isReferenced(item, haystack)).map((item) => item.id);
@@ -1383,25 +1275,6 @@ export function createTransformContext(options?: TransformOptions) {
   const prefixTokens = options?.staticContextTokens ?? 0;
   const injectionBudget = resolveInjectionBudget(options?.injectionBudget);
   const dateGranularity = 'day';
-
-  /**
-   * The read scope of this build's `<knowledge_available>` block, or `undefined`
-   * for a turn that belongs to no conversation.
-   *
-   * `undefined` means "omit the scope argument", not "pass `global`": the
-   * service reads an absent scope as every scope, which is what cron, the
-   * console and an install that passes no identity saw before pages had scopes,
-   * while passing `'global'` would filter their reads to globals only. That is
-   * why the decision is made here, once, and not left to the call site.
-   */
-  const knowledgeTurnScope = (): string | undefined => {
-    const scope = scopeFromContext({
-      channel: options?.channel,
-      chatId: options?.chatId,
-      sessionId: sessionKey,
-    });
-    return scope === SCOPE_GLOBAL ? undefined : scope;
-  };
 
   return async (messages: any[], _signal?: AbortSignal): Promise<any[]> => {
     const result = [...messages];
@@ -1558,12 +1431,12 @@ export function createTransformContext(options?: TransformOptions) {
       }
     }
 
-    // ── K1-4 + K2-6 + K5-4: the two labelled blocks, one shared budget ──
-    // Every lane is consulted first, then ONE ranking pass decides what fits
-    // the plan's ≤400-token budget (K5-4, plus the memory lane since plan §8
-    // S5): the blocks keep their labels and their order in the message — the
-    // labels are what the model reads — but a weak knowledge title can no
-    // longer spend budget a stronger excerpt needed.
+    // ── K1-4 + K5-4: the labelled blocks, one shared budget ──
+    // Every lane is consulted first, then ONE ranking pass decides what fits the
+    // plan's ≤400-token budget (K5-4, plus the memory lane since plan §8 S5):
+    // the blocks keep their labels and their order in the message — the labels
+    // are what the model reads — but a weak excerpt can no longer spend budget a
+    // stronger one needed.
     // Each lane keeps its own failure mode (log + skip, the turn always
     // completes) and its own telemetry fields.
     //
@@ -1576,7 +1449,6 @@ export function createTransformContext(options?: TransformOptions) {
       const laneLatencyMs: Record<InjectedBlockLane, number> = {
         memories: memoryLane.latencyMs,
         messages: 0,
-        knowledge: 0,
       };
 
       if (
@@ -1609,38 +1481,6 @@ export function createTransformContext(options?: TransformOptions) {
         laneLatencyMs.messages = performance.now() - laneStarted;
       }
 
-      // Titles and slugs only: the body is a `knowledge_get` call away, so this
-      // block exists to say "a page about this exists" without pre-empting the
-      // tool. `titlesForInjection` already applies the relevance floor, so an
-      // unfocused query yields no entries and therefore no block. The turn's
-      // scope goes with the query: a page written in another chat is neither
-      // offered here nor allowed to decide what this chat's titles are.
-      if (options?.knowledgeContextProvider && query.trim() !== '') {
-        const laneStarted = performance.now();
-        const askedScope = knowledgeTurnScope();
-        try {
-          const items = options.knowledgeContextProvider(query, askedScope) ?? [];
-          items
-            .filter((item) => typeof item?.slug === 'string' && item.slug.trim() !== '')
-            .slice(0, injectionBudget.knowledgeMaxItems)
-            .forEach((item, rank) => {
-              const title = flattenInjectedText(item.title ?? '');
-              const line = title ? `${item.slug.trim()} — ${title}` : item.slug.trim();
-              candidates.push({
-                lane: 'knowledge',
-                rank,
-                score: item.score,
-                text: neutralizePromptTags(truncate(line, KNOWLEDGE_LINE_MAX_CHARS)),
-                ids: [item.slug.trim()],
-              });
-            });
-        } catch {
-          injection.degraded = true;
-          options?.logger?.debug('Knowledge title injection failed — continuing without it');
-        }
-        laneLatencyMs.knowledge = performance.now() - laneStarted;
-      }
-
       if (lastUserMsg?.content && candidates.length > 0) {
         const allocation = allocateInjectionCandidates(candidates, injectionBudget);
         const appendedBlocks: any[] = [];
@@ -1668,9 +1508,7 @@ export function createTransformContext(options?: TransformOptions) {
             { count: kept.length, tokens: Math.ceil(estimateTokensForText(block)) },
             lane === 'messages'
               ? 'Episodic conversation injected into context'
-              : lane === 'knowledge'
-                ? 'Knowledge titles injected into context'
-                : 'Memories injected into context',
+              : 'Memories injected into context',
           );
         }
         // Only once the lane survived the pool: caching the signature of a block

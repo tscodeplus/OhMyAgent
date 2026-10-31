@@ -2,18 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { Logger } from 'pino';
 import { applySchema } from '../../src/memory/schema';
-import { migrateV14 } from '../../src/memory/migration-v14';
-import { migrateV21 } from '../../src/memory/migration-v21';
-import { migrateV22 } from '../../src/memory/migration-v22';
-import { migrateV24 } from '../../src/memory/migration-v24';
-import { migrateV25 } from '../../src/memory/migration-v25';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository';
 import { EmbeddingRepository } from '../../src/memory/repositories/embedding-repository';
 import { MemoryWriter } from '../../src/memory/memory-writer';
 import type { MergeConfig } from '../../src/memory/memory-merge';
 import type { JudgeEngine } from '../../src/judge/engine';
 import { EmbeddingCacheRepo } from '../../src/memory/repositories/embedding-cache-repository';
-import { KnowledgeRepository } from '../../src/memory/knowledge/repository';
 
 let db: Database.Database;
 let memoryRepo: MemoryRepository;
@@ -95,8 +89,6 @@ function createWriter(
     embeddingRepository: embeddingRepo,
     embeddingClient: client,
     embeddingCacheRepo: mockCacheRepo,
-    // The shared connection is what the knowledge-layer writes read (§8 S1);
-    // every other derived write in the writer takes it the same way.
     db,
     mergeConfig,
     onMemoryChanged: onMemoryChanged,
@@ -794,236 +786,6 @@ describe('MemoryWriter', () => {
       expect(memoryRepo.findById(target.id)).toBeUndefined();
       expect(memoryRepo.findById(other.id)).toBeDefined();
       expect(memoryRepo.findById(partial.id)).toBeDefined();
-    });
-  });
-
-  /**
-   * Plan §8 S1 (revision A3). A page that cites a memory is a copy of that
-   * memory's text and `knowledge_sources` has no foreign key to `memories`, so a
-   * rewritten memory used to leave its page `active` — and `active` is the only
-   * status every reader sees, including the per-turn injection lane that never
-   * consults `unified-search`. Invalidation therefore belongs on the write side,
-   * and these cases pin the three properties that make that affordable: it fires
-   * only for a real text change, it stays silent when nothing cites the memory,
-   * and it can never fail the memory write.
-   */
-  describe('knowledge page invalidation', () => {
-    const ORIGINAL = 'Deploy target is the staging cluster';
-    const CORRECTED = 'Deploy target is the production cluster';
-
-    /**
-     * The knowledge tables arrive with migration-v14/v21/v22/v24/v25, not
-     * `applySchema` — `KnowledgeRepository` writes `entity_id`, `scope`,
-     * `normalized_title` and `knowledge_log.note`, which the later ones add.
-     */
-    function setupKnowledgeLayer(): KnowledgeRepository {
-      migrateV14(db);
-      migrateV21(db);
-      migrateV22(db);
-      migrateV24(db);
-      // v25 adds `knowledge_log.note`, which every status write now populates.
-      migrateV25(db);
-      return new KnowledgeRepository(db);
-    }
-
-    function citedPage(repository: KnowledgeRepository, memoryId: string) {
-      const result = repository.insertPage(
-        {
-          pageType: 'topic',
-          slug: `page-for-${memoryId}`,
-          title: `Page for ${memoryId}`,
-          content: 'A curated summary of the cited memory.',
-          sources: [{ kind: 'memory', id: memoryId }],
-          status: 'active',
-          updatedBy: 'agent',
-        },
-        'agent',
-      );
-      if (!result.ok) throw new Error(`page setup refused: ${result.code}`);
-      return result.page;
-    }
-
-    function pageStatus(id: string): string | undefined {
-      return (
-        db.prepare('SELECT status FROM knowledge_pages WHERE id = ?').get(id) as
-          { status: string } | undefined
-      )?.status;
-    }
-
-    function logRows(pageId: string): Array<{ action: string; actor: string; reason: string }> {
-      return db
-        .prepare('SELECT action, actor, reason FROM knowledge_log WHERE page_id = ?')
-        .all(pageId) as Array<{ action: string; actor: string; reason: string }>;
-    }
-
-    /** Fixed vectors: 0.8 cosine — above the merge threshold, below near-exact. */
-    function createSteeredEmbeddingClient() {
-      const vectors: Record<string, number[]> = {
-        [ORIGINAL]: [1, 0, 0, 0, 0, 0, 0, 0],
-        [CORRECTED]: [0.8, 0.6, 0, 0, 0, 0, 0, 0],
-      };
-      return {
-        isConfigured: vi.fn(() => true),
-        model: 'default',
-        embedOne: vi.fn(async (text: string) =>
-          Float32Array.from(vectors[text] ?? [1, 0, 0, 0, 0, 0, 0, 0]),
-        ),
-        embedBatch: vi.fn(async (texts: string[]) =>
-          texts.map((text) => Float32Array.from(vectors[text] ?? [1, 0, 0, 0, 0, 0, 0, 0])),
-        ),
-      } as unknown as ReturnType<typeof createMockEmbeddingClient>;
-    }
-
-    /**
-     * `more-precise` is the judged relation that rewrites the existing memory's
-     * text — the only writer path where a page's cited content goes stale without
-     * an LLM call, so it is what makes the update branch testable.
-     */
-    function mergeConfigRewritingContent(): MergeConfig {
-      const engine = {
-        modeFor: () => 'active',
-        decideMany: async () => ({
-          source: 'judge',
-          mode: 'active',
-          outcome: { action: 'route', choice: 'more-precise' },
-        }),
-      } as unknown as JudgeEngine;
-      return {
-        mergeThreshold: 0.5,
-        judgeGet: () => engine,
-        logger: {
-          debug: vi.fn(),
-          info: vi.fn(),
-          warn: vi.fn(),
-          error: vi.fn(),
-        } as unknown as Logger,
-      };
-    }
-
-    async function writeCorrected(
-      writer: MemoryWriter,
-      content: string,
-    ): Promise<Awaited<ReturnType<MemoryWriter['write']>>> {
-      return writer.write({
-        content,
-        scope: 'project',
-        scopeKey: 'p1',
-        kind: 'fact',
-        dedupThreshold: 0.5,
-      });
-    }
-
-    it('re-queues an active page when the memory it cites is rewritten', async () => {
-      const { writer } = createWriter(
-        createSteeredEmbeddingClient(),
-        undefined,
-        mergeConfigRewritingContent(),
-      );
-      const first = await writeCorrected(writer, ORIGINAL);
-      const repository = setupKnowledgeLayer();
-      const page = citedPage(repository, first.id);
-      expect(page.status).toBe('active');
-
-      const second = await writeCorrected(writer, CORRECTED);
-
-      expect(second.action).toBe('merged');
-      expect(memoryRepo.findById(first.id)!.content).toBe(CORRECTED);
-      expect(pageStatus(page.id)).toBe('pending');
-      // The log row is the only record of *why* the page left the index, so the
-      // cause (memory id + which write) is asserted literally.
-      expect(logRows(page.id).filter((row) => row.action === 'pending')).toEqual([
-        {
-          action: 'pending',
-          actor: 'system',
-          reason: `memory ${first.id} updated: cited page re-queued for review`,
-        },
-      ]);
-    });
-
-    it('writes nothing when no page cites the memory', async () => {
-      const { writer } = createWriter(
-        createSteeredEmbeddingClient(),
-        undefined,
-        mergeConfigRewritingContent(),
-      );
-      const first = await writeCorrected(writer, ORIGINAL);
-      setupKnowledgeLayer();
-
-      await writeCorrected(writer, CORRECTED);
-
-      const pages = db.prepare('SELECT COUNT(*) AS n FROM knowledge_pages').get() as { n: number };
-      const logs = db.prepare('SELECT COUNT(*) AS n FROM knowledge_log').get() as { n: number };
-      expect(pages.n).toBe(0);
-      expect(logs.n).toBe(0);
-      expect(memoryRepo.findById(first.id)!.content).toBe(CORRECTED);
-    });
-
-    it('does not touch a page that is already out of active, or duplicate its log row', async () => {
-      const { writer } = createWriter(
-        createSteeredEmbeddingClient(),
-        undefined,
-        mergeConfigRewritingContent(),
-      );
-      const first = await writeCorrected(writer, ORIGINAL);
-      const repository = setupKnowledgeLayer();
-      const page = citedPage(repository, first.id);
-      repository.setStatus(page.id, 'pending', 'user');
-
-      await writeCorrected(writer, CORRECTED);
-
-      // Only the human's own `pending` row exists: the invalidation query is
-      // bounded to `active`, so a re-queue cannot stack a second row on the same
-      // cause.
-      const requeues = logRows(page.id).filter((row) => row.action === 'pending');
-      expect(requeues).toEqual([
-        expect.objectContaining({ actor: 'user', reason: 'status: active -> pending' }),
-      ]);
-    });
-
-    it('keeps the memory write when the invalidation itself fails', async () => {
-      const { writer } = createWriter(
-        createSteeredEmbeddingClient(),
-        undefined,
-        mergeConfigRewritingContent(),
-      );
-      const first = await writeCorrected(writer, ORIGINAL);
-      const repository = setupKnowledgeLayer();
-      const page = citedPage(repository, first.id);
-      // The log write is part of the invalidation transaction; losing the table
-      // is a real failure of that path and nothing of it may survive — but the
-      // memory is what the caller asked for and must still be written.
-      db.exec('DROP TABLE knowledge_log');
-
-      const second = await writeCorrected(writer, CORRECTED);
-
-      expect(second.action).toBe('merged');
-      expect(memoryRepo.findById(first.id)!.content).toBe(CORRECTED);
-      expect(pageStatus(page.id)).toBe('active');
-    });
-
-    it('re-queues the page that cites a memory a preference superseded (finding F3)', async () => {
-      // Supersede is a correction that keeps the losing row (`status`
-      // 'superseded'), so neither the content-changed branch above nor the S2
-      // doctor's `NOT EXISTS` check could see it: the page kept `active` while
-      // asserting a claim the memory layer had just retracted. It is also the one
-      // correction path that only preferences take, i.e. the five topics §3.1
-      // keeps `preference`.
-      const { writer } = createWriter();
-      const older = await writer.writePreference('S', '以后称呼我为大拿');
-      const repository = setupKnowledgeLayer();
-      const page = citedPage(repository, older.id);
-      expect(page.status).toBe('active');
-
-      await writer.writePreference('S', '称呼我为 Boss');
-
-      expect(memoryRepo.findById(older.id)?.status).toBe('superseded');
-      expect(pageStatus(page.id)).toBe('pending');
-      expect(logRows(page.id).filter((row) => row.action === 'pending')).toEqual([
-        expect.objectContaining({
-          actor: 'system',
-          reason: `memory ${older.id} updated: cited page re-queued for review`,
-        }),
-      ]);
     });
   });
 });

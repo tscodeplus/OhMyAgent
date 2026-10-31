@@ -29,9 +29,6 @@ import { createMemoryDoctorToolDefinition } from '../../tools/builtins/memory/do
 import { createMemoryCompactToolDefinition } from '../../tools/builtins/memory/compact-definition.js';
 import { createSessionSummarizeToolDefinition } from '../../tools/builtins/session/definition.js';
 import { createSessionSearchToolDefinition } from '../../tools/builtins/session/session-search-definition.js';
-import { createKnowledgeSearchToolDefinition } from '../../tools/builtins/knowledge/search-definition.js';
-import { createKnowledgeGetToolDefinition } from '../../tools/builtins/knowledge/get-definition.js';
-import { createKnowledgeWriteToolDefinition } from '../../tools/builtins/knowledge/write-definition.js';
 import { createEntityQueryToolDefinition } from '../../tools/builtins/graph/entity-query-definition.js';
 import { createComputerUseToolDefinition } from '../../tools/builtins/computer-use/definition.js';
 import { createSpawnAgentToolDefinition } from '../../tools/builtins/agents/spawn-definition.js';
@@ -262,7 +259,6 @@ export function registerV4ToolDefinitions(input: {
       embeddingRepository: memory.embeddingRepository,
       embeddingClient: memory.embeddingClient,
       onMemoryChanged,
-      db: memory.database,
     }),
   );
   toolPlatformRegistry.registerDefinition(
@@ -278,38 +274,9 @@ export function registerV4ToolDefinitions(input: {
   // `conversation_search.enabled`: with the section off, raw messages are not a
   // retrieval surface and the tool would be a schema the model pays for and
   // cannot use. It reads the shared db handle rather than opening a connection.
-  //
-  // The knowledge lane rides along under the SAME gate as the knowledge tools
-  // below (`knowledge.read.enabled`): the tool would otherwise show the model
-  // pages that `knowledge_search` / `knowledge_get` are forbidden to return,
-  // which is a read surface switched off in one place and on in another. No
-  // service there = no lane, and the tool degrades to messages only (K5).
   if (config.conversationSearch?.enabled) {
     toolPlatformRegistry.registerDefinition(
-      createSessionSearchToolDefinition({
-        db: memory.database,
-        logger,
-        ...(memory.knowledgeService && config.knowledge?.read.enabled
-          ? { knowledge: memory.knowledgeService }
-          : {}),
-      }),
-    );
-  }
-
-  // Knowledge pages (plan §6 K2-3). The service only exists while
-  // `knowledge.enabled` is true (built in createMemoryServices), so its absence
-  // *is* the off switch — no separate flag read here. `curate.mode` is not part
-  // of this gate: freezing curation keeps the pages readable and writable.
-  // `read.enabled: false` removes all three, including the write: a page nobody
-  // can read back is a trap, and the tool surface must not offer a one-way door.
-  if (memory.knowledgeService && config.knowledge?.read.enabled) {
-    const knowledgeService = memory.knowledgeService;
-    toolPlatformRegistry.registerDefinition(
-      createKnowledgeSearchToolDefinition({ knowledgeService }),
-    );
-    toolPlatformRegistry.registerDefinition(createKnowledgeGetToolDefinition({ knowledgeService }));
-    toolPlatformRegistry.registerDefinition(
-      createKnowledgeWriteToolDefinition({ knowledgeService }),
+      createSessionSearchToolDefinition({ db: memory.database, logger }),
     );
   }
 

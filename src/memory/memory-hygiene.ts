@@ -11,14 +11,6 @@ export interface HygieneConfig {
   /** Memory key used to store the last check timestamp. */
   lastCheckKey: string;
   /**
-   * Retention days for `knowledge_log` rows (`knowledge.log_retention_days`).
-   * `0` = keep forever. Default 90, the knowledge layer's own default — this
-   * pass is the only thing that prunes that table, by design (no extra
-   * scheduler, no extra CLI: the plan gives the retention to the existing
-   * hygiene pass).
-   */
-  knowledgeLogRetentionDays: number;
-  /**
    * Days an unapproved note draft survives (`notes.draft.ttl_days`). `0` =
    * never expire. Expiring a draft archives it (`status_reason: expired`), it
    * never deletes the row — plan §6.
@@ -31,14 +23,6 @@ export interface HygieneConfig {
 export interface HygieneReport {
   cleanedCount: number;
   cleanedKinds: Record<string, number>;
-  /**
-   * Deleted memories that an `active` knowledge page still cites (plan §8 S2).
-   * Those pages are now unverifiable — the citation points at a row that no
-   * longer exists — and the deletion is the moment an operator can still decide
-   * to keep the row. The doctor reports the standing total; this reports this
-   * pass's contribution, which is the number the delete decision needs.
-   */
-  citedByActivePages?: number;
   durationMs: number;
   error?: string;
 }
@@ -64,39 +48,6 @@ function toEpochMsString(date: Date): string {
  */
 const INJECTION_OBSERVATION_RETENTION_DAYS = 30;
 
-/**
- * How many of `ids` are cited by an `active` knowledge page (plan §8 S2).
- *
- * Bounded by the caller's delete batch, so the `IN (...)` list is the size of one
- * hygiene pass, not the corpus. Returns 0 when the knowledge layer is absent —
- * the probe is a single `sqlite_master` lookup, which is cheaper than making every
- * caller know about `knowledge_sources`.
- */
-function countCitedIds(db: Database.Database, ids: readonly string[]): number {
-  if (ids.length === 0) return 0;
-  try {
-    const table = db
-      .prepare(
-        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_sources'",
-      )
-      .get() as { present: number } | undefined;
-    if (!table) return 0;
-    const placeholders = ids.map(() => '?').join(',');
-    const row = db
-      .prepare(
-        `SELECT COUNT(DISTINCT s.source_id) AS n
-           FROM knowledge_sources s
-           JOIN knowledge_pages p ON p.id = s.page_id
-          WHERE s.source_kind = 'memory' AND p.status = 'active'
-            AND s.source_id IN (${placeholders})`,
-      )
-      .get(...ids) as { n: number } | undefined;
-    return row?.n ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
 export class MemoryHygiene {
   constructor(
     private memoryRepository: MemoryRepository,
@@ -111,7 +62,6 @@ export class MemoryHygiene {
       tempRetentionDays: this.config.tempRetentionDays ?? 90,
       checkIntervalMs: this.config.checkIntervalMs ?? 12 * 60 * 60 * 1000,
       lastCheckKey: this.config.lastCheckKey ?? '__hygiene_last_check__',
-      knowledgeLogRetentionDays: this.config.knowledgeLogRetentionDays ?? 90,
       notesDraftTtlDays: this.config.notesDraftTtlDays ?? 14,
       notesLogRetentionDays: this.config.notesLogRetentionDays ?? 90,
     };
@@ -140,7 +90,7 @@ export class MemoryHygiene {
    *
    * Preserves: kind='preference', kind='summary'
    * Cleans:    kind='fact', kind='task', kind='device_state' older than tempRetentionDays
-   *            plus `knowledge_log` rows older than knowledgeLogRetentionDays
+   *            plus per-turn `memory.injection` rows past their horizon
    *            plus `memory.injection` observation rows older than 30 days   *
    * A pass refused by the 80% safety threshold touches nothing at all — not the
    * memories and not the log — so a refused pass cannot look like a partial one.
@@ -186,15 +136,6 @@ export class MemoryHygiene {
       }
 
       const cleanedKinds: Record<string, number> = {};
-      // Plan §8 S2: count the deletions that will orphan an active page's
-      // citation BEFORE deleting — afterwards the citation is dangling and the
-      // question "did this pass cost a page its evidence" is unanswerable. One
-      // indexed query over this pass's ids; 0 on an install without the
-      // knowledge layer (the table probe is inside `countCitedIds`).
-      const citedByActivePages = countCitedIds(
-        this.db,
-        rows.map((row) => row.id),
-      );
       // Delete via the repositories so vec_memory_embeddings and the jieba
       // FTS index stay consistent — raw SQL here would leave orphan vectors
       // (vec_ virtual tables have no FK cascade) and orphan FTS rows.
@@ -213,19 +154,11 @@ export class MemoryHygiene {
         this.onMemoryChanged?.();
       }
 
-      // `knowledge_log` grows with write count rather than page count (a nightly
-      // batch of 5 pages is ~1800 rows a year), so it needs a horizon — and this
-      // pass already runs on a timer, which is why it prunes here.
-      const prunedLogRows = this.pruneKnowledgeLog(config.knowledgeLogRetentionDays);
-      if (prunedLogRows > 0) {
-        cleanedKinds['knowledge_log'] = prunedLogRows;
-      }
-
       // Notes: an unapproved draft is a decision that was never made, so it
       // expires into `archived(expired)` rather than accumulating in the review
       // queue forever. Archiving, not deleting — the body may still be the only
-      // record of a useful command (plan §6). `note_events` is the same
-      // append-only shape as `knowledge_log`, so it rides the same pass.
+      // record of a useful command (plan §6). `note_events` is append-only and
+      // grows with writes rather than with rows, so it rides the same pass.
       const expiredDrafts = this.expireNoteDrafts(config.notesDraftTtlDays);
       if (expiredDrafts > 0) {
         cleanedKinds['notes.draft'] = expiredDrafts;
@@ -266,9 +199,8 @@ export class MemoryHygiene {
       }
 
       return {
-        cleanedCount: rows.length + prunedLogRows + prunedInjectionRows,
+        cleanedCount: rows.length + prunedInjectionRows,
         cleanedKinds,
-        ...(citedByActivePages > 0 ? { citedByActivePages } : {}),
         durationMs: Date.now() - startMs,
       };
     } catch (e) {
@@ -281,17 +213,6 @@ export class MemoryHygiene {
     }
   }
 
-  /**
-   * Delete `knowledge_log` rows past the retention horizon; returns how many.
-   *
-   * `knowledge_log.created_at` is INTEGER epoch-ms (migration-v14), unlike the
-   * legacy TEXT digit-string columns — so the cutoff is a number, not a string.
-   * `retentionDays <= 0` means keep forever.
-   *
-   * Returns 0 rather than throwing when the table does not exist: a database
-   * that has not run migration-v14 yet (or a build without the knowledge layer)
-   * must still get its memory hygiene.
-   */
   /**
    * Expire stale drafts. Guarded on the tables existing: a database opened
    * before v31 ran (or a notes-disabled install) must not throw here — the
@@ -321,21 +242,6 @@ export class MemoryHygiene {
     return !!this.db
       .prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?')
       .get('table', name);
-  }
-
-  private pruneKnowledgeLog(retentionDays: number): number {
-    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
-
-    const table = this.db
-      .prepare(
-        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_log'",
-      )
-      .get() as { present: number } | undefined;
-    if (!table) return 0;
-
-    const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
-    const result = this.db.prepare('DELETE FROM knowledge_log WHERE created_at < ?').run(cutoffMs);
-    return result.changes;
   }
 
   /**

@@ -38,8 +38,6 @@ import {
 import { dedupeStrings } from './collections.js';
 import { hasTable, pickColumn, tableColumns } from './sqlite-schema.js';
 import { isGeneratedNotePath, safeFileStem, safeJoin } from './slug.js';
-import { isPageType } from '../memory/knowledge/types.js';
-import { normalizeScope, SCOPE_GLOBAL } from '../memory/knowledge/scope.js';
 
 /** Vault-relative path of the generated-file state. Root-level and dot-prefixed so Obsidian ignores it. */
 export const VAULT_STATE_FILE = '.oma-state.json';
@@ -103,48 +101,10 @@ interface SessionRecord {
   episodes: { summary: string; createdAt: string | null }[];
 }
 
-/**
- * One `knowledge_pages` row, as the projection needs it.
- *
- * `pageType` stays a raw string rather than `PageType`: the column is a closed
- * set at the write boundary, but this exporter reads whatever an older or
- * hand-edited database holds, and it must not throw on a value the memory layer
- * would refuse.
- */
-interface KnowledgePageRecord {
-  id: string;
-  pageType: string | null;
-  /** The conversation the page belongs to (`scope.ts`), normalised; `global` for console pages. */
-  scope: string;
-  slug: string;
-  title: string;
-  status: string | null;
-  version: number | null;
-  tags: string[];
-  aliases: string[];
-  /** Citations as `kind:id`, sorted — the page's provenance, not a payload. */
-  sources: string[];
-  content: string;
-}
-
 interface GeneratedNote {
   /** Vault-relative POSIX path. */
   path: string;
   content: string;
-}
-
-interface GeneratedPage {
-  page: KnowledgePageRecord;
-  /** File stem: what an Obsidian `[[wikilink]]` has to name to reach this note. */
-  stem: string;
-  /** Vault-relative POSIX path. */
-  path: string;
-  /**
-   * What a link in `index.md` must name to reach exactly this note: the bare stem
-   * for a global page (the shortest path Obsidian resolves), the vault path
-   * without `.md` for a scoped one, whose stem another scope may also hold.
-   */
-  linkTarget: string;
 }
 
 type Row = Record<string, unknown>;
@@ -163,7 +123,7 @@ function asNumber(value: unknown): number | null {
 
 /**
  * Read active memories. Statuses other than `active` (superseded / deleted) are
- * the database's own tombstones and are not knowledge, so they stay out of the
+ * the database's own tombstones, so they stay out of the
  * vault the same way they stay out of retrieval.
  */
 function readMemories(db: Database.Database): MemoryRecord[] {
@@ -300,79 +260,6 @@ function readSessions(db: Database.Database): SessionRecord[] {
 }
 
 /**
- * Citations per page, as `kind:id`, in the order the primary key gives.
- *
- * Read separately from the pages so an install with pages but no sources table
- * (never produced by a migration, but possible in a hand-restored database)
- * still exports the pages.
- */
-function readKnowledgePageSources(db: Database.Database): Map<string, string[]> {
-  const byPage = new Map<string, string[]>();
-  if (!hasTable(db, 'knowledge_sources')) return byPage;
-  const rows = db
-    .prepare(
-      `SELECT page_id, source_kind, source_id FROM knowledge_sources
-        ORDER BY page_id, source_kind, source_id`,
-    )
-    .all() as Row[];
-  for (const row of rows) {
-    const pageId = asText(row.page_id);
-    const kind = asText(row.source_kind);
-    const sourceId = asText(row.source_id);
-    if (!pageId || !kind || !sourceId) continue;
-    const sources = byPage.get(pageId) ?? [];
-    sources.push(`${kind}:${sourceId}`);
-    byPage.set(pageId, sources);
-  }
-  return byPage;
-}
-
-/**
- * Active knowledge pages, in `(page_type, scope, slug)` order.
- *
- * `status = 'active'` is the knowledge layer's hard read filter (search, get,
- * injection, link resolution), so the vault uses the same one: a `pending` page
- * is unreviewed curation and an `archived` page is history, and exporting either
- * would let the vault show what the agent itself will not answer from.
- */
-function readKnowledgePages(db: Database.Database): KnowledgePageRecord[] {
-  if (!hasTable(db, 'knowledge_pages')) return [];
-  const sourcesByPage = readKnowledgePageSources(db);
-  const rows = db
-    .prepare(
-      `SELECT * FROM knowledge_pages WHERE status = 'active'
-        ORDER BY page_type, scope, slug, id`,
-    )
-    .all() as Row[];
-
-  const pages: KnowledgePageRecord[] = [];
-  for (const row of rows) {
-    const id = asText(row.id);
-    const slug = asText(row.slug);
-    // A page body is markdown, stored verbatim: only an unreadable or empty one
-    // is skipped, and `trim()` here is the test, not the projection.
-    const content = typeof row.content === 'string' ? row.content : '';
-    if (!id || !slug || !content.trim()) continue;
-    pages.push({
-      id,
-      pageType: asText(row.page_type),
-      // A database older than the v22 scope migration has no column at all; every
-      // page it holds predates the concept, which is exactly `global`.
-      scope: normalizeScope(row.scope),
-      slug,
-      title: asText(row.title) ?? slug,
-      status: asText(row.status),
-      version: asNumber(row.version),
-      tags: dedupeStrings(parseAliases(row.tags)),
-      aliases: dedupeStrings(parseAliases(row.aliases)),
-      sources: sourcesByPage.get(id) ?? [],
-      content,
-    });
-  }
-  return pages;
-}
-
-/**
  * Assign one file stem per key, disambiguating keys that slugify to the same
  * text (`Alice Smith` vs `alice-smith`) with a hash of the raw key. The mapping
  * depends only on the data, so it is stable across runs.
@@ -400,104 +287,6 @@ function assignStems(items: { key: string; raw: string }[]): Map<string, string>
 
 function shortDate(timestamp: string | null): string | null {
   return timestamp ? timestamp.slice(0, 10) : null;
-}
-
-/**
- * Vault path, stem and link target of every page note.
- *
- * `pages/<page_type>/<slug>.md` for a global page, or `pages/<slug>.md` when its
- * `page_type` is outside the closed set — there is no directory to file such a
- * row under that would not invent a type for it. A page from a conversation goes
- * under its scope: `pages/<scope>/<page_type>/<slug>.md`. Without that segment
- * two chats holding `topic/deploy-process` would be one file, and the second
- * write would silently replace the first — the vault would show one
- * conversation's page as if it were the other's. Global paths are unchanged, so
- * an existing vault keeps working and its `[[slug]]` links keep resolving.
- *
- * The stem is the slug with no prefix, because the page body addresses its
- * neighbours as `[[slug]]`: Obsidian resolves a bare link by file name (shortest
- * path), so a prefixed stem would turn every existing wikilink into a dead one.
- * A scoped page keeps the same stem — its address is the path, which is why
- * `index.md` links scoped pages by path instead of by stem.
- *
- * `safeFileStem` differs from the slug only for the names a filesystem refuses
- * outright (Windows `CON`, `NUL`, …): such a page cannot be addressed as
- * `[[con]]` on Windows either, and one failed write would abort the export.
- */
-function assignPageFiles(pages: readonly KnowledgePageRecord[]): GeneratedPage[] {
-  const scopeDirectories = assignScopeDirectories(pages.map((page) => page.scope));
-  const taken = new Set<string>();
-  const files: GeneratedPage[] = [];
-  for (const page of pages) {
-    const dir = pageNoteDirectory(page, scopeDirectories);
-    let stem = safeFileStem(page.slug);
-    let notePath = `${dir}/${stem}.md`;
-    if (taken.has(notePath)) {
-      // Two rows can only reach one path when their addresses coincide: the same
-      // slug twice under a `page_type` outside the closed set, or a scope whose
-      // slug happens to name a page type. The id keeps them apart, deterministically.
-      const suffix = createHash('sha256').update(page.id).digest('hex').slice(0, 8);
-      stem = `${stem}-${suffix}`;
-      notePath = `${dir}/${stem}.md`;
-    }
-    taken.add(notePath);
-    files.push({
-      page,
-      stem,
-      path: notePath,
-      linkTarget: page.scope === SCOPE_GLOBAL ? stem : notePath.replace(/\.md$/, ''),
-    });
-  }
-  return files;
-}
-
-/**
- * Directory of one page note, per {@link assignPageFiles}: scope (unless global),
- * then the page type when the row has a usable one.
- */
-function pageNoteDirectory(
-  page: KnowledgePageRecord,
-  scopeDirectories: Map<string, string>,
-): string {
-  const segments = ['pages'];
-  if (page.scope !== SCOPE_GLOBAL) {
-    segments.push(scopeDirectories.get(page.scope) ?? safeFileStem(page.scope));
-  }
-  if (isPageType(page.pageType)) segments.push(page.pageType);
-  return segments.join('/');
-}
-
-/**
- * One directory name per non-global scope.
- *
- * A scope is `channel:<chatId>` / `session:<id>` as stored, so it becomes a slug
- * (`feishu:oc_1` → `feishu-oc-1`) — `:` and `_` are not path characters, and a
- * raw scope in a path would be a directory name a re-parse could not recover.
- * Two distinct scopes can fold onto the same slug (`feishu:oc-1` and
- * `feishu:oc_1`), so such a group is disambiguated with a hash of the raw scope,
- * exactly as {@link assignStems} does for two names that slugify alike. Both the
- * slug and the hash are functions of the stored value, so a re-run writes the
- * same paths.
- */
-function assignScopeDirectories(scopes: readonly string[]): Map<string, string> {
-  const directories = new Map<string, string>();
-  const byDirectory = new Map<string, string[]>();
-  for (const scope of [...new Set(scopes)].sort()) {
-    if (scope === SCOPE_GLOBAL) continue;
-    const directory = safeFileStem(scope);
-    directories.set(scope, directory);
-    const group = byDirectory.get(directory) ?? [];
-    group.push(scope);
-    byDirectory.set(directory, group);
-  }
-  for (const [directory, group] of byDirectory) {
-    if (group.length < 2) continue;
-    for (const scope of group) {
-      const suffix = createHash('sha256').update(scope).digest('hex').slice(0, 8);
-      directories.set(scope, `${directory}-${suffix}`);
-    }
-  }
-  return directories;
 }
 
 function confidenceSuffix(confidence: number | null): string {
@@ -633,34 +422,6 @@ function memoryTitle(memory: MemoryRecord): string {
   return cleaned.length > 80 ? `${cleaned.slice(0, 77)}...` : cleaned;
 }
 
-/**
- * One knowledge-page note: YAML frontmatter, then the stored body verbatim.
- *
- * No heading is synthesised and no markdown is re-rendered — the body is the
- * authored text (curated pages deliberately carry no top-level heading, the
- * title is stored separately), so the vault stays a projection rather than a
- * second author. Key order is fixed by the object literal: title, page_type,
- * scope, status, version, then the lists, which keeps two runs byte-identical.
- *
- * `scope` is written for every page, `global` included: it says which
- * conversation the page exists for, which is the one fact a reader cannot infer
- * from the directory (`global` pages live at the same depth as a page type) and
- * the reason a scoped page's note sits under `pages/<scope>/`.
- */
-function renderPageNote(page: KnowledgePageRecord): string {
-  const frontmatterData: Record<string, unknown> = { title: page.title };
-  if (page.pageType) frontmatterData.page_type = page.pageType;
-  frontmatterData.scope = page.scope;
-  if (page.status) frontmatterData.status = page.status;
-  if (page.version !== null) frontmatterData.version = page.version;
-  if (page.tags.length > 0) frontmatterData.tags = page.tags;
-  if (page.aliases.length > 0) frontmatterData.aliases = page.aliases;
-  if (page.sources.length > 0) frontmatterData.sources = page.sources;
-
-  const body = page.content.replace(/\n+$/, '');
-  return `${frontmatterBlock(frontmatterData)}\n${body}\n`;
-}
-
 function renderSessionNote(session: SessionRecord): string {
   const frontmatterData: Record<string, unknown> = { id: session.id };
   if (session.chatId) frontmatterData.chat_id = session.chatId;
@@ -681,7 +442,6 @@ function renderIndex(input: {
   relations: EntityGraph['relations'];
   memories: MemoryRecord[];
   sessions: SessionRecord[];
-  pages: GeneratedPage[];
   entityTablesPresent: boolean;
   memoryStems: Map<string, string>;
 }): string {
@@ -691,7 +451,7 @@ function renderIndex(input: {
     '',
     'This vault is a **projection** of the agent database: `pnpm graph:export`',
     'rewrites `index.md`, `pages/`, `entities/`, `memories/` and `sessions/` in one',
-    'direction. Knowledge is authored in the database (through the agent), never in',
+    'direction. Memory is authored in the database (through the agent), never in',
     'these notes — edits to a generated note are lost on the next export.',
     '',
     `Notes under \`${MANUAL_DIR}/\` are hand-written and are never overwritten or deleted.`,
@@ -704,10 +464,9 @@ function renderIndex(input: {
     `| Relations | ${input.relations.length} |`,
     `| Memories | ${input.memories.length} |`,
     `| Sessions | ${input.sessions.length} |`,
-    `| Pages | ${input.pages.length} |`,
     '',
-    'Only `active` memories and `active` knowledge pages are projected; superseded',
-    'memories and pending or archived pages stay in the database.',
+    'Only `active` memories are projected; superseded memories stay in the',
+    'database.',
     '',
   ];
 
@@ -723,21 +482,6 @@ function renderIndex(input: {
     for (const entity of input.entities) {
       const suffix = entity.entityType ? ` — ${entity.entityType}` : '';
       lines.push(`- ${wikilink(entity.name)}${suffix}`);
-    }
-    lines.push('');
-  }
-
-  if (input.pages.length > 0) {
-    lines.push('## Pages', '');
-    for (const entry of input.pages) {
-      // Page type, then the scope of any page that is not global — the one thing
-      // that tells two notes with the same title apart.
-      const labels = [
-        entry.page.pageType,
-        entry.page.scope === SCOPE_GLOBAL ? null : entry.page.scope,
-      ].filter((label): label is string => Boolean(label));
-      const suffix = labels.length > 0 ? ` — ${labels.join(', ')}` : '';
-      lines.push(`- ${wikilink(entry.linkTarget, entry.page.title)}${suffix}`);
     }
     lines.push('');
   }
@@ -819,7 +563,6 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
   const memories = readMemories(options.db);
   const memoryLinksById = readMemoryEntityLinks(options.db);
   const sessions = readSessions(options.db);
-  const knowledgePages = assignPageFiles(readKnowledgePages(options.db));
   const entityRead = readEntityGraph(options.db);
   const entityTablesPresent = entityRead.present;
   const graph = entityRead.graph;
@@ -832,10 +575,6 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
   const entityByName = new Map(graph.entities.map((entity) => [entity.name.toLowerCase(), entity]));
 
   const generated: GeneratedNote[] = [];
-
-  for (const entry of knowledgePages) {
-    generated.push({ path: entry.path, content: renderPageNote(entry.page) });
-  }
 
   for (const entity of graph.entities) {
     generated.push({
@@ -870,7 +609,6 @@ export function exportVault(options: ExportVaultOptions): ExportVaultResult {
       relations: graph.relations,
       memories,
       sessions,
-      pages: knowledgePages,
       entityTablesPresent,
       memoryStems,
     }),

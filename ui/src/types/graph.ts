@@ -206,41 +206,19 @@ export interface SearchContextResponse {
 export interface SearchPayload {
   q: string;
   results: SearchResult[];
-  /**
-   * Knowledge-page hits. A separate array because `results` is rendered by a
-   * closed kind list: a fourth kind there would fall out of every group, and a
-   * page-only answer would render as "no results".
-   *
-   * These rows MUST be rendered, not ignored: the fusion drops a memory when a
-   * returned page cites it (`deduped`), so hiding `pages` makes a hit vanish
-   * with nothing in its place.
-   */
-  pages?: SearchPageRow[];
-  /** Memories dropped because a returned page already covers them. */
-  deduped?: SearchDedupeRecord[];
   /** What each fused lane contributed; `error` marks a lane that failed alone. */
   lanes?: Partial<Record<SearchLane, SearchLaneReport>>;
   /** Relations the graph already records about the returned memories. */
   hints?: SearchGraphHint[];
 }
 
-export type SearchPageRow = Omit<SearchResult, 'kind'> & { kind: 'knowledge' };
-
-export type SearchLane = 'memory' | 'message' | 'knowledge';
+export type SearchLane = 'memory' | 'message';
 
 export interface SearchLaneReport {
   hits: number;
   dropped: number;
   /** Set when the lane failed; the other lanes still answer. */
   error?: string;
-}
-
-export interface SearchDedupeRecord {
-  lane: 'memory';
-  id: string;
-  reason: 'cited_by_knowledge_page';
-  /** The page that covers the dropped memory, so the drop is explainable. */
-  page_slug: string;
 }
 
 export interface SearchGraphHint {

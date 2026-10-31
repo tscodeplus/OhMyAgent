@@ -77,11 +77,6 @@ export interface ConversationSearchHit {
   expanded: boolean;
   /** `memory_sources` for this message; [] when nothing was recorded. */
   memory_ids: string[];
-  /**
-   * `knowledge_sources(source_kind = 'message')` → active `knowledge_pages.slug`.
-   * Always present, empty until the knowledge layer cites messages.
-   */
-  knowledge_slugs: string[];
 }
 
 interface FtsRow {
@@ -112,7 +107,7 @@ interface Selection {
 
 /**
  * Search raw messages and return at most `limit` entries, chronologically
- * ordered, each with its provenance (memories / knowledge pages).
+ * ordered, each with its provenance (memories).
  *
  * Returns [] rather than throwing when the FTS table is missing or the MATCH
  * expression is rejected: conversation search is one retrieval leg, not a
@@ -231,7 +226,6 @@ export function searchMessages(options: ConversationSearchOptions): Conversation
       score: selection.expanded ? 0 : normalizeBm25(row.rank),
       expanded: selection.expanded,
       memory_ids: [],
-      knowledge_slugs: [],
     };
   });
 
@@ -448,13 +442,10 @@ function buildSnippet(content: string, query: string): string {
 }
 
 /**
- * Attach `memory_ids` / `knowledge_slugs` to every hit.
+ * Attach `memory_ids` to every hit.
  *
- * Both are unconditional parts of the result shape — an empty array means
- * "nothing recorded", and a caller must never have to test for the field's
- * presence. `knowledge_slugs` is empty until the knowledge layer starts citing
- * messages; making it conditional now would mean the consumer side has to be
- * written twice.
+ * Unconditional part of the result shape — an empty array means "nothing
+ * recorded", and a caller must never have to test for the field's presence.
  */
 function attachProvenance(db: Database.Database, hits: ConversationSearchHit[]): void {
   if (hits.length === 0) return;
@@ -472,25 +463,8 @@ function attachProvenance(db: Database.Database, hits: ConversationSearchHit[]):
     for (const row of rows) pushInto(memoryIds, row.message_id, row.memory_id);
   }
 
-  const slugs = new Map<string, string[]>();
-  if (tableExists(db, 'knowledge_sources') && tableExists(db, 'knowledge_pages')) {
-    const rows = db
-      .prepare(
-        `SELECT ks.source_id AS message_id, p.slug AS slug
-         FROM knowledge_sources ks
-         JOIN knowledge_pages p ON p.id = ks.page_id
-         WHERE ks.source_kind = 'message'
-           AND ks.source_id IN (${placeholders})
-           AND p.status = 'active'
-         ORDER BY p.slug`,
-      )
-      .all(...ids) as Array<{ message_id: string; slug: string }>;
-    for (const row of rows) pushInto(slugs, row.message_id, row.slug);
-  }
-
   for (const hit of hits) {
     hit.memory_ids = memoryIds.get(hit.message_id) ?? [];
-    hit.knowledge_slugs = slugs.get(hit.message_id) ?? [];
   }
 }
 

@@ -254,7 +254,6 @@ describe('AgentService', () => {
       expect(referenced[0]![1]).toEqual({
         lane: 'memories',
         toolName: 'assistant_message',
-        knowledgeSlugs: [],
         memoryIds: ['mem-quoted'],
         messageIds: [],
       });

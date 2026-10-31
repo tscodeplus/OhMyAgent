@@ -24,12 +24,8 @@ import { ToolRegistryImpl } from '../../src/tools/registry.js';
 import { ToolVisibilityPolicyImpl, PROFILE_TOOLS } from '../../src/policy/tool-visibility.js';
 import { getCapabilityForTool } from '../../src/policy/tool-capability-registry.js';
 import type { AgentPolicyScope } from '../../src/policy/types.js';
-import { createKnowledgeGetToolDefinition } from '../../src/tools/builtins/knowledge/get-definition.js';
-import { createKnowledgeSearchToolDefinition } from '../../src/tools/builtins/knowledge/search-definition.js';
-import { createKnowledgeWriteToolDefinition } from '../../src/tools/builtins/knowledge/write-definition.js';
 import { createSessionSearchToolDefinition } from '../../src/tools/builtins/session/session-search-definition.js';
 import { createEntityQueryToolDefinition } from '../../src/tools/builtins/graph/entity-query-definition.js';
-import type { KnowledgeService } from '../../src/memory/knowledge/service-contract.js';
 import type Database from 'better-sqlite3';
 
 /**
@@ -38,15 +34,8 @@ import type Database from 'better-sqlite3';
  * pure registration test (no SQLite, no fixtures).
  */
 function buildRegisteredDefinitions(): ToolDefinition<any>[] {
-  const knowledgeService = {} as KnowledgeService;
   const db = {} as Database.Database;
-  return [
-    createKnowledgeSearchToolDefinition({ knowledgeService }),
-    createKnowledgeGetToolDefinition({ knowledgeService }),
-    createKnowledgeWriteToolDefinition({ knowledgeService }),
-    createSessionSearchToolDefinition({ db }),
-    createEntityQueryToolDefinition({ db }),
-  ];
+  return [createSessionSearchToolDefinition({ db }), createEntityQueryToolDefinition({ db })];
 }
 
 function scopeFor(toolsProfile: AgentPolicyScope['toolsProfile']): AgentPolicyScope {
@@ -108,33 +97,17 @@ describe('tool registration gates (plan §8.1)', () => {
   });
 
   it('each tool is filed under the category its definition declares', () => {
-    // The table and the definition must agree here too — a read-only knowledge
-    // tool misfiled as `session` would still pass the approval fields above.
+    // The table and the definition must agree here too — a read-only tool
+    // misfiled as `session` would still pass the approval fields above.
     const misfiled = definitions
       .filter((def) => getCapabilityForTool(def.name).category !== def.capability.category)
       .map((def) => def.name);
     expect(misfiled, `category drift: ${misfiled.join(', ')}`).toEqual([]);
   });
 
-  it('knowledge_read tools are read-only and never prompt for approval', () => {
-    for (const name of ['knowledge_search', 'knowledge_get']) {
-      expect(getCapabilityForTool(name), name).toEqual({
-        category: 'memory',
-        readOnly: true,
-        readsFiles: false,
-        writesFiles: false,
-        usesShell: false,
-        usesNetwork: false,
-        usesComputerUse: false,
-        pathAccess: 'none',
-        approvalDefault: 'none',
-      });
-    }
-  });
-
   it('session_search is a session tool, like session_summarize', () => {
     // It reads raw transcripts, not the memory layer's curated tier, so it
-    // carries `session_summarize`'s category rather than the knowledge tools'.
+    // carries `session_summarize`'s category rather than a memory tool's.
     expect(getCapabilityForTool('session_search')).toEqual({
       category: 'session',
       readOnly: true,
@@ -145,20 +118,6 @@ describe('tool registration gates (plan §8.1)', () => {
       usesComputerUse: false,
       pathAccess: 'none',
       approvalDefault: 'none',
-    });
-  });
-
-  it('knowledge_write is mutating, like file_write', () => {
-    expect(getCapabilityForTool('knowledge_write')).toEqual({
-      category: 'memory',
-      readOnly: false,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'mutating',
     });
   });
 
@@ -181,13 +140,7 @@ describe('tool registration gates (plan §8.1)', () => {
 
   it('new tools use a single spelling — no invented kebab aliases', () => {
     const all = [...PROFILE_TOOLS.restricted, ...PROFILE_TOOLS.standard];
-    for (const name of [
-      'session_search',
-      'knowledge_search',
-      'knowledge_get',
-      'knowledge_write',
-      'entity_query',
-    ]) {
+    for (const name of ['session_search', 'entity_query']) {
       expect(all.filter((entry) => entry.replace(/_/g, '-') === name.replace(/_/g, '-'))).toEqual([
         name,
         name,

@@ -1,10 +1,10 @@
 /**
  * Migration v31 — the notes tables (MyDocs/NOTES_LAYER_PLAN.md §4).
  *
- * A new table set, not an extension of `knowledge_pages`: the producer, the
+ * A new table set, not an extension of the retired page layer: the producer, the
  * admission rule and the unit of content all differ (§1), and widening
- * `knowledge_pages` would have meant every knowledge reader learning about
- * drafts. So `notes` is a separate layer and `knowledge` stays as it is.
+ * a page table would have meant every reader learning about
+ * drafts. So `notes` is a separate layer.
  *
  * Registered **after** `applySchema()` — `schema.ts` owns no DDL for these
  * tables, so the "column-adding migration must run before applySchema" trap
@@ -17,7 +17,7 @@
  *
  * `notes_fts_jieba` is a **standalone** FTS5 table whose indexed columns hold
  * jieba-segmented text — the same shape `memories_fts_jieba` and
- * `knowledge_fts_jieba` use, because the bundled SQLite has no `jieba`
+ * the message index uses, because the bundled SQLite has no `jieba`
  * tokenizer module (a `tokenize='jieba'` table would simply fail to open).
  * Standalone means no uniqueness constraint, so every write is
  * delete-by-`note_id`-then-insert (see `indexer.ts`).

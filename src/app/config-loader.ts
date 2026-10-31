@@ -126,7 +126,6 @@ const nodeVarToYamlKey: Record<string, string> = {
   cuCfg: 'computer_use',
   mcpCfg: 'mcp',
   jgCfg: 'judge',
-  knCfg: 'knowledge',
   csCfg: 'conversation_search',
 };
 
@@ -689,7 +688,7 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
 /**
  * Map the `notes:` YAML section (MyDocs/NOTES_LAYER_PLAN.md §9).
  *
- * Same rule as `knowledge:`: a *missing* section means the layer stays off
+ * Same rule as `notes:`: a *missing* section means the layer stays off
  * rather than taking the schema's `enabled: true` default, because a new
  * subsystem must not switch itself on during an upgrade. A present block
  * (even empty) is the opt-in, and both spellings of every key are accepted so
@@ -741,68 +740,15 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
 }
 
 /**
- * Map the `knowledge:` YAML section (MyDocs/KNOWLEDGE_WORKBENCH_PLAN.md §9.1)
- * into the camelCase shape `knowledgeSectionSchema` expects.
+ * Map the `conversation_search:` section.
  *
- * Both spellings are accepted on every key — snake_case from a hand-edited
- * YAML, camelCase from a WebUI save — because either file can reach this
- * function. A partial section is completed here, so a half-written block loads
- * the same as one the WebUI wrote in full.
- *
- * A *missing* section means the layer stays off, not that it gets the schema's
+ * Both spellings are accepted on every key — snake_case from a hand-edited YAML,
+ * camelCase from a WebUI save — because either file can reach this function. A
+ * *missing* section means the layer stays off, not that it gets the schema's
  * `enabled: true` default: a new subsystem must not switch itself on during an
  * upgrade, which is why `mcp:` and `judge:` are inert while their section is
- * absent. So absence is mapped to `enabled: false` explicitly and the schema
- * defaults fill in the rest. Presence of the block is the opt-in — an explicit
- * `knowledge:` that omits `enabled:` still means enabled. A bare `knowledge:`
- * key with nothing under it (YAML null) counts as absent, not as an empty
- * opt-in; `knowledge: {}` is the empty opt-in.
+ * absent.
  */
-function buildKnowledgeSection(knCfg: YamlNode): Record<string, unknown> {
-  if (knCfg == null) return { enabled: false };
-  const readCfg = knCfg.read as YamlNode;
-  const curateCfg = knCfg.curate as YamlNode;
-  const injectCfg = knCfg.inject as YamlNode;
-  return {
-    enabled: yamlBool(knCfg.enabled, true, 'knCfg.enabled'),
-    read: {
-      enabled: yamlBool(readCfg?.enabled, true, 'knCfg.read.enabled'),
-    },
-    curate: {
-      // A wrong string ('sometimes') is rejected by the schema's enum, which
-      // names `knowledge.curate.mode` in the startup error.
-      mode: str(curateCfg?.mode, 'nightly', 'knCfg.curate.mode'),
-      shadow: yamlBool(curateCfg?.shadow, false, 'knCfg.curate.shadow'),
-      maxPagesPerRun: num(
-        curateCfg?.max_pages_per_run ?? curateCfg?.maxPagesPerRun,
-        5,
-        'knCfg.curate.max_pages_per_run',
-      ),
-      requireSources: num(
-        curateCfg?.require_sources ?? curateCfg?.requireSources,
-        2,
-        'knCfg.curate.require_sources',
-      ),
-      minMemoryConfidence: num(
-        curateCfg?.min_memory_confidence ?? curateCfg?.minMemoryConfidence,
-        0.6,
-        'knCfg.curate.min_memory_confidence',
-      ),
-      modelRef: str(curateCfg?.model_ref ?? curateCfg?.modelRef, '', 'knCfg.curate.model_ref'),
-    },
-    logRetentionDays: num(
-      knCfg.log_retention_days ?? knCfg.logRetentionDays,
-      90,
-      'knCfg.log_retention_days',
-    ),
-    inject: {
-      enabled: yamlBool(injectCfg?.enabled, true, 'knCfg.inject.enabled'),
-      maxPages: num(injectCfg?.max_pages ?? injectCfg?.maxPages, 2, 'knCfg.inject.max_pages'),
-    },
-  };
-}
-
-/** Map the `conversation_search:` section; same both-spellings and absent-means-off rules as `knowledge`. */
 function buildConversationSearchSection(csCfg: YamlNode): Record<string, unknown> {
   if (csCfg == null) return { enabled: false };
   return {
@@ -1191,8 +1137,6 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
     judge: buildJudgeSection(root.judge),
 
     archive: buildArchiveSection(root.archive),
-
-    knowledge: buildKnowledgeSection(root.knowledge),
 
     notes: buildNotesSection(root.notes),
 
@@ -1860,44 +1804,6 @@ export function jsConfigToYaml(
           ya.auto = yau;
         }
         yaml.archive = ya;
-        break;
-      }
-
-      // ────── knowledge (camelCase JS → snake_case YAML) ───────
-      // Merged into the existing section, so a key written by hand (or by a
-      // future version) survives a WebUI save. Unlike `mcp`, this section is
-      // round-trippable: the loader reads both spellings of every key.
-      case 'knowledge': {
-        const k = value as Record<string, unknown>;
-        const yk = { ...((existingYaml.knowledge as Record<string, unknown>) || {}) };
-        if (k.enabled !== undefined) yk.enabled = k.enabled;
-        if (k.read !== undefined) {
-          const r = k.read as Record<string, unknown>;
-          const yr = { ...((yk.read as Record<string, unknown>) || {}) };
-          if (r.enabled !== undefined) yr.enabled = r.enabled;
-          yk.read = yr;
-        }
-        if (k.curate !== undefined) {
-          const cu = k.curate as Record<string, unknown>;
-          const ycu = { ...((yk.curate as Record<string, unknown>) || {}) };
-          if (cu.mode !== undefined) ycu.mode = cu.mode;
-          if (cu.shadow !== undefined) ycu.shadow = cu.shadow;
-          if (cu.maxPagesPerRun !== undefined) ycu.max_pages_per_run = cu.maxPagesPerRun;
-          if (cu.requireSources !== undefined) ycu.require_sources = cu.requireSources;
-          if (cu.minMemoryConfidence !== undefined)
-            ycu.min_memory_confidence = cu.minMemoryConfidence;
-          if (cu.modelRef !== undefined) ycu.model_ref = cu.modelRef;
-          yk.curate = ycu;
-        }
-        if (k.logRetentionDays !== undefined) yk.log_retention_days = k.logRetentionDays;
-        if (k.inject !== undefined) {
-          const inj = k.inject as Record<string, unknown>;
-          const yinj = { ...((yk.inject as Record<string, unknown>) || {}) };
-          if (inj.enabled !== undefined) yinj.enabled = inj.enabled;
-          if (inj.maxPages !== undefined) yinj.max_pages = inj.maxPages;
-          yk.inject = yinj;
-        }
-        yaml.knowledge = yk;
         break;
       }
 

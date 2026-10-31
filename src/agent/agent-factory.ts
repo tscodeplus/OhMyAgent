@@ -18,7 +18,7 @@ import type {
 } from '../app/types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
-import { createTransformContext, recordInjectionReference } from './context-transform.js';
+import { createTransformContext } from './context-transform.js';
 import type { EpisodicContextItem } from './context-transform.js';
 import { searchMessages } from '../memory/conversation-search.js';
 import type Database from 'better-sqlite3';
@@ -462,11 +462,11 @@ export function searchEpisodicContext(params: EpisodicSearchParams): EpisodicCon
     sessionTitle: hit.session_title,
     role: hit.role,
     excerpt: hit.snippet,
-    // Relevance, for the cross-block budget (plan §6 K5 item 4): the transform
-    // ranks this lane against the knowledge lane, so it needs the number the
-    // search already computed rather than only the order. `conversation-search`
-    // normalises BM25 into (0,1) and gives a ±1 neighbour 0 — a neighbour is
-    // context, not a hit, and it loses the budget first.
+    // Relevance, for the cross-block budget: the transform ranks this lane's
+    // items against each other and needs the number the search already computed
+    // rather than only the order. `conversation-search` normalises BM25 into
+    // (0,1) and gives a ±1 neighbour 0 — a neighbour is context, not a hit, and
+    // it loses the budget first.
     score: hit.score,
     // Carried for the per-turn injection event (plan §6 K0 item 3): the block
     // renders only text, but the row that records the injection names the
@@ -1059,12 +1059,6 @@ export function createAgentFactory(
           autoRecallFrequency: configRef.current.memory.autoRecallFrequency as 'first' | 'every',
           sessionKey: sessionId,
           agentId: runtimeAgentId,
-          // The turn's conversation, for the knowledge block's read scope. The
-          // WebUI path rebuilds the agent every turn (it passes `channel`), so
-          // these are the current turn's ids, and a turn with neither keeps the
-          // block unscoped, which is what cron and the console need.
-          channel: options?.channel,
-          chatId,
           dateLanguage: configRef.current.uiLanguage,
           offloadConfig: configRef.current.memory.offloading,
           offloadStore: offloadStore,
@@ -1092,24 +1086,6 @@ export function createAgentFactory(
               limit: conversationSearch.autoInjectMaxItems,
               projectId: options?.projectId,
               turnStart: options?.turnContext?.turnStartedAt,
-            });
-          },
-          // K2-6: offer the titles of the pages worth reading this turn. The
-          // body stays behind `knowledge_get`; `titlesForInjection` already
-          // applies the relevance floor, so an unfocused turn yields no block.
-          //
-          // `scope` is the turn's read scope (the transform computes it and
-          // omits it for a turn with no conversation): without it a page
-          // curated in one chat is offered as a title in every other, and the
-          // leak is on every turn rather than only on an explicit search.
-          knowledgeContextProvider: (query: string, scope?: string) => {
-            const knowledge = configRef.current.knowledge;
-            const knowledgeService = getServices?.()?.knowledgeService;
-            if (!knowledge.enabled || !knowledge.inject.enabled || !knowledgeService) {
-              return undefined;
-            }
-            return knowledgeService.titlesForInjection(query, knowledge.inject.maxPages, {
-              scope,
             });
           },
           desktopBridgeReminderProvider: bridgeRegistry
@@ -1167,24 +1143,6 @@ NEVER refuse to access files. You can read and send files from BOTH sources.
         fallbackModels: fallbackModels.length > 0 ? fallbackModels : undefined,
         afterToolCall: async (context) => {
           const result = context.result;
-
-          // Plan §6 K0 item 3, ②「是否被引用」: was a page the transform offered
-          // in the last prompt build actually read? `knowledge_get` is the only
-          // tool that reads an injected offer back, and the transform owns the
-          // offer list — it matches the reference, consumes it and records
-          // `memory.injection.referenced`. Nothing happens when the slug was
-          // not offered, so this is a hit test, not per-tool-call telemetry.
-          if (context.toolCall.name === 'knowledge_get') {
-            const ref = (context.args as Record<string, unknown> | undefined)?.ref;
-            if (typeof ref === 'string') {
-              recordInjectionReference({
-                agentId: runtimeAgentId,
-                sessionKey: sessionId,
-                toolName: context.toolCall.name,
-                refs: [ref],
-              });
-            }
-          }
 
           // Auto-reload skill registry when a SKILL.md is written via file_write.
           // Agents may use file_write instead of skill_create, so we detect writes
