@@ -187,7 +187,7 @@ const judgeEntrySchema = z
  *
  * `auto` is the only knob today: a maintenance job flags conversations whose
  * last activity is older than `days` as archived. Archiving is list-visibility
- * only (memory, search, the graph and IM delivery ignore `archived_at`), so the
+ * only (memory, search, notes and IM delivery ignore `archived_at`), so the
  * worst case of a too-aggressive threshold is tidier sidebars, not lost context.
  *
  * Default OFF: turning it on mass-moves the existing backlog on the first tick,
@@ -483,34 +483,12 @@ const configSchema = z.object({
         maxVariants: z.coerce.number().int().positive().default(4),
       })
       .default({}),
-    // Extraction of entities/relations out of memory text
-    // (`entity_backfill` + `MemoryWriter`). One block, because both call the
-    // same `extractEntitiesLLM`: `llm` is the switch for spending a model call
-    // on it, and the two numbers are the cost bound. Absent block = enabled with
-    // conservative defaults, so an upgrade is never silently expensive; an
-    // explicit `llm: false` is the off switch. Keys stay snake_case, like
-    // `graph` below, so `src/app/config-loader.ts` can pass them through as
-    // written in config.yaml.
-    entityExtraction: z
-      .object({
-        llm: z.boolean().default(true),
-        // Hard cap on model calls per maintenance run — this runs on a phone.
-        max_memories_per_run: z.coerce.number().int().positive().default(5),
-        min_confidence: z.coerce.number().min(0).max(1).default(0.6),
-        // Optional `provider/model` override for *this* task only. Extraction is
-        // a throughput job, so it wants a fast non-reasoning model, while
-        // summaries want the auxiliary model's quality. Measured on the reference
-        // corpus: the reasoning aux model spent 1500 tokens thinking and returned
-        // nothing in 20s, `claude-haiku-5-5` returned the right triple in 4s.
-        model: z.string().optional(),
-      })
-      .default({}),
     // Provenance backfill (`provenance_backfill`): gives a historical memory its
     // source message when its own text proves one — `memory_sources.source =
     // 'backfill'`, the value migration-v13 documented but nothing produced.
     // Absent block = enabled with conservative defaults; `enabled: false` is the
-    // off switch. Keys stay snake_case, like `entity_extraction` above, so
-    // `src/app/config-loader.ts` passes them through as written in config.yaml.
+    // off switch. Keys stay snake_case, so `src/app/config-loader.ts` passes
+    // them through as written in config.yaml.
     provenanceBackfill: z
       .object({
         enabled: z.boolean().default(true),
@@ -563,29 +541,6 @@ const configSchema = z.object({
         minMemories: z.coerce.number().int().positive().default(5),
       })
       .default({}),
-    // Knowledge-graph projection of `memory_links` into `entities`/
-    // `entity_edges` (src/graph/graph-sync.ts). Every key is optional so an
-    // existing config.yaml keeps validating; a wrong type still fails the
-    // boot like every other key.
-    graph: z
-      .object({
-        enabled: z.boolean().default(true),
-        min_confidence: z.coerce.number().min(0).max(1).default(0.3),
-        max_links_per_run: z.coerce.number().int().positive().default(500),
-        // Deterministic mention mining of memories that never produced a link
-        // (src/graph/entity-mining.ts). No model call, so it is on by default.
-        mine_mentions: z.boolean().default(true),
-        max_mentions_per_memory: z.coerce.number().int().positive().default(8),
-        // Nodes come from mentions; edges still require an attested relation.
-        // A node says "this corpus talks about X", which a mention proves.
-        project_mention_nodes: z.boolean().default(true),
-        max_mention_nodes: z.coerce.number().int().positive().default(2000),
-        // Read-time edge decay (src/graph/decay.ts): days in which an edge's
-        // confidence halves, measured from its own valid_from. 0 = off, which is
-        // the default so an existing install's ranking does not move on upgrade.
-        decay_half_life_days: z.coerce.number().min(0).default(0),
-      })
-      .default({}),
     maintenance: z
       .object({
         enabled: z.boolean().default(true),
@@ -596,7 +551,6 @@ const configSchema = z.object({
             embedding_backfill: z.boolean().default(true),
             terms_backfill: z.boolean().default(true),
             embedding_cache_trim: z.boolean().default(true),
-            entity_backfill: z.boolean().default(true),
             /** `memory.provenance_backfill` — content-matched source messages. */
             provenance_backfill: z.boolean().default(true),
             persona_consistency: z.boolean().default(true),
@@ -1223,11 +1177,6 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         enabled: envBool(env.MEMORY_HYGIENE_ENABLED, true),
         retentionDays: env.MEMORY_HYGIENE_RETENTION_DAYS,
       },
-      entityExtraction: {
-        llm: envBool(env.MEMORY_ENTITY_EXTRACTION_LLM, true),
-        max_memories_per_run: env.MEMORY_ENTITY_EXTRACTION_MAX_MEMORIES_PER_RUN,
-        min_confidence: env.MEMORY_ENTITY_EXTRACTION_MIN_CONFIDENCE,
-      },
       embeddingCircuitBreaker: {
         failureThreshold: env.EMBEDDING_CB_FAILURE_THRESHOLD,
         cooldownSec: env.EMBEDDING_CB_COOLDOWN_SEC,
@@ -1254,19 +1203,6 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
         enabled: envBool(env.SCENE_CLUSTERING_ENABLED, false),
         windowDays: env.SCENE_CLUSTERING_WINDOW_DAYS,
         minMemories: env.SCENE_CLUSTERING_MIN_MEMORIES,
-      },
-      graph: {
-        enabled: envBool(env.MEMORY_GRAPH_ENABLED, true),
-        min_confidence: env.MEMORY_GRAPH_MIN_CONFIDENCE,
-        max_links_per_run: env.MEMORY_GRAPH_MAX_LINKS_PER_RUN,
-        mine_mentions: envBool(env.MEMORY_GRAPH_MINE_MENTIONS, true),
-        max_mentions_per_memory: env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY,
-        project_mention_nodes: envBool(env.MEMORY_GRAPH_PROJECT_MENTION_NODES, true),
-        max_mention_nodes: env.MEMORY_GRAPH_MAX_MENTION_NODES,
-        // config.yaml only: `memory.graph.decay_half_life_days`. Not an env
-        // var, because 0 (off) has to be the default for every existing install
-        // and an env probe would make the ranking depend on the launch script.
-        decay_half_life_days: 0,
       },
     },
     cron: {
@@ -1527,11 +1463,6 @@ function applyEnvOverrides(
     ...(env.MEMORY_HYGIENE_ENABLED !== undefined || env.MEMORY_HYGIENE_RETENTION_DAYS !== undefined
       ? [{ env: '1', field: 'hygiene' }]
       : []),
-    ...(env.MEMORY_ENTITY_EXTRACTION_LLM !== undefined ||
-    env.MEMORY_ENTITY_EXTRACTION_MAX_MEMORIES_PER_RUN !== undefined ||
-    env.MEMORY_ENTITY_EXTRACTION_MIN_CONFIDENCE !== undefined
-      ? [{ env: '1', field: 'entityExtraction' }]
-      : []),
     ...(env.EMBEDDING_CB_FAILURE_THRESHOLD !== undefined ||
     env.EMBEDDING_CB_COOLDOWN_SEC !== undefined
       ? [{ env: '1', field: 'embeddingCircuitBreaker' }]
@@ -1558,13 +1489,6 @@ function applyEnvOverrides(
     env.SCENE_CLUSTERING_WINDOW_DAYS !== undefined ||
     env.SCENE_CLUSTERING_MIN_MEMORIES !== undefined
       ? [{ env: '1', field: 'sceneClustering' }]
-      : []),
-    ...(env.MEMORY_GRAPH_ENABLED !== undefined ||
-    env.MEMORY_GRAPH_MIN_CONFIDENCE !== undefined ||
-    env.MEMORY_GRAPH_MAX_LINKS_PER_RUN !== undefined ||
-    env.MEMORY_GRAPH_MINE_MENTIONS !== undefined ||
-    env.MEMORY_GRAPH_MAX_MENTIONS_PER_MEMORY !== undefined
-      ? [{ env: '1', field: 'graph' }]
       : []),
   ]);
 

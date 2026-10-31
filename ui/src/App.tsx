@@ -133,8 +133,7 @@ export default function App() {
         {/* Notes replaced the knowledge hub: pages, the review queue and the
             entity graph were one surface built around nightly curation, and the
             feature that is actually used is "capture this conversation into a
-            note" (MyDocs/NOTES_LAYER_PLAN.md). The graph components stay in the
-            tree, un-routed, until it is decided whether they get their own page. */}
+            note" (MyDocs/NOTES_LAYER_PLAN.md). */}
         <Route path="/notes" element={<NotesView />} />
         {/* `/notes/new` is deliberately not a route of its own: it matches
             `/notes/:noteId`, which is what lets `useParams` report the id `new` — a
@@ -142,6 +141,8 @@ export default function App() {
             then have to sniff `location`. Note ids are `nt_…`, so the word `new`
             can never be a real note. */}
         <Route path="/notes/:noteId" element={<NotesView />} />
+        {/* Both prefixes are dead, but old bookmarks and the historical
+            `/knowledge` deep links still land somewhere that works. */}
         <Route path="/knowledge/*" element={<Navigate to="/notes" replace />} />
         <Route path="/graph/*" element={<Navigate to="/notes" replace />} />
         <Route path="/cron" element={<CronView />} />

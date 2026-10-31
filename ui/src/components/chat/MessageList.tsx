@@ -66,8 +66,8 @@ const FOCUS_CENTRE_TOLERANCE = 12;
  * Put `target` in the middle of its nearest scrolling ancestor.
  *
  * Not `scrollIntoView`: inside a fixed-position drawer Chrome treats that call
- * as a no-op (verified in the graph search panel — the row stayed off-centre
- * with `scrollTop` untouched), and the scrolling ancestor is not always this
+ * as a no-op (measured in the citation drawer — the row stayed off-centre with
+ * `scrollTop` untouched), and the scrolling ancestor is not always this
  * component's own container, so the offset is computed against whichever
  * ancestor actually overflows.
  *

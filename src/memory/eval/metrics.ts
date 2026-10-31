@@ -76,7 +76,7 @@ export interface EvalMetrics {
   /**
    * Distinct injected memory ids whose `memories.status` is not `'active'`
    * (superseded / invalidated / archived). `0` also means "no status lookup was
-   * wired" — `KnowledgeEvalRun.statusLookupProvided` distinguishes the two.
+   * wired" — `EvalRunOptions.statusLookupProvided` distinguishes the two.
    */
   inactiveLeakageCount: number;
   /** Arithmetic mean over every timed search call; `null` when no query ran. */

@@ -80,24 +80,6 @@ export class MemoryDoctor {
       details: { count: orphanEmbeddings.length },
     });
 
-    // 2. Orphan links
-    const orphanLinks = this.db
-      .prepare(
-        `
-      SELECT ml.id FROM memory_links ml
-      LEFT JOIN memories m ON ml.source_memory_id = m.id
-      WHERE m.id IS NULL
-    `,
-      )
-      .all() as Array<{ id: string }>;
-    checks.push({
-      name: 'orphan_links',
-      status: orphanLinks.length > 0 ? 'warning' : 'ok',
-      message:
-        orphanLinks.length > 0 ? `${orphanLinks.length} orphan links found` : 'No orphan links',
-      details: { count: orphanLinks.length },
-    });
-
     // 2b. Orphan terms
     const orphanTerms = this.db
       .prepare(
@@ -137,7 +119,7 @@ export class MemoryDoctor {
       details: { count: missingTerms.cnt },
     });
 
-    // 3. FTS vs lifecycle consistency
+    // 2. FTS vs lifecycle consistency
     // content= FTS5 external content tables can't remove individual entries;
     // entries persist until the source row is physically deleted. Recall is
     // unaffected: all queries JOIN with m.status='active'. The gap equals
@@ -167,7 +149,7 @@ export class MemoryDoctor {
       },
     });
 
-    // 4. Persona staleness
+    // 3. Persona staleness
     if (this.personaStore) {
       const persona = this.personaStore.get();
       if (persona) {
@@ -197,7 +179,7 @@ export class MemoryDoctor {
       }
     }
 
-    // 5. Missing embeddings
+    // 4. Missing embeddings
     const missingEmbeddings = this.db
       .prepare(
         `
@@ -217,7 +199,7 @@ export class MemoryDoctor {
       details: { count: missingEmbeddings.cnt },
     });
 
-    // 6. Inactive count
+    // 5. Inactive count
     const inactiveCount = this.db
       .prepare("SELECT COUNT(*) as cnt FROM memories WHERE status != 'active'")
       .get() as { cnt: number };
@@ -319,22 +301,6 @@ export class MemoryDoctor {
           // vec0 unavailable on this platform — vec table absent.
         }
         repaired += danglingIds.length;
-      }
-    }
-
-    // Repair orphan links
-    const orphanLinks = report.checks.find((c) => c.name === 'orphan_links');
-    if (orphanLinks?.status !== 'ok') {
-      const count = (orphanLinks?.details?.count as number) ?? 0;
-      if (count > 0) {
-        this.db
-          .prepare(
-            `
-          DELETE FROM memory_links WHERE source_memory_id NOT IN (SELECT id FROM memories)
-        `,
-          )
-          .run();
-        repaired += count;
       }
     }
 

@@ -57,7 +57,6 @@ import { truncate } from '../shared/truncation.js';
 import { neutralizePromptTags } from '../shared/prompt-boundary.js';
 import { LRUCache } from 'lru-cache';
 import type { Logger } from 'pino';
-import type { GraphHint } from '../graph/neighborhood.js';
 import { judgeContextForget } from '../judge/hooks/context-forget.js';
 import { judgeContextCompactPrune } from '../judge/hooks/context-compact.js';
 import { getTurnTaskHint } from './agent-context.js';
@@ -201,22 +200,6 @@ interface InjectedOffer {
   messages: InjectionOfferItem[];
 }
 const injectedOfferBySession = new LRUCache<string, InjectedOffer>({
-  max: 2000,
-  ttl: 15 * 60_000,
-});
-/**
- * Graph hints this session has shown the model, for the same reference check.
- *
- * A hint is not a prompt block, which is why it does not live in
- * `injectedOfferBySession`: `memory_recall` appends the relations to its own
- * tool result, and that result stays in the transcript across the prompt builds
- * of the turn. Replacing this registry on a build would therefore lose every
- * hint a later build still carries, and a second recall call in the same turn
- * adds to it rather than erasing the first result; it is kept until the hint is
- * consumed (one answer, one credit) or the TTL expires. Same bounds as the
- * offer registry — the newest 8 hints, two fragments each.
- */
-const injectedGraphHintsBySession = new LRUCache<string, InjectionOfferItem[]>({
   max: 2000,
   ttl: 15 * 60_000,
 });
@@ -888,12 +871,6 @@ function blockTag(_lane: Exclude<InjectedBlockLane, 'memories'>): 'recent_conver
 
 /** The lanes whose blocks are counted; persona/date/canvas are not. */
 type InjectionLane = 'memories' | 'messages';
-/**
- * Every lane the turn-end reference check can credit. `graph` is a reference
- * lane but not an injection lane: the transform never builds a hint block —
- * `memory_recall` appends the hints to its own tool result.
- */
-type ReferenceLane = InjectionLane | 'graph';
 
 interface TurnInjection {
   /** What this build offered, per lane, as the reference check sees it. */
@@ -1059,56 +1036,15 @@ function recordReferencedIds(
 /**
  * The one place a `memory.injection.referenced` row is written.
  *
- * `memoryIds` carries a graph hint's source memory: the hint text itself ends in
- * `[mem:xxxxxxxx]`, so the credit names the sentence that stated the relation
- * and not just the edge. The `lane` field is what tells the two apart.
+ * The `lane` field is what separates a memory id from a message id in the row.
  */
-function emitInjectionReference(lane: ReferenceLane, toolName: string, ids: string[]): void {
+function emitInjectionReference(lane: InjectionLane, toolName: string, ids: string[]): void {
   memoryObservability.record('memory.injection.referenced', {
     lane,
     toolName,
-    memoryIds: lane === 'memories' || lane === 'graph' ? ids : [],
+    memoryIds: lane === 'memories' ? ids : [],
     messageIds: lane === 'messages' ? ids : [],
   });
-}
-
-/**
- * Publish the graph hints a `memory_recall` result just showed the model.
- *
- * Hints are the graph's only prompt-facing consumer, and until this existed
- * nothing measured whether they changed an answer: the injection probe covered
- * memories, excerpts and pages, all of which the transform itself offered. A
- * hint arrives mid-turn in a tool result, so the tool reports it here and the
- * turn-end reader credits it under the `graph` lane.
- *
- * The neighbour's name and the relation word are both required (see
- * `InjectionOfferItem.allFragments`): a statement is "A —USES→ B", so an answer
- * that names B without the relation may just be talking about B.
- *
- * Empty input is ordinary (an install whose graph has no edges among the
- * recalled memories), and a hint with a blank endpoint or relation is dropped
- * rather than stored as a fragment that can never be evidence.
- */
-export function recordInjectedGraphHints(params: {
-  agentId?: string;
-  sessionKey?: string;
-  hints: readonly GraphHint[];
-}): void {
-  if (params.hints.length === 0) return;
-  const items: InjectionOfferItem[] = [];
-  for (const hint of params.hints) {
-    const neighbour = normalizeReferenceText(hint.object);
-    const relation = normalizeReferenceText(hint.relation);
-    if (neighbour === '' || relation === '') continue;
-    items.push({ id: hint.memoryId, fragments: [neighbour, relation], allFragments: true });
-  }
-  if (items.length === 0) return;
-  const scopeKey = resolveOfferScope(params.agentId, params.sessionKey);
-  const previous = injectedGraphHintsBySession.get(scopeKey) ?? [];
-  injectedGraphHintsBySession.set(
-    scopeKey,
-    [...previous, ...items].slice(-REFERENCE_MAX_ITEMS_PER_LANE),
-  );
 }
 
 /**
@@ -1141,11 +1077,6 @@ function resolveOfferScope(agentId: string | undefined, sessionKey: string | und
  * a topic word, not a paraphrase — is evidence, and the rule is intentionally
  * one-sided: a false "it was used" makes the metric a lie, a miss only costs a
  * datapoint.
- *
- * The `graph` lane is read from its own registry and needs both the neighbour's
- * name and the relation word (see `recordInjectedGraphHints`); it is checked
- * even when this turn built no offer block, because a hint can be the only
- * thing a turn injected.
  *
  * Matching consumes the offer exactly as the tool path does, so one answer
  * cannot credit the same memory twice, and the registry's TTL bounds how long
@@ -1182,20 +1113,6 @@ export function readInjectionReferences(params: {
       recordReferencedIds(scopeKey, offer, lane, ANSWER_REFERENCE_CONSUMER, matched);
     }
   }
-
-  // The graph lane is its own registry: a hint is injected by a tool result, not
-  // by a prompt build, so it is not replaced when the next build republishes the
-  // memory/message offer.
-  const hints = injectedGraphHintsBySession.get(scopeKey);
-  if (!hints || hints.length === 0) return;
-  const matchedHints = hints.filter((item) => isReferenced(item, haystack)).map((item) => item.id);
-  if (matchedHints.length === 0) return;
-  const referenced = new Set(matchedHints);
-  injectedGraphHintsBySession.set(
-    scopeKey,
-    hints.filter((item) => !referenced.has(item.id)),
-  );
-  emitInjectionReference('graph', ANSWER_REFERENCE_CONSUMER, Array.from(referenced));
 }
 
 /**

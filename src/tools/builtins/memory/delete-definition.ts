@@ -4,7 +4,6 @@ import type { ToolCapabilityDescriptor } from '../../platform/tool-capabilities.
 import { errorResult, textResult } from '../../platform/tool-result.js';
 import type { MemoryRepository } from '../../../memory/repositories/memory-repository.js';
 import type { EmbeddingRepository } from '../../../memory/repositories/embedding-repository.js';
-import type { MemoryLinkRepository } from '../../../memory/repositories/memory-link-repository.js';
 import type { MemoryChangeEvent } from '../../../memory/memory-writer.js';
 import { matchesMemoryAccess } from '../../../memory/memory-access-policy.js';
 
@@ -34,7 +33,6 @@ interface MemoryDeleteArgs {
 export function createMemoryDeleteToolDefinition(options: {
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
-  memoryLinkRepository?: MemoryLinkRepository;
   onMemoryChanged?: (event?: MemoryChangeEvent) => void;
 }): ToolDefinition<MemoryDeleteArgs> {
   return {
@@ -59,7 +57,6 @@ export function createMemoryDeleteToolDefinition(options: {
       let deleted: boolean;
       if (args.purge) {
         options.embeddingRepository.deleteByMemoryId(args.id);
-        options.memoryLinkRepository?.deleteByMemory(args.id);
         deleted = options.memoryRepository.delete(args.id);
       } else {
         // Soft delete: FTS status filter in JOIN prevents inactive memories from appearing.

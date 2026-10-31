@@ -295,7 +295,7 @@ export function rebuildJiebaFts(db: Database.Database): number {
 }
 
 // ---------------------------------------------------------------------------
-// messages_fts_jieba (knowledge-graph / unified search)
+// messages_fts_jieba (session_search / unified search)
 // ---------------------------------------------------------------------------
 
 /**

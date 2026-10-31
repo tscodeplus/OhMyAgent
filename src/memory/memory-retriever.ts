@@ -17,7 +17,6 @@ import { rrfMerge } from './rrf-merge.js';
 import type { SourceResult, MergedResult } from './rrf-merge.js';
 import { applyTemporalDecay } from './temporal-decay.js';
 import type { DecayConfig } from './temporal-decay.js';
-import type { MemoryLinkRepository } from './repositories/memory-link-repository.js';
 import { expandQueryLLM } from './query-expansion-llm.js';
 import type { LLMExpansionConfig } from './query-expansion-llm.js';
 import { matchesMemoryAccess, policyFromRetrievalOptions } from './memory-access-policy.js';
@@ -78,17 +77,6 @@ export interface RetrievedMemory {
 
 const DEFAULT_TOP_K = 3;
 const DEFAULT_MIN_SCORE = 0.01;
-
-/** How many entity-graph candidates to prefetch per addition the expansion may emit. */
-const ENTITY_LINK_CANDIDATE_LOOKAHEAD = 8;
-
-/**
- * How many memory→entity→memory hops the entity-graph expansion walks.
- * Two reaches a memory that shares an entity with a memory that shares an
- * entity with a real hit; each further hop costs another pair of queries and
- * buys diminishing relevance.
- */
-const ENTITY_LINK_MAX_HOPS = 2;
 
 // ── Concurrency limiter ──
 
@@ -229,8 +217,6 @@ export interface MemoryRetrieverOptions {
   decayConfig?: Partial<DecayConfig>;
   /** Minimum similarity score for recall (default 0.01). */
   defaultMinScore?: number;
-  /** Memory link repository for entity-based expansion. */
-  memoryLinkRepo?: MemoryLinkRepository;
   /** Max embeddings before falling back to full scan (default 5000). */
   fullScanMaxEmbeddings?: number;
   /** Timeout for embedding API calls in ms (default 10_000). */
@@ -253,7 +239,6 @@ export class MemoryRetriever {
   private readonly embeddingBreaker: CircuitBreaker | undefined;
   private readonly decayConfig: Partial<DecayConfig> | undefined;
   private readonly defaultMinScore: number;
-  private readonly memoryLinkRepo: MemoryLinkRepository | undefined;
   private readonly fullScanMaxEmbeddings: number;
   private readonly queryEmbeddingTimeoutMs: number;
   private readonly plannerConfig: PlannerConfig;
@@ -282,7 +267,6 @@ export class MemoryRetriever {
     this.embeddingBreaker = options.embeddingBreaker;
     this.decayConfig = options.decayConfig;
     this.defaultMinScore = options.defaultMinScore ?? DEFAULT_MIN_SCORE;
-    this.memoryLinkRepo = options.memoryLinkRepo;
     this.fullScanMaxEmbeddings = options.fullScanMaxEmbeddings ?? DEFAULT_FULL_SCAN_MAX_EMBEDDINGS;
     this.queryEmbeddingTimeoutMs = options.queryEmbeddingTimeoutMs ?? 10_000;
     this.plannerConfig = options.plannerConfig ?? DEFAULT_PLANNER_CONFIG;
@@ -302,7 +286,6 @@ export class MemoryRetriever {
       effectiveOptions,
       {
         access: accessPolicy,
-        includeEntityExpansion: true,
         includeTemporalDecay: true,
         activeOnly: true,
       },
@@ -454,13 +437,11 @@ export class MemoryRetriever {
     );
     const reranked = rerankMemoryResults(effectiveOptions.query, expandedByMetadata, rerankOptions);
 
-    // Filter by minScore, then Phase 3.5 entity-graph expansion, THEN the topK
-    // cut. Expanding after truncation appended up to 3 neighbours on top of a
-    // full page (callers asked for topK and got topK + 3) and let them bypass
-    // ranking entirely.
+    // Filter by minScore, then cut to topK: expanding after truncation used to
+    // append neighbours on top of a full page (callers asked for topK and got
+    // topK + 3) and let them bypass ranking entirely.
     const qualified = reranked.filter((r) => r.score >= minScore);
-    const expanded = this.expandByEntityLinks(qualified, retrievalPolicy.access, sourcePool);
-    const finalList = expanded.sort((a, b) => b.score - a.score).slice(0, topK);
+    const finalList = qualified.sort((a, b) => b.score - a.score).slice(0, topK);
 
     // Enrich with full memory data, then enforce recall char budgets
     const results = applyRecallCharBudget(this.enrichResults(finalList), this.recallConfig);
@@ -683,117 +664,6 @@ export class MemoryRetriever {
         speaker: extractSpeaker(memory.content, memory.metadata),
       };
     });
-  }
-
-  /**
-   * Expand results via entity graph traversal.
-   * Follows memory → entity → memory links to discover related memories
-   * that keyword/vector search might have missed.
-   *
-   * Two hops by default: the first reaches memories that share an entity with
-   * a real hit, the second reaches memories that share an entity with *those*
-   * — the "Alice → OhMyAgent → Bob" bridge a single hop cannot cross. Memories
-   * and entities already walked are kept in visited sets, and the additions
-   * stay capped, so a hub entity or a cycle costs one visit each instead of
-   * unbounded growth.
-   */
-  private expandByEntityLinks(
-    merged: MergedResult[],
-    policy: MemoryAccessPolicy,
-    sourcePool?: MemoryPool,
-  ): MergedResult[] {
-    if (!this.memoryLinkRepo || merged.length === 0) return merged;
-
-    try {
-      const maxAdditions = 3;
-      const decayFactor = 0.8;
-      // A hub entity can hold thousands of links, so only the rows the
-      // traversal can actually reach are fetched — in traversal order.
-      const candidateLimit = maxAdditions * ENTITY_LINK_CANDIDATE_LOOKAHEAD;
-
-      const visitedMemories = new Set<string>(merged.map((r) => r.id));
-      const visitedEntities = new Set<string>();
-      const additions: MergedResult[] = [];
-
-      // Derived neighbours decay off the best real hit. The old 0.1 floor was
-      // above the top score whenever rerank skipped normalization — it returns
-      // early for a one-result page, leaving RRF-scale scores (~0.016) — which
-      // let a graph neighbour outrank the memory that actually matched.
-      const topScore = Math.max(...merged.map((r) => r.score));
-
-      let frontierMemoryIds = [...visitedMemories];
-
-      for (let hop = 1; hop <= ENTITY_LINK_MAX_HOPS && additions.length < maxAdditions; hop++) {
-        const entities = this.memoryLinkRepo
-          .findEntitiesByMemoryIds(frontierMemoryIds)
-          .filter(
-            (entity) => entity.confidence >= 0.5 && !visitedEntities.has(entity.target_entity),
-          );
-        if (entities.length === 0) break;
-        for (const entity of entities) visitedEntities.add(entity.target_entity);
-
-        const linksByEntity = this.memoryLinkRepo.findByEntities([
-          ...new Set(entities.map((entity) => entity.target_entity)),
-        ]);
-
-        const candidateIds: string[] = [];
-        const fetched = new Set<string>();
-        outer: for (const { target_entity, confidence } of entities) {
-          if (confidence < 0.5) continue;
-          for (const link of linksByEntity.get(target_entity) ?? []) {
-            if (link.confidence < 0.5) continue;
-            if (visitedMemories.has(link.source_memory_id) || fetched.has(link.source_memory_id)) {
-              continue;
-            }
-            fetched.add(link.source_memory_id);
-            candidateIds.push(link.source_memory_id);
-            if (candidateIds.length >= candidateLimit) break outer;
-          }
-        }
-        if (candidateIds.length === 0) break;
-
-        const memories = this.loadMemoriesById(candidateIds);
-
-        const nextFrontier: string[] = [];
-        for (const { target_entity, confidence } of entities) {
-          if (confidence < 0.5) continue;
-          for (const link of linksByEntity.get(target_entity) ?? []) {
-            if (link.confidence < 0.5) continue;
-            const linkedMemory = memories.get(link.source_memory_id);
-            if (!linkedMemory || visitedMemories.has(linkedMemory.id)) continue;
-            visitedMemories.add(linkedMemory.id);
-            // An inaccessible memory is not walked through either — its edges
-            // must not become a route to records the policy hides.
-            if (!matchesMemoryAccess(linkedMemory, policy)) continue;
-            nextFrontier.push(linkedMemory.id);
-            if (additions.length >= maxAdditions) break;
-            additions.push({
-              id: linkedMemory.id,
-              content: '', // filled by enrichResults
-              score: topScore * decayFactor ** hop * link.confidence,
-              source: 'entity_graph',
-              scope: '',
-              scopeKey: '',
-              kind: '',
-              createdAt: 0,
-              sourcePool,
-            });
-          }
-          if (additions.length >= maxAdditions) break;
-        }
-
-        if (nextFrontier.length === 0) break;
-        frontierMemoryIds = nextFrontier;
-      }
-
-      return [...merged, ...additions];
-    } catch (err) {
-      memoryObservability.record('memory.entity.failed', {
-        stage: 'entity_graph_expansion',
-        error: errorForObservation(err),
-      });
-      return merged;
-    }
   }
 
   private expandByMemoryMetadata(
@@ -1154,7 +1024,6 @@ export class MemoryRetriever {
           },
           {
             access,
-            includeEntityExpansion: true,
             includeTemporalDecay: true,
             activeOnly: true,
           },

@@ -20,7 +20,7 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
     db.close();
   });
 
-  it('detects and repairs orphan terms, links, and embeddings', async () => {
+  it('detects and repairs orphan terms and embeddings', async () => {
     const memId = repo.create({
       id: 'mem-doc-1',
       scope: 'user',
@@ -33,9 +33,6 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
       'fact',
       'token',
     );
-    db.prepare(
-      'INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type) VALUES (?, ?, ?, ?)',
-    ).run(generateId(), memId, 'entity-x', 'related');
     // Delete the memory via raw SQL (bypassing cleanup, like legacy paths).
     db.prepare('DELETE FROM memories WHERE id = ?').run(memId);
 
@@ -46,12 +43,10 @@ describe('MemoryDoctor: orphan terms / terms coverage / 24h observability', () =
     const diagnosis = await doctor.diagnose();
     const byName = Object.fromEntries(diagnosis.checks.map((c) => [c.name, c]));
     expect(byName['orphan_terms'].status).toBe('warning');
-    expect(byName['orphan_links'].status).toBe('warning');
 
     const repair = await doctor.repair();
-    expect(repair.repaired).toBeGreaterThanOrEqual(2);
+    expect(repair.repaired).toBeGreaterThanOrEqual(1);
     expect((db.prepare('SELECT COUNT(*) n FROM memory_terms').get() as { n: number }).n).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) n FROM memory_links').get() as { n: number }).n).toBe(0);
   });
 
   it('reports terms_coverage warning for active memories without terms', async () => {

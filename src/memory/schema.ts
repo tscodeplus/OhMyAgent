@@ -200,21 +200,6 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
   created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
 )`;
 
-const DDL_MEMORY_LINKS = `
-CREATE TABLE IF NOT EXISTS memory_links (
-  id TEXT PRIMARY KEY,
-  source_memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-  target_entity TEXT NOT NULL,
-  relation_type TEXT NOT NULL,
-  confidence REAL NOT NULL DEFAULT 1.0,
-  -- Subject of the relationship, asserted by the producer (v15). NULL = unknown;
-  -- the graph projection must skip such rows, never guess a subject.
-  subject_entity TEXT,
-  subject_entity_type TEXT,
-  target_entity_type TEXT,
-  created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000)
-)`;
-
 const DDL_PERSONA_DISTILLATION_RUNS = `
 CREATE TABLE IF NOT EXISTS persona_distillation_runs (
   id TEXT PRIMARY KEY,
@@ -318,8 +303,6 @@ const INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_approval_policies_scope ON approval_policies(scope, scope_key)',
   'CREATE INDEX IF NOT EXISTS idx_approval_requests_session ON approval_requests(session_key)',
   'CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status)',
-  'CREATE INDEX IF NOT EXISTS idx_memory_links_entity ON memory_links(target_entity, relation_type)',
-  'CREATE INDEX IF NOT EXISTS idx_memory_links_source ON memory_links(source_memory_id)',
   'CREATE INDEX IF NOT EXISTS idx_maintenance_runs_job ON maintenance_runs(job_name, started_at)',
   'CREATE INDEX IF NOT EXISTS idx_memory_observation_events_event ON memory_observation_events(event, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_memory_terms_term ON memory_terms(term, term_type)',
@@ -363,7 +346,6 @@ const ALL_DDL = [
   DDL_APPROVAL_POLICIES,
   DDL_APPROVAL_REQUESTS,
   DDL_APPROVAL_DECISIONS,
-  DDL_MEMORY_LINKS,
   DDL_MEMORY_TERMS,
   DDL_PERSONA_DISTILLATION_RUNS,
   DDL_MAINTENANCE_RUNS,

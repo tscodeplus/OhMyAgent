@@ -9,7 +9,7 @@
  *
  * Design notes:
  *   - Archive is a WebUI list-visibility fact only. Memory retrieval, unified
- *     search, the knowledge graph and IM delivery all ignore `archived_at`, so
+ *     search and IM delivery all ignore `archived_at`, so
  *     archiving a conversation can never make the agent forget it.
  *   - The archive list is grouped by the owner the row had *before* archiving
  *     (project name, or channel + bot name), which is what the sidebar renders:

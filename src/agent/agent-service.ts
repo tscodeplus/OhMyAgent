@@ -1773,12 +1773,10 @@ export class AgentService {
   /**
    * Run the injection reference check at every assistant turn end.
    *
-   * Plan §6 K0 item 3, ②「是否被引用」 covers three lanes; the knowledge lane is
-   * reported by `knowledge_get` (agent-factory's `afterToolCall`), but memories
-   * and excerpts have no tool that reads them back, so the only evidence they
-   * were used is the answer itself. The transform returns before the answer
-   * exists, which is why this has to be a turn-end reader rather than part of
-   * the prompt build.
+   * Plan §6 K0 item 3, ②「是否被引用」 covers two lanes. Neither is read back
+   * through a tool, so the only evidence a memory or an excerpt was used is the
+   * answer itself. The transform returns before the answer exists, which is why
+   * this has to be a turn-end reader rather than part of the prompt build.
    *
    * The listener lives on the Agent, so it is registered once per Agent instance
    * and dies with it — every path that builds a new one subscribes next to its

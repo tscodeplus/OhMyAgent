@@ -22,7 +22,7 @@
  *         (`no_notes`, `invalid`, `empty_window`), or the title already exists.
  *   503 — the model chain failed (`model_failed`); a retry may work.
  *
- * `scope` is a filter here, never a permission (same rule as knowledge pages):
+ * `scope` is a filter here, never a permission:
  * reads without a scope context show the whole library, because a human at the
  * console is looking at their own notes.
  */

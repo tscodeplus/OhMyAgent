@@ -1,10 +1,9 @@
 // ---------------------------------------------------------------------------
 // Tests for GET /api/memory/review-queue (plan §8 S6).
 //
-// The queue is the memory-side counterpart of the knowledge `pending` review
-// path. It is a read-only view over existing rows — no `pending` status column,
-// no new write path — so these tests pin (a) which rows surface, (b) which
-// reason each carries, and (c) that the scan stays bounded.
+// It is a read-only view over existing rows — no `pending` status column, no new
+// write path — so these tests pin (a) which rows surface, (b) which reason each
+// carries, and (c) that the scan stays bounded.
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -147,11 +146,7 @@ describe('memory routes — review queue', () => {
     );
     const now = String(Date.now());
     for (let i = 0; i < times; i++) {
-      insert.run(
-        'memory.injection',
-        JSON.stringify({ memoryIds: [id], knowledgeSlugs: [], messageIds: [] }),
-        now,
-      );
+      insert.run('memory.injection', JSON.stringify({ memoryIds: [id], messageIds: [] }), now);
     }
     for (let i = 0; i < referenced; i++) {
       insert.run(

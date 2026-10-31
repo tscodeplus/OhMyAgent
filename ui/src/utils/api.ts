@@ -1,6 +1,6 @@
 import type { InboxMessagesQuery, InboxPage, InboxQuery, InboxSessionDetail } from '../types/inbox';
 import type { ArchivePage, ArchiveQuery, DeleteSessionsResult } from '../types/archive';
-import type { SearchContextResponse } from '../types/graph';
+import type { SearchContextResponse } from '../types/search';
 import type { Session, SessionListPage } from '../types/session';
 
 const TOKEN_KEY = 'ohmyagent_token';

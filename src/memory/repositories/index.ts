@@ -50,9 +50,6 @@ export type {
 } from './embedding-cache-repository.js';
 export { hashContent, bufferToFloat32Array } from './embedding-cache-repository.js';
 
-export { MemoryLinkRepository } from './memory-link-repository.js';
-export type { MemoryLink, CreateMemoryLinkInput } from './memory-link-repository.js';
-
 export {
   MemoryTermRepository,
   extractMemoryTerms,

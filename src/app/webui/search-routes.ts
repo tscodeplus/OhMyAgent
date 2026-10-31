@@ -3,16 +3,12 @@
  *
  * Ranking lives in `src/memory/unified-search.ts`; this module only parses the
  * query string and turns the fused hits into the row shape the WebUI renders.
- * The entity leg is the one exception — an entity is not a retrieval lane (it has
- * no lane score and no provenance row), so it keeps `EntityRepository`'s
- * exact-then-shortest order and is reported outside `lanes`.
  *
  * READ-ONLY: nothing here writes.
  */
 
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { EntityRepository } from '../../memory/repositories/entity-repository.js';
 import type { MemoryRetriever } from '../../memory/memory-retriever.js';
 import { unifiedSearch } from '../../memory/unified-search.js';
 import type {
@@ -22,22 +18,20 @@ import type {
   UnifiedSearchLane,
 } from '../../memory/unified-search.js';
 import { inferChannel } from '../../memory/session-channel.js';
-import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
-import { tableExists } from '../../graph/graph-query.js';
 import { loadMessageContext, titleFromMetadata } from './session-message-view.js';
 import type { FooterConfig } from '../types.js';
 
 const DEFAULT_SEARCH_LIMIT = 20;
 const MAX_SEARCH_LIMIT = 50;
 /** The legs `/api/search` unions; `kinds` selects a subset of them. */
-const SEARCH_KINDS: SearchResultKind[] = ['entity', 'memory', 'message'];
+const SEARCH_KINDS: SearchResultKind[] = ['memory', 'message'];
 /** Lanes `unifiedSearch()` fuses; `limit` is a per-lane allowance on each. */
 const SEARCH_LANES = 2;
 /** Search rows are rendered as one-line list entries — long text is noise. */
 const TITLE_MAX_CHARS = 80;
 const SNIPPET_MAX_CHARS = 200;
 
-export type SearchResultKind = 'entity' | 'memory' | 'message';
+export type SearchResultKind = 'memory' | 'message';
 
 export interface SearchResult {
   kind: SearchResultKind;
@@ -60,20 +54,14 @@ export interface SearchResult {
  * `GET /api/search` payload.
  *
  * `q` and `results` are the original contract — same keys, same kinds, one row
- * per hit. `lanes` and `hints` are additive: a client that ignores them sees the
- * previous payload.
+ * per hit. `lanes` is additive: a client that ignores it sees the previous
+ * payload.
  */
 export interface SearchResponse {
   q: string;
   results: SearchResult[];
-  /** What each fused lane contributed. Entities are not a lane (see the handler). */
+  /** What each fused lane contributed. */
   lanes: Record<UnifiedSearchLane, UnifiedLaneReport>;
-  /**
-   * Relations the graph already records about the returned memories.
-   *
-   * Additive by design: nothing here influences `results` order or `score`.
-   */
-  hints: GraphHint[];
 }
 
 export interface SearchRouteConfig {
@@ -82,8 +70,7 @@ export interface SearchRouteConfig {
    * The same retriever chat recall uses. `retrieve({ textOnly: true })` runs its
    * existing FTS → LIKE ladder, so memory hits here are ranked exactly like the
    * memory tab instead of by a second, divergent ranker. Optional so the endpoint
-   * still answers (entities + messages only) when memory services are not wired
-   * up.
+   * still answers (messages only) when memory services are not wired up.
    */
   memoryRetriever?: Pick<MemoryRetriever, 'retrieve'>;
   /** Footer defaults for messages saved before the footer snapshot existed. */
@@ -197,11 +184,8 @@ function memoryLaneRetriever(
 }
 
 export function registerSearchRoutes(app: FastifyInstance, cfg: SearchRouteConfig): void {
-  const repo = new EntityRepository(cfg.db);
-
   /**
-   * Unified search: one fused ranking over the retrieval lanes, plus the graph's
-   * entity index.
+   * Unified search: one fused ranking over the retrieval lanes.
    *
    * The message / memory lanes are merged by `unifiedSearch()`
    * (`src/memory/unified-search.ts`): one ranker, one place to change. The handler
@@ -267,27 +251,6 @@ export function registerSearchRoutes(app: FastifyInstance, cfg: SearchRouteConfi
     }
 
     try {
-      const entityRows: SearchResult[] = [];
-
-      if (wants('entity') && tableExists(cfg.db, 'entities')) {
-        const entities = repo.searchEntities(term, limit);
-        entities.forEach((entity, index) => {
-          entityRows.push({
-            kind: 'entity',
-            id: entity.id,
-            title: plainText(entity.name, TITLE_MAX_CHARS),
-            snippet: plainText(
-              entity.description ?? `${entity.entity_type} · ${entity.canonical_name}`,
-              SNIPPET_MAX_CHARS,
-            ),
-            // Positional score: EntityRepository.searchEntities already orders
-            // exact canonical hits first, then shortest name — the ordering IS
-            // the ranking, so mirror it into a monotonic score.
-            score: (entities.length - index) / entities.length,
-          });
-        });
-      }
-
       const fused = await unifiedSearch({
         query: term,
         // `limit` stays a per-lane page size; the fused list is sized to hold one
@@ -310,7 +273,7 @@ export function registerSearchRoutes(app: FastifyInstance, cfg: SearchRouteConfi
         logger: app.log,
       });
 
-      const results: SearchResult[] = [...entityRows];
+      const results: SearchResult[] = [];
       for (const hit of fused.hits) {
         // The message lane spends its budget on ±1 context rows so a quoted hit
         // is not quoted alone. That is right for a tool result and wrong for a
@@ -322,24 +285,13 @@ export function registerSearchRoutes(app: FastifyInstance, cfg: SearchRouteConfi
         results.push(toMemoryRow(hit, term));
       }
 
-      // Two score scales remain — the entity leg's positional score and the
-      // RRF-fused lanes — and they are only comparable *within* a kind, which is
-      // how the UI renders them. Within a kind this sort is an identity: the
-      // fused score is monotonic in lane rank.
+      // The fused score is monotonic in lane rank, so this sort is what groups
+      // the list by kind the way the UI renders it.
       results.sort((a, b) => b.score - a.score);
-
-      // Structural hints for the memories this query actually returned. Derived,
-      // never ranked: a wrong edge costs a wrong hint instead of a wrong hit order.
-      const memoryIds = results
-        .filter((row) => row.kind === 'memory')
-        .map((row) => row.id)
-        .slice(0, SEARCH_LANES * MAX_SEARCH_LIMIT);
-      const hints = readHintsForMemories(cfg.db, memoryIds);
 
       const payload: SearchResponse = {
         q: term,
         results,
-        hints,
         lanes: fused.lanes,
       };
       return reply.send(payload);

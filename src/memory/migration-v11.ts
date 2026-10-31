@@ -14,7 +14,7 @@
  * Read it with `parseEpochMs` from `shared/timestamp.ts`, never `new Date(...)`.
  *
  * Archive is a WebUI list-visibility fact only: memory retrieval, search, the
- * knowledge graph and IM delivery all ignore it.
+ * and IM delivery all ignore it.
  *
  * Runs BEFORE applySchema (same ordering constraint as v4/v9): the index
  * `idx_sessions_archived` is declared in schema.ts, and `CREATE TABLE IF NOT

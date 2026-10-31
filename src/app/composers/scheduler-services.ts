@@ -6,17 +6,14 @@ import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-r
 import { createEmbeddingBackfillJob } from '../../memory/maintenance/jobs/embedding-backfill-job.js';
 import { createTermsBackfillJob } from '../../memory/maintenance/jobs/terms-backfill-job.js';
 import { createEmbeddingCacheTrimJob } from '../../memory/maintenance/jobs/embedding-cache-trim-job.js';
-import { createEntityBackfillJob } from '../../memory/maintenance/jobs/entity-backfill-job.js';
 import { createProvenanceBackfillJob } from '../../memory/maintenance/jobs/provenance-backfill-job.js';
 import { createOffloadHygieneJob } from '../../memory/maintenance/jobs/offload-hygiene-job.js';
 import { createPersonaConsistencyJob } from '../../memory/maintenance/jobs/persona-consistency-job.js';
 // scene_cluster and memory_hygiene are now handled by DreamCycle (nightly)
 import { createMemoryDoctorJob } from '../../memory/maintenance/jobs/memory-doctor-job.js';
-import { createGraphSyncJob } from '../../graph/graph-sync.js';
 import { createSessionAutoArchiveJob } from '../../memory/maintenance/jobs/session-auto-archive-job.js';
 import { createMaintenanceHistoryPruneJob } from '../../memory/maintenance/jobs/maintenance-history-prune-job.js';
 import { loadConfig } from '../config.js';
-import { resolveGraphSyncConfig } from '../../graph/graph-config.js';
 import { DreamCycle } from '../../memory/dream-cycle.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
@@ -100,7 +97,6 @@ export function createSchedulers(input: {
       embedding_backfill: true,
       terms_backfill: true,
       embedding_cache_trim: true,
-      entity_backfill: true,
       provenance_backfill: true,
       persona_consistency: true,
       offload_hygiene: true,
@@ -132,21 +128,6 @@ export function createSchedulers(input: {
   if (jobConfigs.embedding_cache_trim !== false) {
     maintenanceScheduler.register(
       createEmbeddingCacheTrimJob(db, config.memory.embeddingCacheMaxEntries),
-    );
-  }
-  if (jobConfigs.entity_backfill !== false) {
-    // Two generations: the deterministic mention pass (unchanged), then a
-    // budgeted LLM pass that types the relations nothing ever attested — see
-    // the job's header. `memory.entity_extraction` is the cost bound
-    // (`max_memories_per_run` model calls per run, `llm: false` to switch the
-    // second pass off); the aux config is passed by reference because
-    // `createMemoryServices` mutates it in place on hot-reload.
-    maintenanceScheduler.register(
-      createEntityBackfillJob(db, memory.memoryLinkRepo, {
-        config: config.memory.entityExtraction,
-        auxConfig: memory.auxModelConfig,
-        logger,
-      }),
     );
   }
   if (jobConfigs.provenance_backfill !== false) {
@@ -184,15 +165,6 @@ export function createSchedulers(input: {
   if (jobConfigs.maintenance_history_prune !== false) {
     maintenanceScheduler.register(createMaintenanceHistoryPruneJob(maintenanceRunRepo));
   }
-  // Knowledge-graph projection of `memory_links` into `entities`/`entity_edges`.
-  // It runs here — not on the turn path and not inside DreamCycle — because the
-  // scheduler already owns the two things the projector needs: an interval gate
-  // (a dream cycle is nightly, but links appear whenever the extractor runs)
-  // and one `maintenance_runs` row per run. Registered disabled when
-  // memory.graph.enabled is false, so it never even ticks.
-  maintenanceScheduler.register(
-    createGraphSyncJob(db, resolveGraphSyncConfig(config.memory?.graph), logger),
-  );
   // Auto-archive (archive.auto). Registered unconditionally and disabled by its
   // own config: the getter reads the live config on every tick, because the
   // scheduler is built once and a snapshot would make the settings switch need a
@@ -234,7 +206,6 @@ export function createSchedulers(input: {
     db,
     maintenanceRunRepo,
     memory.memoryRepository,
-    memory.memoryLinkRepo,
     memory.embeddingRepository,
     memory.embeddingClient,
     memory.memoryHygiene,

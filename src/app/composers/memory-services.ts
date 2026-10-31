@@ -6,14 +6,12 @@ import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import type { LLMExpansionConfig } from '../../memory/query-expansion-llm.js';
 import type { PlannerConfig } from '../../memory/query-planner.js';
 import type { MergeConfig } from '../../memory/memory-merge.js';
-import type { LLMExtractionConfig } from '../../memory/entity-extractor.js';
 import type { MemoryChangeEvent } from '../../memory/memory-writer.js';
 import { createEmbeddingClient } from '../../provider/embedding-client.js';
 import { CircuitBreaker } from '../../memory/circuit-breaker.js';
 import { MemoryRepository } from '../../memory/repositories/memory-repository.js';
 import { EmbeddingRepository } from '../../memory/repositories/embedding-repository.js';
 import { EmbeddingCacheRepo } from '../../memory/repositories/embedding-cache-repository.js';
-import { MemoryLinkRepository } from '../../memory/repositories/memory-link-repository.js';
 import { MemoryTermRepository } from '../../memory/repositories/memory-term-repository.js';
 import { MemoryRetriever } from '../../memory/memory-retriever.js';
 import type { RecallConfig } from '../../memory/memory-retriever.js';
@@ -53,7 +51,6 @@ export interface MemoryServices {
   memoryRepository: MemoryRepository;
   embeddingRepository: EmbeddingRepository;
   embeddingCacheRepo: EmbeddingCacheRepo;
-  memoryLinkRepo: MemoryLinkRepository;
   memoryTermRepo: MemoryTermRepository;
   memoryRetriever: MemoryRetriever;
   memoryWriter: MemoryWriter;
@@ -100,8 +97,8 @@ function buildSummaryLLMConfig(
  * Build the aux LLM config (model chain + per-provider key/baseUrl maps) from
  * a config snapshot. Pure — called at composer time and again on every config
  * hot-reload; the composer mutates the shared AuxModelConfig object in place
- * so every consumer (MemoryWriter merge, summarizer, query expansion, entity
- * extraction, DreamCycle) picks up the new model chain by reference.
+ * so every consumer (MemoryWriter merge, summarizer, query expansion,
+ * DreamCycle) picks up the new model chain by reference.
  */
 export function buildAuxModelConfig(config: AppConfig): AuxModelConfig {
   const auxApiKeys: Record<string, string> = {};
@@ -235,7 +232,6 @@ export async function createMemoryServices(
     logger.warn({ err: err?.message ?? err }, 'Jieba FTS backfill failed (non-fatal)');
   }
   const embeddingCacheRepo = new EmbeddingCacheRepo(db, config.memory.embeddingCacheMaxEntries);
-  const memoryLinkRepo = new MemoryLinkRepository(db);
   const memoryTermRepo = new MemoryTermRepository(db);
 
   const auxModelConfig = buildAuxModelConfig(config);
@@ -263,13 +259,6 @@ export async function createMemoryServices(
     // chat-LLM merge call when the point mode is active (engine read live so
     // hot-reload rebuilds take effect without re-composing services).
     judgeGet: () => currentJudgeEngine(),
-  };
-
-  const extractionConfig: LLMExtractionConfig = {
-    auxConfig: auxModelConfig,
-    enabled: true,
-    minConfidence: 0.7,
-    logger,
   };
 
   const plannerConfig: PlannerConfig = {
@@ -300,7 +289,6 @@ export async function createMemoryServices(
     embeddingBreaker,
     decayConfig: { halfLifeDays: config.memory.decayHalfLifeDays },
     defaultMinScore: config.memory.recallMinScore,
-    memoryLinkRepo,
     queryEmbeddingTimeoutMs: config.memory.queryEmbeddingTimeoutMs,
     plannerConfig,
     recallConfig,
@@ -318,8 +306,6 @@ export async function createMemoryServices(
     // `memory_sources` and `memories.embedding_status`.
     db,
     mergeConfig,
-    extractionConfig,
-    memoryLinkRepo,
     onMemoryChanged: (event) => memoryChangeCallbacks.forEach((cb) => cb(event)),
     memoryTermRepo,
   });
@@ -396,8 +382,8 @@ export async function createMemoryServices(
   // Hot-reload the aux model chain + summary LLM config + merge/summary output
   // language in place. The shared objects are mutated (not replaced) so every
   // consumer holding a reference — MemoryWriter's mergeConfig, query expansion,
-  // entity extraction, DreamCycle's mergeConfig, MemorySummarizer, persona
-  // distiller — picks up the new model/keys/language on its next aux call
+  // DreamCycle's mergeConfig, MemorySummarizer, persona distiller — picks up the
+  // new model/keys/language on its next aux call
   // without a restart. The openai client pool in aux-llm-client is keyed by
   // baseUrl+apiKey, so new endpoints get fresh clients automatically.
   configEventBus.onReload((c) => {
@@ -532,7 +518,6 @@ export async function createMemoryServices(
     memoryRepository,
     embeddingRepository,
     embeddingCacheRepo,
-    memoryLinkRepo,
     memoryTermRepo,
     memoryRetriever,
     memoryWriter,

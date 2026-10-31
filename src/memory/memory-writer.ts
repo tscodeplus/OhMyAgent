@@ -5,10 +5,7 @@ import type { EmbeddingRepository } from './repositories/embedding-repository.js
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { EmbeddingCacheRepo } from './repositories/embedding-cache-repository.js';
 import { hashContent, bufferToFloat32Array } from './repositories/embedding-cache-repository.js';
-import type { MemoryLinkRepository } from './repositories/memory-link-repository.js';
 import { extractMemoryTerms, MemoryTermRepository } from './repositories/memory-term-repository.js';
-import { extractEntities, extractEntitiesLLM } from './entity-extractor.js';
-import type { LLMExtractionConfig } from './entity-extractor.js';
 import { mergeMemory, appendTimeline, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
 import { matchesMemoryAccess } from './memory-access-policy.js';
@@ -96,12 +93,8 @@ export interface MemoryWriterOptions {
 
   /** Memory merge strategy config. */
   mergeConfig?: MergeConfig;
-  /** LLM entity extraction config. */
-  extractionConfig?: LLMExtractionConfig;
   /** Current agent ID for memory tagging. */
   agentId?: string;
-  /** Repository for entity-based memory links. */
-  memoryLinkRepo?: MemoryLinkRepository;
   /** Callback fired on memory write/update/delete. */
   onMemoryChanged?: (event?: MemoryChangeEvent) => void;
   /** Repository for extracted memory terms. */
@@ -118,8 +111,6 @@ export class MemoryWriter {
   >;
   private readonly embeddingCacheRepo: EmbeddingCacheRepo;
   private readonly mergeConfig: MergeConfig | undefined;
-  private readonly extractionConfig: LLMExtractionConfig | undefined;
-  private readonly memoryLinkRepo: MemoryLinkRepository | undefined;
   private readonly onMemoryChanged: ((event?: MemoryChangeEvent) => void) | undefined;
   private readonly memoryTermRepo: MemoryTermRepository | undefined;
   private readonly db: Database.Database | undefined;
@@ -134,9 +125,7 @@ export class MemoryWriter {
     this.embeddingClient = options.embeddingClient;
     this.embeddingCacheRepo = options.embeddingCacheRepo;
     this.mergeConfig = options.mergeConfig;
-    this.extractionConfig = options.extractionConfig;
     this._agentId = options.agentId;
-    this.memoryLinkRepo = options.memoryLinkRepo;
     this.onMemoryChanged = options.onMemoryChanged;
     this.memoryTermRepo = options.memoryTermRepo;
     this.db = options.db;
@@ -456,38 +445,6 @@ export class MemoryWriter {
           error: errorForObservation(err),
         });
         this.mergeConfig?.logger.info({ err }, 'Conflict resolver failed (non-fatal)');
-      }
-    }
-
-    // 3.5. Entity extraction (LLM-first with regex fallback, fire-and-forget)
-    if (this.memoryLinkRepo && this.extractionConfig) {
-      try {
-        const entities = await extractEntitiesLLM(options.content, this.extractionConfig, {
-          scope: options.scope,
-          kind,
-        });
-        for (const ent of entities) {
-          if (ent.confidence >= this.extractionConfig.minConfidence) {
-            this.memoryLinkRepo.create({
-              id: generateId(),
-              source_memory_id: memory.id,
-              target_entity: ent.entity,
-              relation_type: ent.relationType,
-              confidence: ent.confidence,
-            });
-          }
-        }
-      } catch (err) {
-        warnings.push('entity_extraction_failed');
-        memoryObservability.record('memory.entity.failed', {
-          memoryId: memory.id,
-          contentHash: hashForObservation(options.content),
-          scope: options.scope,
-          kind,
-          agentId: agentId ?? undefined,
-          error: errorForObservation(err),
-        });
-        // Entity extraction failure should not block memory write
       }
     }
 

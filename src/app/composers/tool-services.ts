@@ -8,7 +8,6 @@ import { configEventBus } from '../config-event-bus.js';
 import { createShellTool } from '../../tools/builtins/shell-tool.js';
 import { createFileReadTool } from '../../tools/builtins/file-read-tool.js';
 import { createFileSearchTool } from '../../tools/builtins/file-search-tool.js';
-import { readHintsForMemories, type GraphHint } from '../../graph/neighborhood.js';
 import { createMemoryRecallTool } from '../../tools/builtins/memory-recall-tool.js';
 import {
   createMemoryStoreTool,
@@ -29,7 +28,6 @@ import { createMemoryDoctorToolDefinition } from '../../tools/builtins/memory/do
 import { createMemoryCompactToolDefinition } from '../../tools/builtins/memory/compact-definition.js';
 import { createSessionSummarizeToolDefinition } from '../../tools/builtins/session/definition.js';
 import { createSessionSearchToolDefinition } from '../../tools/builtins/session/session-search-definition.js';
-import { createEntityQueryToolDefinition } from '../../tools/builtins/graph/entity-query-definition.js';
 import { createComputerUseToolDefinition } from '../../tools/builtins/computer-use/definition.js';
 import { createSpawnAgentToolDefinition } from '../../tools/builtins/agents/spawn-definition.js';
 import { createPlanAndSpawnToolDefinition } from '../../tools/builtins/agents/plan-spawn-definition.js';
@@ -79,16 +77,6 @@ export interface ToolServices {
   memoryFilter: ReturnType<typeof createDefaultMemoryFilter>;
 }
 
-/**
- * Relations the graph records about recounted memories.
- *
- * One provider for both tool surfaces: the graph is advisory here, so a missing
- * table or a failed query returns `[]` instead of failing the recall call.
- */
-function createMemoryHintProvider(memory: MemoryServices): (memoryIds: string[]) => GraphHint[] {
-  return (memoryIds) => readHintsForMemories(memory.database, memoryIds);
-}
-
 export function createToolServices(input: {
   config: AppConfig;
   logger: AppServices['logger'];
@@ -97,7 +85,6 @@ export function createToolServices(input: {
   servicesRef: { current?: AppServices };
 }): ToolServices {
   const { config, logger, memory, policyCenter, servicesRef } = input;
-  const memoryHintsFor = createMemoryHintProvider(memory);
   const toolRegistry = new ToolRegistryImpl();
   toolRegistry.register(
     createShellTool({
@@ -124,7 +111,6 @@ export function createToolServices(input: {
     createMemoryRecallTool({
       memoryRetriever: memory.memoryRetriever,
       logger,
-      hintsFor: memoryHintsFor,
     }),
   );
   toolRegistry.register(createMemoryStoreTool({ memoryWriter: memory.memoryWriter, memoryFilter }));
@@ -183,7 +169,6 @@ export function registerV4ToolDefinitions(input: {
     orchestrator,
   } = input;
   const { toolPlatformRegistry, memoryFilter } = tools;
-  const memoryHintsFor = createMemoryHintProvider(memory);
 
   // MCP visibility must reflect the CURRENT config: the `config` argument is a
   // startup snapshot, while spawn/plan_and_spawn resolve child tools lazily at
@@ -220,7 +205,6 @@ export function registerV4ToolDefinitions(input: {
     createMemoryRecallToolDefinition({
       memoryRetriever: memory.memoryRetriever,
       logger,
-      hintsFor: memoryHintsFor,
     }),
   );
   toolPlatformRegistry.registerDefinition(
@@ -249,7 +233,6 @@ export function registerV4ToolDefinitions(input: {
     createMemoryDeleteToolDefinition({
       memoryRepository: memory.memoryRepository,
       embeddingRepository: memory.embeddingRepository,
-      memoryLinkRepository: memory.memoryLinkRepo,
       onMemoryChanged,
     }),
   );
@@ -279,18 +262,6 @@ export function registerV4ToolDefinitions(input: {
       createSessionSearchToolDefinition({ db: memory.database, logger }),
     );
   }
-
-  // The graph read surface. No config key gates it: the tables are populated by
-  // the background sync, and while they are empty the tool answers "no such
-  // entity" — an honest answer, not a schema the model cannot use. Reads the
-  // shared db handle rather than opening a connection.
-  toolPlatformRegistry.registerDefinition(
-    createEntityQueryToolDefinition({
-      db: memory.database,
-      // Read-time decay is opt-in per install (memory.graph.decay_half_life_days).
-      decayHalfLifeDays: config.memory.graph?.decay_half_life_days ?? 0,
-    }),
-  );
 
   if (computerUseHost) {
     toolPlatformRegistry.registerDefinition(

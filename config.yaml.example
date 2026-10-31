@@ -300,33 +300,6 @@ channels:
 #     enabled: false
 #     # window_days: 7
 #     # min_memories: 5
-#   # Knowledge graph projection (memory_links → entities/entity_edges).
-#   # Descriptors only: each link either describes an entity or states a fact.
-#   graph:
-#     enabled: true
-#     min_confidence: 0.3           # drop weaker links entirely
-#     max_links_per_run: 500        # edges projected per run (the resumable unit)
-#     mine_mentions: true           # also mine entities from memories with no link
-#     max_mentions_per_memory: 8
-#     # Nodes come from mentions, edges require an attested relation. Keep this
-#     # true unless the graph should contain only asserted facts — with it
-#     # false, a name the corpus mentions but never states a fact about
-#     # (Ubuntu in 38 memories) has no node at all.
-#     project_mention_nodes: true
-#     max_mention_nodes: 2000       # nodes admitted per run, most-mentioned first
-#   # Entity/relation extraction out of stored memory text. The deterministic
-#   # pass (mentions only) always runs; this block bounds the model pass that
-#   # types the relations, which is what the knowledge graph is built from.
-#   # Absent block = enabled with these defaults; `llm: false` is the off switch.
-#   entity_extraction:
-#     llm: true                     # false = deterministic mentions only (no model calls)
-#     max_memories_per_run: 5       # hard cap on model calls per maintenance run
-#     min_confidence: 0.6           # drop model relations below this confidence
-#     # Extraction-specific model override (`provider/model`). Extraction is a
-#     # throughput job: a fast non-reasoning model answers in JSON immediately,
-#     # while a reasoning auxiliary model can spend the whole budget thinking.
-#     # Omit to use memory_aux_models.
-#     # model: opencode-go/claude-haiku-5-5
 #   # Provenance backfill: gives a memory written before K1 a source message in
 #   # memory_sources when the memory's own text proves one (an identifier, URL,
 #   # path or quoted span that occurs in exactly one message, or in one

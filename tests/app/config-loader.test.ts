@@ -46,7 +46,7 @@ describe('yamlToAppConfigRaw', () => {
     // `disableThinking` was declared by the schema and read by `auxLLMCall`, but
     // this mapping used to drop it — so the key validated and did nothing. A
     // reasoning aux model burns its whole completion on deliberation, so a
-    // silently ignored switch made `knowledge:curate` unable to group at all.
+    // silently ignored switch left the aux call with no usable answer at all.
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,
       memory_aux_models: {

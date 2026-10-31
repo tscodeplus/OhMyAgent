@@ -2,17 +2,15 @@
  * DreamCycle — nightly maintenance orchestrator.
  *
  * Inspired by TencentDB-Agent-Memory's ManagedTimer + sequential phase
- * execution patterns. Runs 7 phases in order at a configurable time each
+ * execution patterns. Runs 5 phases in order at a configurable time each
  * day (default 2:00 AM in the system local timezone).
  *
  * Phases (sequential, failure in one does not block the next):
  *   1. synthesize     — batch-merge highly similar memory pairs via vector KNN + LLM
- *   2. backlinks      — rebuild missing memory_links
- *   3. extract        — re-extract entities for memories without links
- *   4. sceneCluster   — scene clustering (delegates to SceneClusterer)
- *   5. hygiene        — expire old memories (delegates to MemoryHygiene)
- *   6. embed          — fill missing embeddings
- *   7. purge          — evict stale embedding cache entries
+ *   2. sceneCluster   — scene clustering (delegates to SceneClusterer)
+ *   3. hygiene        — expire old memories (delegates to MemoryHygiene)
+ *   4. embed          — fill missing embeddings
+ *   5. purge          — evict stale embedding cache entries
  *
  * ## Grace window
  * If DreamCycle fires more than `windowGraceMinutes` past the scheduled
@@ -34,7 +32,6 @@
 import type { Logger } from 'pino';
 import type Database from 'better-sqlite3';
 import type { MemoryRepository } from './repositories/memory-repository.js';
-import type { MemoryLinkRepository } from './repositories/memory-link-repository.js';
 import type { EmbeddingRepository } from './repositories/embedding-repository.js';
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { MemoryHygiene } from './memory-hygiene.js';
@@ -42,7 +39,6 @@ import type { SceneClusterer } from './scene-cluster.js';
 import type { MaintenanceRunRepository } from './maintenance/maintenance-run-repository.js';
 import { mergeMemory, appendMemoryDispute } from './memory-merge.js';
 import type { MergeConfig } from './memory-merge.js';
-import { extractEntities } from './entity-extractor.js';
 import { generateId } from '../shared/ids.js';
 import { parseEpochMs } from '../shared/timestamp.js';
 
@@ -90,7 +86,6 @@ export class DreamCycle {
     private db: Database.Database,
     private runRepo: MaintenanceRunRepository,
     private memoryRepo: MemoryRepository,
-    private memoryLinkRepo: MemoryLinkRepository,
     private embeddingRepo: EmbeddingRepository,
     private embeddingClient: EmbeddingClient,
     private memoryHygiene: MemoryHygiene,
@@ -263,8 +258,6 @@ export class DreamCycle {
         fn: (signal: AbortSignal) => Promise<number>;
       }> = [
         { name: 'synthesize', heavy: true, fn: (s) => this.synthesize(s) },
-        { name: 'backlinks', heavy: false, fn: async (s) => this.backlinks(s) },
-        { name: 'extract', heavy: false, fn: async (s) => this.extract(s) },
         { name: 'sceneCluster', heavy: true, fn: (s) => this.sceneCluster(s) },
         { name: 'hygiene', heavy: false, fn: async (s) => this.hygiene(s) },
         { name: 'embed', heavy: true, fn: (s) => this.embed(s) },
@@ -462,107 +455,7 @@ export class DreamCycle {
     return mergedCount;
   }
 
-  // ── Phase 2: Backlinks ───────────────────────────────────────────────
-
-  private backlinks(signal: AbortSignal): number {
-    const rows = this.db
-      .prepare(
-        `SELECT m.id, m.content, m.scope, m.kind FROM memories m
-         LEFT JOIN memory_links ml ON ml.source_memory_id = m.id
-         WHERE m.status = 'active' AND ml.id IS NULL
-         LIMIT 100`,
-      )
-      .all() as Array<{
-      id: string;
-      content: string;
-      scope: string;
-      kind: string;
-    }>;
-
-    let count = 0;
-    for (const row of rows) {
-      if (signal.aborted) break;
-      try {
-        const entities = extractEntities(row.content, {
-          scope: row.scope,
-          kind: row.kind,
-        });
-        for (const ent of entities) {
-          if (ent.confidence >= 0.5) {
-            this.memoryLinkRepo.create({
-              id: generateId(),
-              source_memory_id: row.id,
-              target_entity: ent.entity,
-              relation_type: ent.relationType,
-              confidence: ent.confidence,
-            });
-            count++;
-          }
-        }
-      } catch {
-        // Skip problematic memories
-      }
-    }
-
-    return count;
-  }
-
-  // ── Phase 3: Extract ─────────────────────────────────────────────────
-
-  private extract(signal: AbortSignal): number {
-    // Find the newest memory that has links (to use as cursor)
-    const newestLinked = this.db
-      .prepare(
-        `SELECT MAX(m.created_at) as newest
-         FROM memories m
-         JOIN memory_links ml ON ml.source_memory_id = m.id`,
-      )
-      .get() as { newest: string | null } | undefined;
-    if (!newestLinked?.newest) return 0;
-
-    const rows = this.db
-      .prepare(
-        `SELECT m.id, m.content, m.scope, m.kind FROM memories m
-         LEFT JOIN memory_links ml ON ml.source_memory_id = m.id
-         WHERE m.status = 'active' AND ml.id IS NULL AND m.created_at < ?
-         LIMIT 100`,
-      )
-      .all(newestLinked.newest) as Array<{
-      id: string;
-      content: string;
-      scope: string;
-      kind: string;
-    }>;
-
-    let count = 0;
-    for (const row of rows) {
-      if (signal.aborted) break;
-      try {
-        const entities = extractEntities(row.content, {
-          scope: row.scope,
-          kind: row.kind,
-        });
-        for (const ent of entities) {
-          if (ent.confidence >= 0.5) {
-            this.memoryLinkRepo.create({
-              id: generateId(),
-              source_memory_id: row.id,
-              target_entity: ent.entity,
-              relation_type: ent.relationType,
-              confidence: ent.confidence,
-            });
-            count++;
-          }
-        }
-      } catch {
-        // Skip
-      }
-    }
-
-    return count;
-  }
-
-  // ── Phase 4: Scene Clustering ────────────────────────────────────────
+  // ── Phase 2: Scene Clustering ────────────────────────────────────────
 
   private async sceneCluster(signal: AbortSignal): Promise<number> {
     if (!this.sceneClusterer) {
@@ -581,7 +474,7 @@ export class DreamCycle {
     }
   }
 
-  // ── Phase 5: Hygiene ─────────────────────────────────────────────────
+  // ── Phase 3: Hygiene ─────────────────────────────────────────────────
 
   private hygiene(_signal: AbortSignal): number {
     const report = this.memoryHygiene.clean();
@@ -591,7 +484,7 @@ export class DreamCycle {
     return report.cleanedCount;
   }
 
-  // ── Phase 6: Embed ───────────────────────────────────────────────────
+  // ── Phase 4: Embed ───────────────────────────────────────────────────
 
   private async embed(signal: AbortSignal): Promise<number> {
     const rows = this.db
@@ -626,7 +519,7 @@ export class DreamCycle {
     return count;
   }
 
-  // ── Phase 8: Purge ───────────────────────────────────────────────────
+  // ── Phase 5: Purge ───────────────────────────────────────────────────
 
   private purge(_signal: AbortSignal): number {
     const maxEntries = 10000;

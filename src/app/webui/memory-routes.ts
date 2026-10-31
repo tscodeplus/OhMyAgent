@@ -639,15 +639,14 @@ export function registerMemoryRoutes(app: FastifyInstance, cfg: MemoryRouteConfi
   /**
    * Memory review queue — the memories a human should look at, and why.
    *
-   * Knowledge pages have a review path (`pending` + `/knowledge approve`);
-   * memories only had after-the-fact deletion. This endpoint is the missing
+   * Memories only had after-the-fact deletion; this endpoint is the missing
    * "what should I look at" list. It is **read-only by design**: acting on an
    * item reuses the existing `DELETE /api/memory/:id` and
    * `/api/memory/batch-delete`, so there is no second write path to keep
    * consistent.
    *
    * There is deliberately **no `pending` status column**. Memories are read by
-   * six lanes (retrieval, injection, persona, curation, graph, API); a seventh
+   * five lanes (retrieval, injection, persona, curation, API); a seventh
    * state would have to be honoured by every one of them or it would silently
    * leak into prompts. A review *view* over existing rows costs nothing and
    * cannot leak.

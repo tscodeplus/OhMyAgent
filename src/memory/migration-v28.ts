@@ -3,8 +3,8 @@
  *
  * `MemoryWriter` / `MemoryRepository` now mask a secret on the way in
  * (`redactSecrets`), but a row written before that is replayed forever: it is a
- * `<memory_context>` candidate, an FTS hit, a knowledge-page source and a line in
- * the Obsidian export. The device corpus carried two — a `sk-…` API key stored as
+ * `<memory_context>` candidate, an FTS hit and a note source. The device corpus
+ * carried two — a `sk-…` API key stored as
  * a `preference`, and a `Clawvard exam token` JWT in a user-scoped memory that the
  * per-turn injection then quoted back into a model context.
  *
@@ -17,7 +17,7 @@
  *     to that session, while a memory is replayed into every later one.
  *   - **Redact, never delete.** The sentence around the key still says something
  *     real ("用户使用 API 密钥 … 进行查询"), and deleting the row would take the
- *     `memory_sources` / `knowledge_sources` provenance with it.
+ *     `memory_sources` provenance with it.
  *   - **Cheap probe, exact decision.** The `LIKE` prefilter is only there so the
  *     full table is not walked through six regexes on every open; whether a row
  *     matches is decided by `redactSecrets`, the same function the write path

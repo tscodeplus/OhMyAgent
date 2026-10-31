@@ -270,19 +270,6 @@ export interface AppConfig {
       minMemories: number;
     };
     /**
-     * Entity/relation extraction (`entity_backfill`, `MemoryWriter`). Inner keys
-     * are snake_case on purpose, matching `memory.entity_extraction` in
-     * config.yaml and the block the loader passes through.
-     */
-    entityExtraction?: {
-      /** false = deterministic mentions only, no model call. */
-      llm: boolean;
-      /** Hard cap on model calls per maintenance run. */
-      max_memories_per_run: number;
-      /** Model relations below this confidence are dropped. */
-      min_confidence: number;
-    };
-    /**
      * Provenance backfill (`provenance_backfill`). Inner keys are snake_case on
      * purpose, matching `memory.provenance_backfill` in config.yaml and the
      * block the loader passes through.
@@ -293,27 +280,6 @@ export interface AppConfig {
       /** Hard cap on memories probed per maintenance run. */
       max_memories_per_run: number;
     };
-    /** Knowledge-graph projection of `memory_links` (src/graph/graph-sync.ts). */
-    graph?: {
-      enabled: boolean;
-      /** Links below this confidence are not projected. */
-      min_confidence: number;
-      /** Upper bound on links projected by one run. */
-      max_links_per_run: number;
-      /** Mine entities from memory text that has no link (no model call). */
-      mine_mentions: boolean;
-      /** Upper bound on entities mined from one memory. */
-      max_mentions_per_memory: number;
-      /** Mine entity nodes from mentions that carry no edge (project_mention_nodes). */
-      project_mention_nodes?: boolean;
-      /** Upper bound on mention-derived nodes per run. */
-      max_mention_nodes?: number;
-      /**
-       * Days in which an edge's confidence halves, measured from its own
-       * `valid_from` at read time (src/graph/decay.ts). `0`/absent = off.
-       */
-      decay_half_life_days?: number;
-    };
     maintenance?: {
       enabled: boolean;
       intervalMs: number;
@@ -322,7 +288,6 @@ export interface AppConfig {
         embedding_backfill: boolean;
         terms_backfill: boolean;
         embedding_cache_trim: boolean;
-        entity_backfill: boolean;
         /** Content-matched source messages (`memory.provenance_backfill`). */
         provenance_backfill: boolean;
         persona_consistency: boolean;

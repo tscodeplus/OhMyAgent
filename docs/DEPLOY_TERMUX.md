@@ -25,10 +25,8 @@ an empty database, which the server creates on first start:
 
 - The dev database is full of test memories, superseded rows and experiment
   residue; importing it would corrupt recall quality rather than preserve it.
-- The vault projection (`pnpm graph:export`), the knowledge export
-  (`pnpm knowledge:export`) and all memory state are derived from whatever
-  database is live, so a fresh prod database simply starts with nothing to
-  export — nothing needs copying.
+- Notes, memories and transcripts are all rows in whatever database is live,
+  so a fresh prod database simply starts empty — nothing needs copying.
 - What _is_ copied by hand is **configuration, not knowledge**: `config.yaml`
   and `.env` (provider keys, channel credentials, `WEBUI_TOKEN`).
 
@@ -288,14 +286,13 @@ What matters:
 
 | Path                    | Why                                                                                                                                                                        |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data/app.db`           | All memory, sessions, approvals **and knowledge pages**. Irreplaceable.                                                                                                    |
-| `config.yaml`           | Providers, channels, tool policy.                                                                                                                                          |
-| `.env`                  | Secrets (`WEBUI_TOKEN`, API keys).                                                                                                                                         |
-| `knowledge/` (optional) | One-way markdown export of the knowledge pages — regenerate with `pnpm knowledge:export` (once the knowledge layer lands). Not a source of truth; losing it costs nothing. |
+| `data/app.db` | All memory, sessions, notes, approvals. Irreplaceable. |
+| `config.yaml` | Providers, channels, tool policy. |
+| `.env`        | Secrets (`WEBUI_TOKEN`, API keys). |
 
-Knowledge pages live in `data/app.db` (`knowledge_pages` and friends), not in a
-file tree, so the `VACUUM INTO` snapshot below is a complete backup of them —
-there is no second directory to keep in sync.
+Notes live in `data/app.db` (`notes` and friends), not in a file tree, so the
+`VACUUM INTO` snapshot below is a complete backup of them — there is no second
+directory to keep in sync.
 
 Use SQLite's `VACUUM INTO`, not `cp`: it takes a consistent snapshot of a live
 database (WAL included) and leaves a single compact file.
@@ -425,24 +422,11 @@ without you: the running process, the deployed commit and the migrated schema.
    repeated restarts, and `df -h $HOME` has room for the growing database plus
    snapshots.
 
-7. **Optional: knowledge export (and a no-file consistency check)**
+7. **WebUI smoke test**
 
-   If you want the knowledge pages as browsable markdown (Obsidian, grep, git):
-
-   ```bash
-   cd ~/OhMyAgent && pnpm knowledge:export --out ~/knowledge
-   ```
-
-   Read-only against `data/app.db`; the second run must report nothing changed
-   (idempotent). It is a one-way projection — editing those files does **not**
-   feed back into the database.
-
-   If you only want to know whether the full-text index still matches the pages,
-   skip the export and run the consistency check instead:
-
-   ```bash
-   pnpm knowledge:reindex --check     # compares knowledge_fts_jieba row count with knowledge_pages
-   ```
+   Open `http://<phone-ip>:9191/webui/`, sign in with `WEBUI_TOKEN`, and check
+   the notes tab loads (`/notes`) — it is the only page whose data has no IM
+   equivalent to fall back on.
 
 ---
 
@@ -474,23 +458,13 @@ the device.
 | Pre-upgrade snapshot  | deploy script, before anything is stopped | `VACUUM INTO data/backups/pre-upgrade-<git describe>-<timestamp>.db`, then re-opens the copy (`quick_check` + row counts)                                                                                     |
 | Source swap + rebuild | deploy script                             | `pnpm install`, `pnpm build`, WebUI build                                                                                                                                                                     |
 | Schema migrations     | the new process, on boot                  | every migration `v2…v16`, each idempotent and guarded: a missing column is added, a missing table is created                                                                                                  |
-| Graph legacy repair   | the new process, on boot (migration v17)  | deletes the pre-v15 placeholder nodes / `MENTIONED` edges / orphan edges and, when it finds that damage, backfills `memory_links.subject_entity` and re-projects — in `openDatabase()`, before the port binds |
-| Graph projection      | the process, `graph_sync` maintenance job | projects `memory_links` rows that name a subject into `entities`/`entity_edges`, every 6 h                                                                                                                    |
+| Retired tables        | the new process, on boot (migration v32)  | drops `knowledge_*` and `entities`/`entity_*`/`memory_links`, which the retired knowledge-page and graph layers left behind — in `openDatabase()`, before the port binds                                      |
 | Verification          | deploy script, after the restart          | `/api/health`, build freshness, running commit, process age vs. deploy stamp, the migrated schema, the FTS backfill, and before/after row counts (below)                                                      |
 
-**The graph cleanup is no longer a step anyone runs.** The old manual sequence —
-`pnpm graph:reset` → `pnpm graph:mine` → `pnpm graph:sync` — is **no longer part
-of the upgrade path**, and the deploy script does not run it either: migration
-v17 performs the same cleanup (`src/graph/legacy-cleanup.ts`, the code the CLI
-calls, so the two cannot drift) inside `openDatabase()`. `graph:sync` was never an
-operator step — the in-process `graph_sync` job owns the projection. Running any
-of the three by hand after an upgrade is harmless but redundant.
-
-One consequence worth knowing on an install that predates the graph entirely
-(the common case): there is nothing legacy to delete, so v17 does not scan 700
-memories at every boot. The subject backfill left over from that install is the
-`graph_sync` job's work — first maintenance tick after boot (≈5 min), then every
-6 h — and `check` reports it as a warning, not a failure.
+**There is no graph step in the upgrade path.** The knowledge-page and entity
+graph layers were removed from the code, so v32 drops their tables once; nothing
+recreates them, and no CLI needs to be run before or after a deploy. An install
+that never used either layer has nothing to drop, and v32 is a no-op there.
 
 Migrations themselves are _not_ the deploy script's job: they run inside
 `openDatabase()` before the HTTP server listens. That is also why a failed
@@ -502,8 +476,8 @@ so `sv status` shows `run:` for a moment and then goes down.
 `config.yaml` and `.env` are **not in the deploy tarball** (they are gitignored,
 and §4 has you create them by hand on the phone). An upgrade therefore leaves
 them exactly as they are — which also means a layer that was never configured
-stays off after the upgrade: with no `knowledge:` section the knowledge tools,
-curation and injection remain inert, and with no `conversation_search:` section
+stays off after the upgrade: with no `notes:` section the notes layer (tools,
+capture, review queue) remains inert, and with no `conversation_search:` section
 per-turn conversation recall stays off. The tables exist, the tools are
 registered, nothing is broken; the switches are simply still absent. Add those
 sections yourself (and restart) when you want the layer — the runbook's §4 is the
@@ -524,7 +498,7 @@ you do.
   `-dirty` appended when the deploy also shipped uncommitted changes — it names
   the _new_ code, the timestamp says when the old data was frozen.
 - The script re-opens the snapshot and checks `PRAGMA quick_check` plus the row
-  counts of `memories`/`sessions`/`messages`/`knowledge_pages` against the live
+  counts of `memories`/`sessions`/`messages`/`notes` against the live
   database. A snapshot that does not match **aborts the deploy before anything is
   stopped or replaced**.
 - `DELETE_DATABASE=true` skips the snapshot (there is nothing to preserve: that
@@ -567,26 +541,18 @@ What it asserts, and why each line exists:
   `src/index.ts` is reported as a warning instead — that comparison mixes two
   clocks (tar keeps the dev box's mtimes).
 - **migrations** — every table and column that only a migration can add is there:
-  `entities`/`entity_aliases`/`entity_edges` (v10), `memory_sources` +
-  `memories.embedding_status` (v13), `knowledge_*` + `knowledge_fts_jieba` (v14),
-  `memory_links.subject_entity*` (v15), `persona_distillation_runs.input_memory_ids`
-  (v16), and the v4/v9/v11/v12 `sessions` columns. A missing one means
-  `openDatabase()` did not finish (the comment in `src/memory/db.ts` records what
-  that failure mode looks like).
+  `messages_fts_jieba` (v10), `memory_sources` + `memories.embedding_status`
+  (v13), `mcp_oauth_credentials` (v8), `notes`/`note_sources` (v31),
+  `persona_distillation_runs.input_memory_ids` (v16), and the v4/v9/v11/v12
+  `sessions` columns. A missing one means `openDatabase()` did not finish (the
+  comment in `src/memory/db.ts` records what that failure mode looks like).
 - **messages_fts_jieba** — the row count equals the `messages` row count. This is
   the v10 backfill over every existing message (1813 rows on the reference
   device): the slowest, most failure-prone step on a phone, and the one that can
   stop halfway while still serving queries. A shortfall means the index is
   incomplete; `/api/health` cannot see it.
-- **graph placeholders / graph MENTIONED edges** — `entities` rows with
-  `entity_type='memory'` and `entity_edges` rows with `relation_type='MENTIONED'`
-  are `0`. These are what the pre-v15 projection invented; migration v17 removes
-  them at boot, so a non-zero count means it did not run.
-- **graph subjects** — a warning, not a failure: when `memory_links` has rows and
-  none names a subject yet, the `graph_sync` job fills them in (first tick after
-  boot, then every 6 h). A fresh upgrade is allowed to report zero here.
-- **before/after row counts** — `memories`, `messages`, `sessions` and
-  `memory_links` are counted twice: in the pre-upgrade snapshot and in the live
+- **before/after row counts** — `memories`, `messages`, `sessions` and `notes`
+  are counted twice: in the pre-upgrade snapshot and in the live
   database. **Data preserved is the assertion that matters most**, so any count
   that fell below the snapshot is a `FAIL` naming the delta and the snapshot to
   restore; growth is reported but is not a failure (the service keeps writing):
@@ -642,7 +608,7 @@ bash scripts/deploy-termux.sh
 
 Then run `bash scripts/deploy-termux.sh check` again and confirm the failing
 lines are gone. Keep `data/app.db.failed` until the WebUI shows the data you
-expected (memory counts, knowledge pages): a restore you have not looked at is
+expected (memory counts, notes): a restore you have not looked at is
 still a guess. If only the _code_ is suspect and the migrations were ordinary
 additive ones, restoring the snapshot is optional; if a migration is what threw,
 restoring it is the point.

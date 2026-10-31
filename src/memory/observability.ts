@@ -8,7 +8,6 @@ export type MemoryObservationEvent =
   | 'memory.vector.full_scan_skipped'
   | 'memory.fts.failed'
   | 'memory.merge.failed'
-  | 'memory.entity.failed'
   | 'memory.summary.parse_failed'
   | 'memory.write.degraded'
   /**

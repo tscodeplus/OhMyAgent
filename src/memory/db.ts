@@ -12,17 +12,11 @@ import { migrateV10 } from './migration-v10.js';
 import { migrateV11 } from './migration-v11.js';
 import { migrateV12 } from './migration-v12.js';
 import { migrateV13 } from './migration-v13.js';
-import { migrateV15 } from './migration-v15.js';
 import { migrateV16 } from './migration-v16.js';
-import { migrateV17 } from './migration-v17.js';
-import { migrateV18 } from './migration-v18.js';
-import { migrateV19 } from './migration-v19.js';
-import { migrateV23 } from './migration-v23.js';
-import { migrateV26 } from './migration-v26.js';
-import { migrateV27 } from './migration-v27.js';
 import { migrateV28 } from './migration-v28.js';
 import { migrateV30 } from './migration-v30.js';
 import { migrateV31 } from './migration-v31.js';
+import { migrateV32 } from './migration-v32.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -162,16 +156,8 @@ export function openDatabase(dbPath: string): Database.Database {
     logger.info(`[V13] Memory migration: added columns: ${v13Result.added.join(', ')}`);
   }
 
-  // V15 migration: memory_links.subject_entity / subject_entity_type /
-  // target_entity_type. BEFORE applySchema: the columns are declared in
-  // schema.ts, which cannot add them to an existing table.
-  const v15Result = migrateV15(db);
-  if (v15Result.added.length > 0) {
-    logger.info(`[V15] Graph migration: added columns: ${v15Result.added.join(', ')}`);
-  }
-
   // V16 migration: persona_distillation_runs.input_memory_ids / output_diff.
-  // BEFORE applySchema, same constraint as v15.
+  // BEFORE applySchema, same constraint as v4/v9/v11/v12/v13.
   const v16Result = migrateV16(db);
   if (v16Result.added.length > 0) {
     logger.info(`[V16] Persona migration: added columns: ${v16Result.added.join(', ')}`);
@@ -205,93 +191,13 @@ export function openDatabase(dbPath: string): Database.Database {
   // nothing writes to it unless the user configures a server with `oauth:`).
   migrateV8(db);
 
-  // V10 migration: knowledge-graph tables (entities / entity_aliases /
-  // entity_edges, with valid_from/valid_to so a retracted fact is closed
-  // rather than deleted) plus the messages_fts_jieba index. Runs AFTER
-  // applySchema because its FTS backfill reads `messages`, which applySchema
-  // creates on a fresh database. Nothing reads these tables unless the graph
-  // layer is used, so an install that ignores it pays only the DDL.
+  // V10 migration: the messages_fts_jieba index (jieba-segmented FTS5 over
+  // `messages`). Runs AFTER applySchema because its backfill reads `messages`,
+  // which applySchema creates on a fresh database.
   migrateV10(db);
 
-  // V17 migration: repair legacy graph DATA (no schema change) — delete the
-  // pre-K3 `memory:<id>` placeholder nodes, the `MENTIONED` co-occurrence edges
-  // and the orphan edges, backfill `memory_links.subject_entity`, then project.
-  // It belongs here rather than above because it adds no column: it needs the
-  // tables first (`entities`/`entity_edges` from v10, `memory_links` from
-  // applySchema) and `memory_links.subject_entity` from v15, so the v4/v9/v11/
-  // v12/v15 rule that puts column-adding migrations *before* applySchema does
-  // not apply to it. Like v10/v14 it is a replay on every open, so it guards on
-  // "anything to repair" and costs one read-only COUNT query once the database
-  // is clean.
-  const v17Result = migrateV17(db, logger);
-  const v17DeletedRows =
-    v17Result.cleaned.placeholderEntities +
-    v17Result.cleaned.placeholderEdges +
-    v17Result.cleaned.mentionEdges +
-    v17Result.cleaned.orphanEndpointEdges +
-    v17Result.cleaned.orphanMemoryEdges;
-  const v17LinkRows = v17Result.mined.linksCreated + v17Result.mined.linksAnnotated;
-  if (v17DeletedRows > 0 || v17LinkRows > 0 || v17Result.projected.edgesCreated > 0) {
-    logger.info(
-      `[V17] Graph data migration: deleted ${v17DeletedRows} legacy rows, ` +
-        `wrote ${v17LinkRows} link subjects, ` +
-        `projected ${v17Result.projected.entitiesCreated} entities / ${v17Result.projected.edgesCreated} edges`,
-    );
-  }
-
-  // V18: the extraction model's own ledger. After applySchema like v17 — it is a
-  // new table, not a column add, and it must exist before the job that writes to
-  // it is constructed (bootstrap builds services right after this returns).
-  const v18Result = migrateV18(db);
-  if (v18Result.created) {
-    logger.info('[V18] Created entity_extraction_log (skips memories already read)');
-  }
-
-  // V23: the graph projection's link-refusal ledger (the mirror of v18 for
-  // `graph_sync`): memories whose every edge-eligible link the JS gates refuse
-  // are recorded here so the batch query can stop re-scanning them every run.
-  // After applySchema like v17/v18 — a new table whose DDL lives in the migration
-  // module; the projector probes for it lazily, so a database opened between
-  // applySchema and this point still boots.
-  const v23Result = migrateV23(db);
-  if (v23Result.created) {
-    logger.info('[V23] Created entity_link_refusals (ledger of gate-refused memories)');
-  }
-
-  // V19: one entity per name. Rewrites canonical names under the current folding
-  // rule and merges the nodes that fold together, in that order (see the module).
-  const v19Result = migrateV19(db);
-  if (v19Result.merged > 0 || v19Result.renamedCanonical > 0) {
-    logger.info(
-      `[V19] merged ${v19Result.merged} duplicate node(s), rewrote ` +
-        `${v19Result.renamedCanonical} canonical name(s)`,
-    );
-  }
-
-  // V26 indexes `memory_links.subject_entity`, which v15 added without one. Every
-  // "which memories name X" query is `target_entity = X OR subject_entity = X`, and
-  // an OR only uses indexes when both sides have one — the unindexed half turned
-  // each of those into a full table scan per entity (`SCAN ml` on the device, 43 ms
-  // of a 55 ms graph request). After applySchema like v20–v25: the column exists by
-  // then, and `IF NOT EXISTS` makes the replay free.
-  const v26Result = migrateV26(db);
-  if (v26Result.createdIndexes.length > 0) {
-    logger.info(`[V26] Graph migration: ensured ${v26Result.createdIndexes.join(', ')}`);
-  }
-
-  // V27 stores the numbers the graph reads instead of recomputing them per request:
-  // `entity_graph_metrics` (degrees + mention counts) and `entity_components`
-  // (membership). Written only by `graph_sync`; read paths fall back to the live
-  // algorithm while they are empty, so an install that has not synced yet still
-  // answers correctly. After applySchema like v10/v14 because `schema.ts` declares
-  // neither table.
-  const v27Result = migrateV27(db);
-  if (v27Result.createdTables.length > 0) {
-    logger.info(`[V27] Graph metrics tables: ${v27Result.createdTables.join(', ')}`);
-  }
-
   // V28 repairs data, not schema: a credential stored as a memory is replayed
-  // into every later session (prompt, FTS hit, knowledge source, vault export),
+  // into every later session (prompt, FTS hit, memory recall),
   // so rows written before the write path learned to mask them are rewritten
   // here. Idempotent by construction — a masked row redacts to itself.
   try {
@@ -325,6 +231,16 @@ export function openDatabase(dbPath: string): Database.Database {
   const v31Result = migrateV31(db);
   if (v31Result.created) {
     logger.info('[V31] Created notes tables (notes, sources, capture runs, events, FTS)');
+  }
+
+  // V32 drops what the retired knowledge-page and entity-graph layers left
+  // behind. Runs after applySchema like the new-table migrations: the tables it
+  // removes are ones schema.ts no longer declares, so nothing above depends on
+  // them existing. Every statement is DROP TABLE IF EXISTS, so a replay is free
+  // and a fresh install finds nothing to do.
+  const v32Result = migrateV32(db);
+  if (v32Result.dropped.length > 0) {
+    logger.info(`[V32] Dropped ${v32Result.dropped.length} retired table(s)`);
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

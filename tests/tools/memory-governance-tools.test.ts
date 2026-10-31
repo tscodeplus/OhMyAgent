@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 import { applySchema } from '../../src/memory/schema.js';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository.js';
 import { EmbeddingRepository } from '../../src/memory/repositories/embedding-repository.js';
-import { MemoryLinkRepository } from '../../src/memory/repositories/memory-link-repository.js';
 import { createMemoryListToolDefinition } from '../../src/tools/builtins/memory/list-definition.js';
 import { createMemoryDeleteToolDefinition } from '../../src/tools/builtins/memory/delete-definition.js';
 import { createMemoryUpdateToolDefinition } from '../../src/tools/builtins/memory/update-definition.js';
@@ -25,7 +24,6 @@ describe('memory governance tools', () => {
   let db: Database.Database;
   let memoryRepo: MemoryRepository;
   let embeddingRepo: EmbeddingRepository;
-  let linkRepo: MemoryLinkRepository;
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -33,7 +31,6 @@ describe('memory governance tools', () => {
     applySchema(db);
     memoryRepo = new MemoryRepository(db);
     embeddingRepo = new EmbeddingRepository(db);
-    linkRepo = new MemoryLinkRepository(db);
   });
 
   afterEach(() => {
@@ -92,7 +89,6 @@ describe('memory governance tools', () => {
     const def = createMemoryDeleteToolDefinition({
       memoryRepository: memoryRepo,
       embeddingRepository: embeddingRepo,
-      memoryLinkRepository: linkRepo,
       onMemoryChanged,
     });
 

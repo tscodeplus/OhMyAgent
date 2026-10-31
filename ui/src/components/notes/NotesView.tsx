@@ -43,8 +43,8 @@ import {
   sessionLabel,
 } from './NoteBits';
 import MarkdownEditor from './MarkdownEditor';
-import SearchContextPanel from '../graph/SearchContextPanel';
-import type { SearchResult } from '../../types/graph';
+import SearchContextPanel from '../search/SearchContextPanel';
+import type { SearchResult } from '../../types/search';
 import {
   NOTE_KINDS,
   NOTE_SCOPES,

@@ -28,7 +28,6 @@ describe('DreamCycle catch-up on start', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       undefined,
       {
         auxConfig: undefined,

@@ -11,7 +11,7 @@ import {
 import { generateId } from '../../src/shared/ids';
 
 /**
- * Physical deletes must clean derived stores (terms / links / embeddings /
+ * Physical deletes must clean derived stores (terms / embeddings /
  * FTS) — historical deletes prove FK cascade alone is insufficient (some
  * paths ran without foreign_keys=ON, and vec0 has no FK cascade at all).
  */
@@ -36,9 +36,6 @@ describe('MemoryRepository physical delete cleans derived stores', () => {
       id,
       extractMemoryTerms('用户偏好使用 Windows 操作系统'),
     );
-    db.prepare(
-      'INSERT INTO memory_links (id, source_memory_id, target_entity, relation_type) VALUES (?, ?, ?, ?)',
-    ).run(generateId(), id, 'windows', 'prefers');
     new EmbeddingRepository(db).create({
       id: generateId(),
       memory_id: id,
@@ -53,7 +50,7 @@ describe('MemoryRepository physical delete cleans derived stores', () => {
     return (row as { n: number }).n;
   }
 
-  it('delete() removes terms, links, and embeddings', () => {
+  it('delete() removes terms and embeddings', () => {
     const id = repo.upsert({
       id: generateId(),
       scope: 'user',
@@ -68,7 +65,6 @@ describe('MemoryRepository physical delete cleans derived stores', () => {
     expect(repo.delete(id)).toBe(true);
 
     expect(countRows('memory_terms', 'memory_id', id)).toBe(0);
-    expect(countRows('memory_links', 'source_memory_id', id)).toBe(0);
     expect(countRows('memory_embeddings', 'memory_id', id)).toBe(0);
     expect(countRows('vec_memory_embeddings', 'memory_id', id)).toBe(0);
   });
@@ -103,6 +99,5 @@ describe('MemoryRepository physical delete cleans derived stores', () => {
     ).toBe(0);
     expect(countRows('memory_terms', 'memory_id', first)).toBe(0);
     expect(countRows('memory_embeddings', 'memory_id', second)).toBe(0);
-    expect(countRows('memory_links', 'source_memory_id', first)).toBe(0);
   });
 });

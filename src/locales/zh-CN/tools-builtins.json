@@ -20,8 +20,7 @@
   },
   "memoryRecall": {
     "noResults": "未找到相关记忆。",
-    "resultItem": "{{index}}. {{content}}（得分：{{score}}）",
-    "structuralHints": "结构提示（由知识图谱推导，可能不完整）："
+    "resultItem": "{{index}}. {{content}}（得分：{{score}}）"
   },
   "approval": {
     "pathOutsideAllowed": "路径超出允许目录范围：{{paths}}"

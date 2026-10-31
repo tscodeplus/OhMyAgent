@@ -11,9 +11,6 @@ export interface RetrievalPolicy {
     otherShared?: number;
   };
 
-  /** Enable entity graph expansion. Default false. */
-  includeEntityExpansion?: boolean;
-
   /** Enable temporal decay scoring. Default true. */
   includeTemporalDecay?: boolean;
 
@@ -38,7 +35,6 @@ export function classicRecallPolicy(options?: {
       agentId: options?.agentId,
       includeShared: true,
     },
-    includeEntityExpansion: true,
     includeTemporalDecay: true,
     activeOnly: true,
   };
@@ -65,7 +61,6 @@ export function agentAwareRecallPolicy(options: {
       shared: 50,
       otherShared: 40,
     },
-    includeEntityExpansion: true,
     includeTemporalDecay: true,
     activeOnly: true,
   };

@@ -13,9 +13,9 @@
 #      it (quick_check + row counts) before anything is replaced;
 #   2. swaps the source and rebuilds (tsc + ui);
 #   3. restarts and lets the new process migrate the database itself: every
-#      schema migration, and the v17 repair of the pre-v15 graph data, run
-#      inside openDatabase() before the server listens. The deploy has no
-#      migration step of its own — there is no `graph:reset`/`graph:mine` to run;
+#      schema migration runs inside openDatabase() before the server listens,
+#      including v32, which drops the tables the retired knowledge-page and
+#      graph layers left behind. The deploy has no migration step of its own;
 #   4. verifies the RUNNING process: /api/health, that the process started after
 #      this build, that openDatabase() finished every migration, that the
 #      messages FTS backfill indexed every message, and that no row count fell
@@ -155,25 +155,18 @@ const isCheck = MODE === 'check';
 // openDatabase() leaves exactly one of these missing — that is the symptom the
 // HTTP-only health check used to hide.
 const REQUIRED_TABLES = [
-  'entities', // v10 graph
-  'entity_aliases',
-  'entity_edges',
   'memory_sources', // v13 provenance
-  'knowledge_pages', // v14 knowledge layer
-  'knowledge_sources',
-  'knowledge_links',
-  'knowledge_log',
-  'knowledge_fts_jieba',
   'mcp_oauth_credentials', // v8
   'messages_fts_jieba', // v10
+  'notes', // v31
+  'note_sources', // v31
 ];
 const REQUIRED_COLUMNS = {
   sessions: ['project_id', 'channel', 'external_chat_id', 'title', 'archived_at', 'archive_exempt_until'], // v4/v9/v11/v12
   memories: ['embedding_status'], // v13
-  memory_links: ['subject_entity', 'subject_entity_type', 'target_entity_type'], // v15
   persona_distillation_runs: ['input_memory_ids', 'output_diff'], // v16
 };
-const COUNTED_TABLES = ['memories', 'sessions', 'messages', 'knowledge_pages'];
+const COUNTED_TABLES = ['memories', 'sessions', 'messages', 'notes'];
 
 const lines = [];
 let failures = 0;
@@ -397,7 +390,7 @@ function snapshotFile() {
   return recentBackup();
 }
 
-const SNAPSHOT_TABLES = ['memories', 'messages', 'sessions', 'memory_links'];
+const SNAPSHOT_TABLES = ['memories', 'messages', 'sessions', 'notes'];
 
 // Row counts before/after, plus the one verdict that matters: no table lost
 // rows. A migration that drops memories is invisible to /api/health and to
@@ -736,65 +729,20 @@ async function runReport() {
       }
     }
 
-    // What the pre-v15 projection invented: per-memory placeholder nodes and
-    // co-occurrence edges. Migration v17 deletes them at boot (`cleanupLegacyGraph`),
-    // so a leftover row here means that migration did not get to run.
-    const placeholders = countRows(db, 'entities', "entity_type = 'memory'");
-    if (placeholders !== null) {
-      judge(
-        placeholders === 0,
-        'graph placeholders',
-        "no entity_type='memory' nodes",
-        placeholders + " row(s) with entity_type='memory' remain — migration v17 should have deleted them; check the log, or run pnpm graph:reset",
-      );
-    }
-    const mentions = countRows(db, 'entity_edges', "relation_type = 'MENTIONED'");
-    if (mentions !== null) {
-      judge(
-        mentions === 0,
-        'graph MENTIONED edges',
-        'no co-occurrence edges',
-        mentions + " row(s) with relation_type='MENTIONED' remain — migration v17 should have deleted them; check the log, or run pnpm graph:reset",
-      );
-    }
-
-    const links = countRows(db, 'memory_links');
-    const linksWithSubject = countRows(db, 'memory_links', 'subject_entity IS NOT NULL');
-    // `null` here means the column does not exist yet: the migrations check
-    // above owns that verdict, and a "null/123" line would only be noise.
-    if (links !== null && linksWithSubject !== null) {
-      if (links === 0) {
-        ok('graph subjects', 'no memory_links rows yet — nothing to mine');
-      } else if (linksWithSubject > 0) {
-        ok('graph subjects', linksWithSubject + '/' + links + ' links name a subject');
-      } else {
-        // Not a failure: the subject pass is `graph_sync`'s job on the
-        // scheduler's clock (first tick after boot, then every 6 h), not this
-        // deploy's, so a fresh upgrade is allowed to report zero here.
-        warn(
-          'graph subjects',
-          links +
-            ' links, none names a subject yet — the graph_sync job fills these in on its next sweep (first tick after boot, then every 6 h), or pnpm graph:mine fills them now',
-        );
-      }
-    }
-
     const live = {
       memories: countRows(db, 'memories'),
       messages: countRows(db, 'messages'),
       sessions: countRows(db, 'sessions'),
-      memory_links: links,
+      notes: countRows(db, 'notes'),
     };
     const counts = [
       ['memories', live.memories],
       ["memories active", countRows(db, 'memories', "status = 'active'")],
       ['sessions', live.sessions],
       ['messages', live.messages],
-      ['knowledge_pages', countRows(db, 'knowledge_pages')],
-      ["knowledge_pages active", countRows(db, 'knowledge_pages', "status = 'active'")],
-      ['entities', countRows(db, 'entities')],
-      ['entity_edges', countRows(db, 'entity_edges')],
-      ['memory_links', live.memory_links],
+      ['notes', live.notes],
+      ["notes active", countRows(db, 'notes', "status = 'active'")],
+      ["notes draft", countRows(db, 'notes', "status = 'draft'")],
     ];
     info(
       'row counts',
@@ -1244,8 +1192,8 @@ do_preflight() {
   echo "  2. stop the service and swap the source for ${DEPLOY_LABEL}"
   echo "  3. pnpm install + pnpm build + WebUI build (several minutes on the phone)"
   echo "  4. start the service — the new process migrates the database itself in"
-  echo "     openDatabase(): schema migrations v4-v16 plus the v17 legacy-graph"
-  echo "     repair. No manual migration, no graph:reset/graph:mine step."
+  echo "     openDatabase(), v32 included (it drops the retired knowledge/graph"
+  echo "     tables). No manual migration step."
   echo "  5. wait 20s, then verify health, the running commit, the build age, every"
   echo "     migration, the messages FTS backfill, and the before/after row counts"
   echo "     against the snapshot from step 1"

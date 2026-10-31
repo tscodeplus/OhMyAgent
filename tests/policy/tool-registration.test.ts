@@ -25,7 +25,6 @@ import { ToolVisibilityPolicyImpl, PROFILE_TOOLS } from '../../src/policy/tool-v
 import { getCapabilityForTool } from '../../src/policy/tool-capability-registry.js';
 import type { AgentPolicyScope } from '../../src/policy/types.js';
 import { createSessionSearchToolDefinition } from '../../src/tools/builtins/session/session-search-definition.js';
-import { createEntityQueryToolDefinition } from '../../src/tools/builtins/graph/entity-query-definition.js';
 import type Database from 'better-sqlite3';
 
 /**
@@ -35,7 +34,7 @@ import type Database from 'better-sqlite3';
  */
 function buildRegisteredDefinitions(): ToolDefinition<any>[] {
   const db = {} as Database.Database;
-  return [createSessionSearchToolDefinition({ db }), createEntityQueryToolDefinition({ db })];
+  return [createSessionSearchToolDefinition({ db })];
 }
 
 function scopeFor(toolsProfile: AgentPolicyScope['toolsProfile']): AgentPolicyScope {
@@ -121,26 +120,9 @@ describe('tool registration gates (plan §8.1)', () => {
     });
   });
 
-  it('entity_query is a read-only memory tool: no approval, not deferral-exempt', () => {
-    // The graph is a derived view of the same SQLite file the memory tools read,
-    // so it sits in the same capability row — a fail-closed default here would
-    // demand approval for every traversal.
-    expect(getCapabilityForTool('entity_query')).toEqual({
-      category: 'memory',
-      readOnly: true,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'none',
-    });
-  });
-
   it('new tools use a single spelling — no invented kebab aliases', () => {
     const all = [...PROFILE_TOOLS.restricted, ...PROFILE_TOOLS.standard];
-    for (const name of ['session_search', 'entity_query']) {
+    for (const name of ['session_search']) {
       expect(all.filter((entry) => entry.replace(/_/g, '-') === name.replace(/_/g, '-'))).toEqual([
         name,
         name,

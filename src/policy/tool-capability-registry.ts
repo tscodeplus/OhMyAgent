@@ -206,19 +206,6 @@ export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapa
       pathAccess: 'none',
       approvalDefault: 'mutating',
     },
-    // The graph is a file-less SQLite read: no approval, and `readOnly` so a
-    // policy patch cannot treat it as a write surface.
-    entity_query: {
-      category: 'memory',
-      readOnly: true,
-      readsFiles: false,
-      writesFiles: false,
-      usesShell: false,
-      usesNetwork: false,
-      usesComputerUse: false,
-      pathAccess: 'none',
-      approvalDefault: 'none',
-    },
     // A session tool like `session_summarize`, not a memory tool: it reads raw
     // transcripts rather than the memory layer's curated tier.
     session_search: {

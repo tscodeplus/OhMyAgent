@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils';
 import { fetchSearchContext } from '../../utils/api';
 import MessageList from '../chat/MessageList';
 import type { MessagePageFetcher } from '../chat/MessageList';
-import type { SearchContextResponse, SearchResult } from '../../types/graph';
+import type { SearchContextResponse, SearchResult } from '../../types/search';
 import type { Message } from '../../types/session';
 
 /** Messages of context shown on each side of the hit. */
@@ -45,13 +45,12 @@ interface SearchContextPanelProps {
  * drawer keeps the result list on screen while the surrounding turns load, and
  * offers the full session as a deliberate second step.
  *
- * A bottom sheet on every viewport, not a side column: as a column it competed
- * with the graph for the same horizontal band, sat below the query box, and was
- * easy to miss entirely on a wide screen — a conversation transcript is the
- * wrong shape for a 26rem stripe. Full width along the bottom makes its
- * appearance unmissable and gives the transcript the line length it wants;
- * on large screens it is centred and capped so it still reads as a sheet
- * rather than as a new page.
+ * A bottom sheet on every viewport, not a side column: as a column it sat below
+ * the row that opened it and was easy to miss entirely on a wide screen — a
+ * conversation transcript is the wrong shape for a 26rem stripe. Full width
+ * along the bottom makes its appearance unmissable and gives the transcript the
+ * line length it wants; on large screens it is centred and capped so it still
+ * reads as a sheet rather than as a new page.
  */
 export default function SearchContextPanel({ hit, onClose, box, hint }: SearchContextPanelProps) {
   const { t } = useTranslation('common');
@@ -209,7 +208,7 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
           unmistakable, and tapping outside is the fastest way out. */}
       <button
         type="button"
-        aria-label={t('graph.contextClose')}
+        aria-label={t('search.contextClose')}
         onClick={onClose}
         className="fixed inset-0 z-30 bg-black/40"
       />
@@ -217,7 +216,7 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
         ref={sheetRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t('graph.contextTitle')}
+        aria-label={t('search.contextTitle')}
         // Inline box wins on wide screens: it is the measured rect of the result
         // list, which is narrower than the viewport and starts after the sidebar.
         style={{
@@ -245,7 +244,7 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          aria-label={t('graph.contextCollapse')}
+          aria-label={t('search.contextCollapse')}
           className="flex w-full shrink-0 cursor-grab touch-none justify-center pb-1 pt-2 active:cursor-grabbing"
         >
           <span className="h-1 w-10 rounded-full bg-neutral-300 dark:bg-neutral-700" />
@@ -253,18 +252,18 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
         <header className="flex shrink-0 items-start gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">
-              {hit.kind === 'message' ? (hit.session_title ?? t('graph.contextTitle')) : hit.title}
+              {hit.kind === 'message' ? (hit.session_title ?? t('search.contextTitle')) : hit.title}
             </h2>
             <p className="truncate text-[11px] text-neutral-500 dark:text-neutral-400">
               {hit.kind === 'message'
-                ? [hit.channel, hint ?? t('graph.contextHitIn')].filter(Boolean).join(' · ')
-                : t(`graph.kinds.${hit.kind}`)}
+                ? [hit.channel, hint ?? t('search.contextHitIn')].filter(Boolean).join(' · ')
+                : t(`search.kinds.${hit.kind}`)}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label={t('graph.contextClose')}
+            aria-label={t('search.contextClose')}
             className="rounded-md p-1 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
           >
             <X size={14} strokeWidth={1.75} />
@@ -282,13 +281,13 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
               </div>
             ) : status === 'error' || !context ? (
               <p className="px-2 py-4 text-xs text-red-600 dark:text-red-400">
-                {t('graph.contextError')}
+                {t('search.contextError')}
               </p>
             ) : (
               <>
                 {context.truncated_start && (
                   <p className="px-2 py-1 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {t('graph.contextOlderHidden')}
+                    {t('search.contextOlderHidden')}
                   </p>
                 )}
                 <MessageList
@@ -298,7 +297,7 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
                 />
                 {context.truncated_end && (
                   <p className="px-2 py-1 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-                    {t('graph.contextNewerHidden')}
+                    {t('search.contextNewerHidden')}
                   </p>
                 )}
               </>
@@ -319,7 +318,7 @@ export default function SearchContextPanel({ hit, onClose, box, hint }: SearchCo
               onClick={openFullSession}
               className="flex w-full items-center justify-center gap-1.5 rounded-md bg-neutral-100 py-1.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
             >
-              {t('graph.contextOpenSession')}
+              {t('search.contextOpenSession')}
               <ArrowUpRight size={13} strokeWidth={1.75} />
             </button>
           </footer>

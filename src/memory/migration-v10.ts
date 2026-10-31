@@ -1,22 +1,16 @@
 /**
- * Migration v10: knowledge-graph data layer.
+ * Migration v10: the jieba-segmented FTS5 index for `messages`.
  *
- * Adds three tables — `entities`, `entity_aliases`, `entity_edges` — plus the
- * jieba-segmented FTS5 index for `messages` (`messages_fts_jieba`).
+ * `messages_fts_jieba` is what `session_search` and the conversation lane of
+ * `/api/search` rank over: the default unicode61 tokenizer splits CJK nowhere,
+ * so a jieba-segmented copy of the text is the only way "上次那个方案" matches a
+ * sentence that never repeats it verbatim. The tokens are space-joined into
+ * `content`, and the raw text rides along in `content_original` so results need
+ * no JOIN to be assembled.
  *
- * Timestamps of the NEW tables are INTEGER epoch-milliseconds, not the TEXT
- * digit-string columns the older tables carry. `entities`/`entity_edges` are
- * new, so there is no legacy writer to stay compatible with, and INTEGER keeps
- * the temporal predicates (`valid_to IS NULL OR valid_to > :asOf`) as plain
- * integer comparisons — no `parseEpochMs` round-trip, no 'YYYY-MM-DD' rows left
- * behind by older DEFAULTs. Rows are written by `EntityRepository` with
- * `Date.now()`.
- *
- * Temporal model: a statement is never deleted when it stops being true — the
- * edge's `valid_to` is set (see `EntityRepository.retractEdge`). The row keeps
- * `valid_from`/`valid_to`, so "what was true in June" stays answerable: filter
- * `valid_from <= asOf AND (valid_to IS NULL OR valid_to > asOf)`. Deleting
- * would erase the retraction itself and make the history unanswerable.
+ * The index used to share this module with the entity tables (`entities`,
+ * `entity_aliases`, `entity_edges`); those went with the graph, and `v32` drops
+ * them from a database that still has them.
  *
  * Idempotent: every statement is `CREATE ... IF NOT EXISTS`, so this runs on
  * every startup and reports what it actually created.
@@ -32,41 +26,6 @@ export interface MigrateV10Result {
   /** Names of the tables/indexes this call created (empty on a re-run). */
   created: string[];
 }
-
-const DDL_ENTITIES = `
-CREATE TABLE IF NOT EXISTS entities (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  canonical_name TEXT NOT NULL,
-  entity_type TEXT NOT NULL,
-  description TEXT,
-  created_at INTEGER,
-  updated_at INTEGER,
-  UNIQUE(canonical_name, entity_type)
-)`;
-
-const DDL_ENTITY_ALIASES = `
-CREATE TABLE IF NOT EXISTS entity_aliases (
-  entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  alias TEXT NOT NULL,
-  source TEXT,
-  created_at INTEGER,
-  PRIMARY KEY(entity_id, alias)
-)`;
-
-const DDL_ENTITY_EDGES = `
-CREATE TABLE IF NOT EXISTS entity_edges (
-  id TEXT PRIMARY KEY,
-  source_entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  target_entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  relation_type TEXT NOT NULL,
-  confidence REAL NOT NULL DEFAULT 1.0,
-  source_memory_id TEXT,
-  source_message_id TEXT,
-  valid_from INTEGER,
-  valid_to INTEGER,
-  created_at INTEGER
-)`;
 
 // Mirrors DDL_MEMORIES_FTS_JIEBA in schema.ts exactly: a standalone FTS5 table
 // (no external content, no `tokenize=` override — the default unicode61 splits
@@ -89,29 +48,6 @@ interface SchemaObject {
 }
 
 const V10_OBJECTS: SchemaObject[] = [
-  { kind: 'table', name: 'entities', ddl: DDL_ENTITIES },
-  { kind: 'table', name: 'entity_aliases', ddl: DDL_ENTITY_ALIASES },
-  {
-    kind: 'index',
-    name: 'idx_entity_aliases_alias',
-    ddl: 'CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias)',
-  },
-  { kind: 'table', name: 'entity_edges', ddl: DDL_ENTITY_EDGES },
-  {
-    kind: 'index',
-    name: 'idx_entity_edges_source_relation',
-    ddl: 'CREATE INDEX IF NOT EXISTS idx_entity_edges_source_relation ON entity_edges(source_entity_id, relation_type)',
-  },
-  {
-    kind: 'index',
-    name: 'idx_entity_edges_target_relation',
-    ddl: 'CREATE INDEX IF NOT EXISTS idx_entity_edges_target_relation ON entity_edges(target_entity_id, relation_type)',
-  },
-  {
-    kind: 'index',
-    name: 'idx_entity_edges_source_memory',
-    ddl: 'CREATE INDEX IF NOT EXISTS idx_entity_edges_source_memory ON entity_edges(source_memory_id)',
-  },
   { kind: 'table', name: 'messages_fts_jieba', ddl: DDL_MESSAGES_FTS_JIEBA },
 ];
 
@@ -204,16 +140,6 @@ export function migrateV10(db: Database.Database): MigrateV10Result {
     const existed = schemaObjectExists(db, object.kind, object.name);
     db.exec(object.ddl);
     if (!existed) created.push(object.name);
-  }
-
-  // ON DELETE CASCADE above only fires when the connection has FK enforcement
-  // on. openDatabase() sets `foreign_keys = ON`; a connection opened directly
-  // with `new Database(...)` (tests, scripts) defaults to OFF and would leave
-  // orphaned aliases/edges behind.
-  if (db.pragma('foreign_keys', { simple: true }) !== 1) {
-    logger.warn(
-      '[migration-v10] PRAGMA foreign_keys is OFF on this connection — entity_aliases/entity_edges ON DELETE CASCADE will not fire',
-    );
   }
 
   backfillMessagesFts(db);
