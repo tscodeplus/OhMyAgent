@@ -297,12 +297,18 @@ function lastUserOf(ordered: readonly Message[]): WindowMessage | null {
  * the model must see this as *material to distil*, not as a conversation to
  * continue, and a transcript-shaped prompt is exactly what produces the recap
  * failure mode the 4-gram gate then has to catch.
+ *
+ * The id comes **first, in brackets**, and the role after it. The earlier
+ * `user (msg-abc123):` shape reads as "user, in this slot" and a model asked to
+ * cite ids answered `"evidence": ["user"]` — the role word, which is not an id, so
+ * every note was rejected as uncitable. Brackets are the notation the prompt asks
+ * for, so what the model sees and what it must return are the same shape.
  */
 export function renderWindowPrompt(messages: readonly WindowMessage[]): string {
   return messages
     .map(
       (message) =>
-        `${message.role === 'user' ? 'user' : 'assistant'} (${message.id}):\n${message.content}`,
+        `[${message.id}] ${message.role === 'user' ? 'user' : 'assistant'}:\n${message.content}`,
     )
     .join('\n\n---\n\n');
 }

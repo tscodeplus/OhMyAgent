@@ -81,7 +81,7 @@ Produce only the kind of knowledge that will be needed again:
 
 Hard rules:
 1. Do not retell the conversation. Never write "the user asked X, then the assistant did Y".
-2. Every note must cite evidence: an id from the material, and only ids that are in the material.
+2. Every note must cite evidence: the id shown in square brackets before each entry, and only ids that appear there.
 3. If nothing is worth keeping, return {"notes": []}. Zero notes is allowed; padding is not.
 4. Keep body under 600 characters, in markdown; put commands in \`\`\` code blocks.
 5. When authoritative detail is missing, leave it out. Do not guess a flag, a version or a path.
@@ -92,6 +92,8 @@ Hard rules:
 9. When a "brief from the user" is present it outranks the rules above: it may relax rule 8 (for example
    "turn today's chat into notes") or narrow the scope (for example "only that one command").
    It never licenses inventing something the material does not contain.
+10. Write title, summary and body in the language the material is written in - this prompt being English
+   is not an instruction to translate. Commands, paths, flags and identifiers stay exactly as written.
 
 Output strict JSON:
 {"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}`;
@@ -306,7 +308,7 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     options.instruction
       ? `Brief from the user for this capture (it outranks the defaults above; where they conflict, follow it):\n${options.instruction}`
       : '',
-    'Material (each entry is preceded by its id in parentheses):',
+    'Material (each entry starts with its id in square brackets):',
     '',
     options.windowText,
     '',

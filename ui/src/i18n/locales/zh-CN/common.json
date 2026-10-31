@@ -1627,7 +1627,11 @@
       "instructionPlaceholder": "写清要留下什么，例如：把刚才分享的查看端口占用的命令存下来、把最终建议连同理由摘成一条、把今天的聊天整理成笔记但不含之前的内容",
       "instructionEmpty": "先写一句要求",
       "instructionSubmit": "开始整理",
-      "dropHint": "松手即可把选中的文字原样存成草稿"
+      "dropHint": "松手即可把选中的文字原样存成草稿",
+      "dropHintAlt": "按住 Alt：让 AI 整理成笔记",
+      "dropHintTidy": "松手，AI 会把这段整理成笔记",
+      "dropSelection": "存下选中的文字",
+      "dropSelectionHint": "{{count}} 字"
     },
     "editor": {
       "titlePlaceholder": "标题",

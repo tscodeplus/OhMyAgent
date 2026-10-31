@@ -22,6 +22,18 @@
  * and a one-line hint rather than an animation: the ball only moves when work is
  * actually in flight.
  *
+ * Holding Alt while dropping asks for the other treatment — distil the text
+ * instead of storing it. A modifier-only gesture is invisible, so the hover hint
+ * carries the teaching: at rest it says what a plain release will do and mentions
+ * the modifier as the alternative, and while Alt is held it says what *that* will
+ * do. `Alt`/`Option` rather than `Ctrl` because Ctrl+drag opens the context menu on
+ * macOS, which makes the gesture unavailable exactly where it would be taught.
+ *
+ * Touch screens cannot drag a selection onto the ball, and this project's primary
+ * target is a phone. The menu therefore carries the same entry as a command — 「存
+ * 下选中的文字」, reading `window.getSelection()` — so the verbatim path exists
+ * wherever the app does.
+ *
  * It only appears where capturing makes sense — a chat or an IM transcript
  * (`/p/*`, `/inbox/*`, which is also what the archive opens). On the notes page
  * itself the page *is* the tool, and on settings/dashboard a capture button would
@@ -37,6 +49,7 @@ import {
   Loader2,
   NotebookPen,
   Plus,
+  Quote,
   RefreshCw,
   Sparkles,
   Wand2,
@@ -74,7 +87,17 @@ export default function NotesFloatingBall() {
   const [instructionError, setInstructionError] = useState<string | null>(null);
   /** True while a text selection is hovering the ball as a drop target. */
   const [dropHover, setDropHover] = useState(false);
+  /** Alt is held: the release will distil rather than store verbatim. */
+  const [dropTidy, setDropTidy] = useState(false);
   const dropDepth = useRef(0);
+  /**
+   * The selection as it was when the ball was pressed.
+   *
+   * Read on `pointerdown` because the press itself collapses the selection: by
+   * `click` there is nothing left to ask the document for. A selection that is no
+   * longer the current one is dropped rather than carried — see `startCapture`.
+   */
+  const [selectionText, setSelectionText] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -138,6 +161,20 @@ export default function NotesFloatingBall() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onConversationPage]);
+
+  // `dragover` fires a few times a second, which is enough to notice Alt being
+  // pressed but too coarse to feel like a response. While the drop target is under
+  // the pointer, the key events themselves update the hint.
+  useEffect(() => {
+    if (!dropHover) return;
+    const sync = (event: KeyboardEvent) => setDropTidy(event.altKey);
+    window.addEventListener('keydown', sync);
+    window.addEventListener('keyup', sync);
+    return () => {
+      window.removeEventListener('keydown', sync);
+      window.removeEventListener('keyup', sync);
+    };
+  }, [dropHover]);
 
   useEffect(() => {
     if (!draftCardId) return;
@@ -205,23 +242,35 @@ export default function NotesFloatingBall() {
   const carriesText = (event: React.DragEvent) =>
     Array.from(event.dataTransfer?.types ?? []).includes('text/plain');
 
-  const onDrop = (event: React.DragEvent) => {
-    if (!carriesText(event)) return;
-    event.preventDefault();
-    dropDepth.current = 0;
-    setDropHover(false);
-    const text = event.dataTransfer.getData('text/plain').trim();
-    if (!text) return;
+  const submitDrop = (text: string, tidy: boolean) => {
     if (!sessionId) {
       setCaptureError(t('notes.capture.noSession'));
       return;
     }
     closeMenu();
     setCaptureError(null);
-    void capture({ mode: 'drop', sessionId, text, treatment: 'verbatim' }).then((outcome) => {
+    void capture({
+      mode: 'drop',
+      sessionId,
+      text,
+      treatment: tidy ? 'distill' : 'verbatim',
+    }).then((outcome) => {
       if (outcome.ok) return;
       setCaptureError(outcome.message ?? t('notes.capture.failed'));
     });
+  };
+
+  const onDrop = (event: React.DragEvent) => {
+    if (!carriesText(event)) return;
+    event.preventDefault();
+    dropDepth.current = 0;
+    setDropHover(false);
+    setDropTidy(false);
+    const text = event.dataTransfer.getData('text/plain').trim();
+    if (!text) return;
+    // The modifier at release is the authority, not the tracked state: the hint may
+    // lag a frame behind, and the user's last act is what they meant.
+    submitDrop(text, event.altKey);
   };
 
   if (!onConversationPage) return null;
@@ -369,6 +418,21 @@ export default function NotesFloatingBall() {
               label={t('notes.capture.instruction')}
               onClick={() => startCapture('instruction')}
             />
+            {/* Rendered only when there *is* a selection — a greyed entry is worse
+                than a missing one — and it is the only verbatim path a touch screen
+                has, since nothing drags a selection onto a ball there. */}
+            {selectionText && (
+              <MenuItem
+                icon={Quote}
+                label={t('notes.capture.dropSelection')}
+                hint={t('notes.capture.dropSelectionHint', { count: selectionText.length })}
+                onClick={() => {
+                  const text = selectionText;
+                  setSelectionText('');
+                  submitDrop(text, false);
+                }}
+              />
+            )}
             <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-800" />
             <MenuItem
               icon={Plus}
@@ -437,14 +501,29 @@ export default function NotesFloatingBall() {
           {dropHover && (
             <div
               role="status"
-              className="pointer-events-none absolute bottom-full right-0 mb-2 w-[210px] rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] leading-relaxed text-neutral-700 shadow-lg shadow-indigo-900/10 dark:border-indigo-400/30 dark:bg-neutral-900 dark:text-neutral-200"
+              className="pointer-events-none absolute bottom-full right-0 mb-2 w-[220px] rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] leading-relaxed text-neutral-700 shadow-lg shadow-indigo-900/10 dark:border-indigo-400/30 dark:bg-neutral-900 dark:text-neutral-200"
             >
-              {t('notes.capture.dropHint')}
+              <div>{t(dropTidy ? 'notes.capture.dropHintTidy' : 'notes.capture.dropHint')}</div>
+              {/* The modifier is invisible, so the hint is where it is taught: shown
+                  as the alternative until it is held, then it is what will happen. */}
+              {!dropTidy && (
+                <div className="mt-0.5 text-[10.5px] text-neutral-400 dark:text-neutral-500">
+                  {t('notes.capture.dropHintAlt')}
+                </div>
+              )}
             </div>
           )}
           <button
             type="button"
             {...placement.handlers}
+            onPointerDown={(event) => {
+              // Runs after `placement.handlers` installed its own listener: before
+              // the press collapses it, because by `click` the document selection is
+              // gone and this is the only moment the text is still there.
+              placement.handlers.onPointerDown(event);
+              const selected = window.getSelection()?.toString().trim() ?? '';
+              setSelectionText(selected.slice(0, 4000));
+            }}
             onClick={() => {
               // A drag ends with a click event too; only a real tap opens the menu.
               if (placement.wasDrag()) return;
@@ -462,7 +541,9 @@ export default function NotesFloatingBall() {
               // A drop hovering is a state, not motion: a ring says "this will land
               // here", and the hint above says what landing means.
               dropHover &&
-                'ring-4 ring-indigo-300 ring-offset-2 ring-offset-white dark:ring-offset-neutral-950',
+                (dropTidy
+                  ? 'ring-4 ring-amber-300 ring-offset-2 ring-offset-white dark:ring-offset-neutral-950'
+                  : 'ring-4 ring-indigo-300 ring-offset-2 ring-offset-white dark:ring-offset-neutral-950'),
             )}
             // The logo's indigo, flat — a gradient read as "decorative" and the
             // ball is an entry point, not an ornament. `touchAction: none` lets a

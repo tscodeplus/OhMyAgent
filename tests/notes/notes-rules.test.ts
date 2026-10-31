@@ -255,7 +255,7 @@ describe('window', () => {
 
   it('labels roles so the model treats the window as material', () => {
     const window = resolveWindow(history, { sessionId: 's', mode: 'turn' });
-    expect(renderWindowPrompt(window.messages)).toContain('user (m3):');
+    expect(renderWindowPrompt(window.messages)).toContain('[m3] user:');
   });
 });
 

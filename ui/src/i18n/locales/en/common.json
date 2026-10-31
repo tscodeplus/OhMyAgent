@@ -1627,7 +1627,11 @@
       "instructionPlaceholder": "Say what to keep, e.g. save the command you shared for checking port usage; keep the final recommendation and its reasoning; turn today’s chat into notes, not the earlier one",
       "instructionEmpty": "Write a brief first",
       "instructionSubmit": "Distil",
-      "dropHint": "Drop to keep the selected text as a draft"
+      "dropHint": "Release to keep the selected text as a draft",
+      "dropHintAlt": "Hold Alt: let the agent tidy it into a note",
+      "dropHintTidy": "Release and the agent will tidy this into a note",
+      "dropSelection": "Keep the selected text",
+      "dropSelectionHint": "{{count}} chars"
     },
     "editor": {
       "titlePlaceholder": "Title",
