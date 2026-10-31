@@ -54,7 +54,10 @@ const MAX_LIST_LIMIT = 200;
 const MAX_TITLE_CHARS = 60;
 const MAX_SUMMARY_CHARS = 120;
 const MAX_TAGS = 6;
+/** Dropped text is a selection, not an essay; a longer paste is cut, not refused. */
 const MAX_TEXT_CHARS = 4000;
+/** An instruction is a sentence about what to keep; anything longer is a note. */
+const MAX_INSTRUCTION_CHARS = 500;
 
 /** A field value longer than this is a body, pasted into the wrong input. */
 const MAX_FIELD_VALUE_CHARS = 400;
@@ -161,20 +164,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
 
   app.get('/api/notes/stats', async (_request, reply) => reply.send(service.stats()));
 
-  /**
-   * Starts the "keep just this sentence" dialog with the last thing the user said
-   * (§7.1). A `GET` because it reads: no capture run, no model call, no row.
-   *
-   * An unknown session and a session with no user message answer identically —
-   * empty text — because the dialog treats both the same way: an empty box the
-   * user can type into.
-   */
-  app.get('/api/notes/prefill', async (request, reply) => {
-    const sessionId = asString((request.query as Record<string, unknown>).sessionId);
-    if (!sessionId) return reply.status(400).send({ error: 'sessionId is required' });
-    return reply.send({ text: service.prefill(sessionId) ?? '' });
-  });
-
   // ── single note ───────────────────────────────────────────────────
 
   app.get('/api/notes/:id', async (request, reply) => {
@@ -229,10 +218,30 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     if (modeRaw === 'selection' && (!messageIds || messageIds.length === 0)) {
       return reply.status(400).send({ error: 'messageIds is required for mode=selection' });
     }
+    const treatmentRaw = asString(body.treatment);
+    if (treatmentRaw && treatmentRaw !== 'distill' && treatmentRaw !== 'verbatim') {
+      return reply
+        .status(400)
+        .send({ error: 'invalid treatment', allowed: ['distill', 'verbatim'] });
+    }
+    if (treatmentRaw === 'verbatim' && modeRaw !== 'text') {
+      // Verbatim is only meaningful for content the caller handed over: over a
+      // stored window it would copy the transcript, which is what `capture` exists
+      // not to do.
+      return reply.status(400).send({ error: 'treatment=verbatim requires mode=text' });
+    }
+    const instructionRaw = asString(body.instruction)?.trim();
+    if (instructionRaw && instructionRaw.length > MAX_INSTRUCTION_CHARS) {
+      return reply
+        .status(400)
+        .send({ error: `instruction exceeds ${MAX_INSTRUCTION_CHARS} characters` });
+    }
 
     const captureRequest: CaptureRequest = {
       sessionId,
       mode: modeRaw,
+      treatment: treatmentRaw === 'verbatim' ? 'verbatim' : treatmentRaw ? 'distill' : undefined,
+      instruction: instructionRaw || undefined,
       messageIds,
       text: text?.slice(0, MAX_TEXT_CHARS),
       kind: kindRaw ? (kindRaw as CaptureRequest['kind']) : undefined,

@@ -22,6 +22,12 @@ export const PROJECT_ID = 'proj-notes-1';
 export const MESSAGE_USER = 'msg-notes-user-1';
 export const MESSAGE_ASSISTANT = 'msg-notes-assistant-1';
 
+/** The exchange itself, exported so a recap test can quote it character for character. */
+export const USER_CONTENT =
+  'vitest 全量跑太慢，怎么只跑改过的？我现在每次改一个文件都要等七十秒，而且并行跑两个 session 的时候机器直接卡住，连编辑器都跟着卡。';
+export const ASSISTANT_CONTENT =
+  '改动少于 3 个文件时只跑那一个：\n\n```bash\nnpx vitest run tests/agent\n```\n\n并发跑会互相拖慢。';
+
 const NOW = 1_780_000_000_000;
 
 export const RUNTIME_CONFIG: NotesRuntimeConfig = {
@@ -62,33 +68,29 @@ export function openSeededDatabase(): Database.Database {
     `INSERT INTO messages (id, session_id, role, content, created_at)
      VALUES (?, ?, ?, ?, ?)`,
   );
-  insert.run(
-    MESSAGE_USER,
-    SESSION_ID,
-    'user',
-    'vitest 全量跑太慢，怎么只跑改过的？我现在每次改一个文件都要等七十秒，而且并行跑两个 session 的时候机器直接卡住，连编辑器都跟着卡。',
-    String(NOW),
-  );
-  insert.run(
-    MESSAGE_ASSISTANT,
-    SESSION_ID,
-    'assistant',
-    '改动少于 3 个文件时只跑那一个：\n\n```bash\nnpx vitest run tests/agent\n```\n\n并发跑会互相拖慢。',
-    String(NOW + 1000),
-  );
+  insert.run(MESSAGE_USER, SESSION_ID, 'user', USER_CONTENT, String(NOW));
+  insert.run(MESSAGE_ASSISTANT, SESSION_ID, 'assistant', ASSISTANT_CONTENT, String(NOW + 1000));
 
   return db;
 }
 
-export function cannedDistill(
-  notes: DistillOutcome['notes'],
-): (input: {
+/** One recorded distiller call, so a test can assert on what the model was told. */
+export interface DistillationCall {
   windowText: string;
   windowIds: string[];
   maxNotes: number;
+  instruction?: string;
   hint?: string;
-}) => Promise<DistillOutcome> {
-  return async () => ({ notes, rejected: [], rawChars: 0 });
+}
+
+export function cannedDistill(
+  notes: DistillOutcome['notes'],
+  calls: DistillationCall[] = [],
+): (input: DistillationCall) => Promise<DistillOutcome> {
+  return async (input) => {
+    calls.push(input);
+    return { notes, rejected: [], rawChars: 0 };
+  };
 }
 
 export interface TestServiceOptions {
@@ -99,8 +101,9 @@ export interface TestServiceOptions {
 export function createTestService(
   db: Database.Database,
   options: TestServiceOptions = {},
-): { service: NotesService; repository: NotesRepository } {
+): { service: NotesService; repository: NotesRepository; distillationCalls: DistillationCall[] } {
   const repository = new NotesRepository(db);
+  const distillationCalls: DistillationCall[] = [];
   const config: NotesRuntimeConfig = { ...RUNTIME_CONFIG, ...options.config };
   const pipeline = new CapturePipeline({
     repository,
@@ -114,7 +117,7 @@ export function createTestService(
       warn: () => {},
       error: () => {},
     } as never,
-    distill: cannedDistill(options.distillNotes ?? [defaultDistilled()]),
+    distill: cannedDistill(options.distillNotes ?? [defaultDistilled()], distillationCalls),
   });
   const service = createNotesService({
     repository,
@@ -127,7 +130,7 @@ export function createTestService(
       error: () => {},
     } as never,
   });
-  return { service, repository };
+  return { service, repository, distillationCalls };
 }
 
 /** The one draft the canned distiller returns, citing both messages of the fixture. */

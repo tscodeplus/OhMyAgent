@@ -68,30 +68,33 @@ export interface DistillOutcome {
  * The system prompt. Kept in one template literal so the validation rules and
  * the instructions are read side by side during review.
  */
-export const DISTILL_SYSTEM_PROMPT = `你是「笔记蒸馏器」。用户刚刚做完一段工作，想从中提炼出以后能复用的东西。
+export const DISTILL_SYSTEM_PROMPT = `You are the note distiller. The user has just finished a piece of work and wants whatever will be reusable later extracted from it.
 
-只产出「下次还会用到的知识」：
-- command   一条具体命令/参数/一行式，必须能原样复制执行
-- workflow  一套顺序步骤，含判断是否跑通的检查点
-- pitfall   踩过的坑：现象→根因→修法→如何避免
-- insight   原理性启发，一句话断言 + 为什么
-- opinion   值得收藏的判断，注明谁说的
-- reference 模型/API/配置怎么调、参数含义、限制
-- decision  决定 + 背景 + 放弃的选项
+Produce only the kind of knowledge that will be needed again:
+- command   one concrete command, flag set or one-liner, copy-pasteable as-is
+- workflow  an ordered set of steps, including the checkpoints that tell you it worked
+- pitfall   what went wrong: symptom -> root cause -> fix -> how to avoid it
+- insight   a principle worth knowing: one assertion plus why it holds
+- opinion   a judgement worth keeping, attributed to whoever said it
+- reference how a model, API or config is set up, what its parameters mean, its limits
+- decision  the decision, its background, and the options that were dropped
 
-硬规则：
-1. 不要复述对话，不要写「用户询问了…然后助手回答…」。
-2. 每条必须引用 evidence（材料里括号里的 id），不能引用材料以外的 id。
-3. 没有值得记的就返回 {"notes": []}——允许零条，绝不允许凑数。
-4. body ≤ 600 字，用 markdown；命令放在 \`\`\` 代码块里。
-5. 权威信息缺失时宁可不写，不要猜参数、猜版本、猜路径。
-6. 不要包含密钥、cookie、个人隐私；发现疑似密钥就不要写进 body。
-7. 模板是提示，不是表单。上面的 kind 与槽位只是帮你分类，填不满就只写 body；
-   一条笔记不像任何模板但确实值得留，就用 kind="other"，不要为了套模板而删掉内容。
-8. 只记结论，不记过程。材料里没有的结论，不要替用户补出来。
+Hard rules:
+1. Do not retell the conversation. Never write "the user asked X, then the assistant did Y".
+2. Every note must cite evidence: an id from the material, and only ids that are in the material.
+3. If nothing is worth keeping, return {"notes": []}. Zero notes is allowed; padding is not.
+4. Keep body under 600 characters, in markdown; put commands in \`\`\` code blocks.
+5. When authoritative detail is missing, leave it out. Do not guess a flag, a version or a path.
+6. Never include secrets, cookies or personal data. Anything that looks like a credential stays out of the body.
+7. The kinds and slots above are hints, not a form. If a slot has nothing to say, write the body alone.
+   A note that fits no template but is worth keeping gets kind="other" - never drop content to fit a template.
+8. Record conclusions, not the process. Do not add a conclusion the material does not support.
+9. When a "brief from the user" is present it outranks the rules above: it may relax rule 8 (for example
+   "turn today's chat into notes") or narrow the scope (for example "only that one command").
+   It never licenses inventing something the material does not contain.
 
-输出严格 JSON：
-{"notes":[{"kind":"command","title":"≤60字","summary":"≤120字一行","body":"markdown","fields":{"command":"…","when":"…"},"tags":["kebab-case"],"evidence":["<材料里的 id>"],"confidence":0.8}]}`;
+Output strict JSON:
+{"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}`;
 
 function clampText(value: unknown, max: number): string {
   if (typeof value !== 'string') return '';
@@ -277,7 +280,16 @@ export interface DistillOptions {
   maxNotes?: number;
   modelConfig: AuxModelConfig;
   logger: Logger;
-  /** Extra instruction appended to the user message (e.g. "the user asked for a pitfall"). */
+  /**
+   * The user's own request for this capture ("keep the command you shared",
+   * "turn today's chat into notes").
+   *
+   * It is not a hint, it is a requirement: the default rules below describe what
+   * is *usually* worth keeping, and a person who says what they want outranks that
+   * guess. Sent as its own block so the model can tell the two apart.
+   */
+  instruction?: string;
+  /** Narrow hint from the caller (e.g. "the user asked for a pitfall"). */
   hint?: string;
 }
 
@@ -291,12 +303,15 @@ export interface DistillOptions {
  */
 export async function distillNotes(options: DistillOptions): Promise<DistillOutcome> {
   const userPrompt = [
-    '材料（每条前面括号里是它的 id）：',
+    options.instruction
+      ? `Brief from the user for this capture (it outranks the defaults above; where they conflict, follow it):\n${options.instruction}`
+      : '',
+    'Material (each entry is preceded by its id in parentheses):',
     '',
     options.windowText,
     '',
-    options.hint ? `附加要求：${options.hint}` : '',
-    options.maxNotes ? `最多 ${options.maxNotes} 条。` : '',
+    options.hint ? `Extra requirement: ${options.hint}` : '',
+    options.maxNotes ? `At most ${options.maxNotes} notes.` : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -319,7 +334,7 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
   // the capture.
   const repaired = await auxLLMCall(options.modelConfig, {
     systemPrompt: DISTILL_SYSTEM_PROMPT,
-    userPrompt: `${userPrompt}\n\n上一次输出不是合法 JSON。只输出 JSON 对象，不要解释，不要代码块。`,
+    userPrompt: `${userPrompt}\n\nThe previous output was not valid JSON. Output the JSON object only - no explanation, no code fence.`,
     temperature: 0.1,
     maxTokens: 2000,
     logger: options.logger,

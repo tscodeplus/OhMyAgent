@@ -12,7 +12,15 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
-import { createTestService, defaultDistilled, openSeededDatabase, SESSION_ID } from './fixtures.js';
+import {
+  ASSISTANT_CONTENT,
+  MESSAGE_ASSISTANT,
+  SESSION_ID,
+  USER_CONTENT,
+  createTestService,
+  defaultDistilled,
+  openSeededDatabase,
+} from './fixtures.js';
 
 describe('notes capture', () => {
   let db: Database.Database;
@@ -242,12 +250,12 @@ describe('notes service', () => {
   });
 
   /**
-   * `text` mode is the one capture that never reaches the model (§4.2-2): the
-   * sentence is the note. If it were distilled, the review gate would be applied to
-   * the user's own words — and the sentence would come back paraphrased.
+   * `text` mode with `treatment: 'verbatim'` is the drop: the words are the note's
+   * body, and the model never sees them. It still lands `draft` — the user supplied
+   * the material, nobody has said it is a note.
    */
-  describe('text mode', () => {
-    it('stores the sentence verbatim and active, without a model call', async () => {
+  describe('verbatim capture', () => {
+    it('stores the dropped text verbatim as a user draft, without a model call', async () => {
       const { service } = createTestService(db, {
         // Any template, even a recap, would prove the distiller ran.
         distillNotes: [{ ...defaultDistilled(), title: 'DISTILLED' }],
@@ -259,13 +267,13 @@ describe('notes service', () => {
       const note = result.notes[0];
       expect(note.title).toBe('pnpm test 全量跑之前先单独跑改动的那个文件。');
       expect(note.body).toBe(text);
-      expect(note.status).toBe('active');
+      expect(note.status).toBe('draft');
       expect(note.origin).toBe('user');
       expect(note.kind).toBe('other');
       // Provenance is the conversation, not a message: the sentence may be a
       // tidy-up of what was said, so citing a message would claim a quote.
       expect(note.sources).toEqual([expect.objectContaining({ kind: 'session', id: SESSION_ID })]);
-      expect(service.list({ status: 'draft' }).total).toBe(0);
+      expect(service.list({ status: 'draft' }).total).toBe(1);
     });
 
     it('honours an explicit kind', async () => {
@@ -286,18 +294,130 @@ describe('notes service', () => {
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.code).toBe('empty_window');
-      expect(service.list({ status: 'active' }).total).toBe(0);
+      expect(service.list({ status: 'draft' }).total).toBe(0);
+    });
+  });
+
+  /**
+   * The other half of the same axis: dropped text the user asked the agent to tidy.
+   * Same material, different treatment — the model reads the text instead of the
+   * transcript, and provenance still resolves to the session, because `selection`
+   * is a synthetic row that no `messages` lookup can open.
+   */
+  describe('dropped text, distilled', () => {
+    it('distils the dropped text and sources it from the session', async () => {
+      const { service, distillationCalls } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), title: '端口占用排查' }],
+      });
+      const text = 'lsof -i :9191 然后 kill -9';
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'text',
+        treatment: 'distill',
+        text,
+      });
+
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+      expect(distillationCalls).toHaveLength(1);
+      expect(distillationCalls[0].windowText).toContain(text);
+      const note = result.notes[0];
+      expect(note.status).toBe('draft');
+      expect(note.origin).toBe('agent');
+      expect(note.sources).toEqual([expect.objectContaining({ kind: 'session', id: SESSION_ID })]);
     });
 
-    it('prefills from the last user message, ignoring assistant turns', async () => {
-      const { service } = createTestService(db);
-      const prefill = service.prefill(SESSION_ID);
-      expect(prefill).toContain('vitest 全量跑太慢');
+    it('offers only the dropped text as citable evidence', async () => {
+      // No stored message is in this window, so the only id the distiller may cite
+      // is the synthetic `selection` row. That is what keeps a dropped selection
+      // from claiming a quote nobody can open.
+      const { service, distillationCalls } = createTestService(db, {
+        distillNotes: [defaultDistilled()],
+      });
+      await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'text',
+        treatment: 'distill',
+        text: 'lsof -i :9191',
+      });
+      expect(distillationCalls[0].windowIds).toEqual(['selection']);
+    });
+  });
+
+  /**
+   * An instruction is the user saying what to keep. It outranks the defaults that
+   * exist to second-guess a free-running model: the window opens wider than one
+   * turn, and the recap gate stops dropping notes.
+   */
+  describe('instruction', () => {
+    it('widens a turn capture so an earlier turn is in the window', async () => {
+      // Three more exchanges after the fixture's: a `turn` window would keep only
+      // the last one, so the command the instruction asks for must come from a
+      // wider read.
+      const insert = db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      // Timestamps must be *after* the fixture's: these columns are epoch-ms digit
+      // strings and the window is resolved by `created_at`, so `2_000` would sort
+      // before the fixture and the "last turn" would still be the fixture's.
+      const after = 1_780_000_002_000;
+      for (let index = 0; index < 3; index += 1) {
+        insert.run(
+          `msg-late-u${index}`,
+          SESSION_ID,
+          'user',
+          `后面的追问 ${index}`,
+          String(after + index * 2),
+        );
+        insert.run(
+          `msg-late-a${index}`,
+          SESSION_ID,
+          'assistant',
+          `后面的回答 ${index}`,
+          String(after + 1 + index * 2),
+        );
+      }
+
+      const { service, distillationCalls } = createTestService(db, {
+        distillNotes: [defaultDistilled()],
+      });
+      const instruction = '把刚才分享的查看端口占用的命令存下来';
+      const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn', instruction });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+      expect(distillationCalls[0].instruction).toBe(instruction);
+      expect(distillationCalls[0].windowIds).toContain(MESSAGE_ASSISTANT);
+
+      // Without the instruction the same session reads one exchange and the
+      // earlier message is not offered to the model at all.
+      distillationCalls.length = 0;
+      await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+      expect(distillationCalls[0].windowIds).not.toContain(MESSAGE_ASSISTANT);
     });
 
-    it('has no prefill for an unknown session', () => {
-      const { service } = createTestService(db);
-      expect(service.prefill('nope')).toBeNull();
+    /**
+     * The recap gate is a 4-gram overlap against the window, so the fixture for it
+     * has to be genuinely copied text — the fixture's own exchange, not a sentence
+     * that merely sounds like a summary.
+     */
+    const windowEcho = `${USER_CONTENT}\n${ASSISTANT_CONTENT}`;
+
+    it('keeps a note that restates the conversation when the user asked for a summary', async () => {
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), title: '今天的聊天', body: windowEcho, tags: [] }],
+      });
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'turn',
+        instruction: '把今天的聊天整理成笔记',
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('still drops the same recap when nobody asked for one', async () => {
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), title: '今天的聊天', body: windowEcho, tags: [] }],
+      });
+      const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+      expect(result.ok).toBe(false);
     });
   });
 });

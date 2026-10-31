@@ -33,8 +33,31 @@ import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../utils/api';
 import type { Note, NoteListResult, NoteStatus } from './types';
 
-/** `turn` = the last exchange, `text` = the user's own sentence, `manual` = blank note. */
-export type CaptureMode = 'turn' | 'text' | 'manual';
+/**
+ * What a caller can ask the ball for.
+ *
+ * The UI names the *intent*, not the wire fields: `turn` and `instruction` both
+ * distil a window and differ in whether the user said what to keep, `drop` carries
+ * text the user dragged in, and `manual` creates no row until the editor has
+ * something to save. `NotesContext` maps each onto the REST request, so the
+ * mapping lives in exactly one place.
+ */
+export type CaptureMode = 'turn' | 'instruction' | 'drop' | 'manual';
+
+/** What to do with dropped text: keep the words, or let the agent tidy them. */
+export type CaptureTreatment = 'verbatim' | 'distill';
+
+export interface CaptureIntent {
+  mode: CaptureMode;
+  /** Absent only for `manual`. */
+  sessionId?: string | null;
+  /** `instruction` mode: the user's own requirement. */
+  instruction?: string;
+  /** `drop` mode: the selected text. */
+  text?: string;
+  /** `drop` mode. Defaults to `verbatim` — the user dragged words, not a request. */
+  treatment?: CaptureTreatment;
+}
 
 /** Filters the page sends; the server owns the actual query. */
 export interface NotesQuery {
@@ -78,14 +101,7 @@ interface NotesContextValue {
   capturing: boolean;
   /** The draft whose review card is on screen; `null` when nothing is pending. */
   draftCardId: string | null;
-  capture: (
-    mode: CaptureMode,
-    sessionId?: string | null,
-    /** `text` mode only: the sentence to keep, verbatim. */
-    text?: string,
-  ) => Promise<CaptureOutcome>;
-  /** The session's last user message, as a starting point for the sentence dialog. */
-  prefill: (sessionId: string) => Promise<string>;
+  capture: (intent: CaptureIntent) => Promise<CaptureOutcome>;
   /**
    * One note by id, for a permalink the current filter does not contain.
    *
@@ -203,12 +219,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const capture = useCallback(
-    async (
-      mode: CaptureMode,
-      sessionId?: string | null,
-      text?: string,
-    ): Promise<CaptureOutcome> => {
-      if (mode === 'manual') {
+    async (intent: CaptureIntent): Promise<CaptureOutcome> => {
+      if (intent.mode === 'manual') {
         // No row is created until the editor has something to save: a blank note
         // that the user closes would otherwise sit in the library forever asking
         // to be deleted (§7.3).
@@ -216,32 +228,23 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         return { ok: true, notes: [], redacted: 0 };
       }
 
-      const targetSession = sessionId ?? null;
-      if (!targetSession) {
+      const sessionId = intent.sessionId ?? null;
+      if (!sessionId) {
         return { ok: false, notes: [], redacted: 0, message: 'no session open' };
       }
 
-      if (mode === 'text') {
-        // The user's own sentence, not a distillation: authorship decides review,
-        // so this is `active` and the distiller never sees it (plan §4.2-2).
-        try {
-          const response = await apiRequest<{
-            captureId: string;
-            notes: Note[];
-            redacted: number;
-          }>('/api/notes/capture', {
-            method: 'POST',
-            body: JSON.stringify({ sessionId: targetSession, mode: 'text', text }),
-          });
-          setCaptured((prev) => [...response.notes, ...prev]);
-          if (response.notes[0]) navigate(`/notes/${response.notes[0].id}`);
-          return { ok: true, notes: response.notes, redacted: response.redacted };
-        } catch (err) {
-          return { ok: false, notes: [], redacted: 0, message: describeError(err) };
-        }
-      }
+      // `drop` is verbatim unless asked otherwise; everything else reads a window
+      // and always distils. Only a run the model touches shows the spinner — a
+      // verbatim save returns in milliseconds and a spinner would outlast it.
+      const treatment = intent.mode === 'drop' ? (intent.treatment ?? 'verbatim') : 'distill';
+      const body =
+        intent.mode === 'drop'
+          ? { sessionId, mode: 'text', treatment, text: intent.text ?? '' }
+          : intent.mode === 'instruction'
+            ? { sessionId, mode: 'recent', instruction: intent.instruction ?? '' }
+            : { sessionId, mode: 'turn' };
 
-      setCapturing(true);
+      if (treatment === 'distill') setCapturing(true);
       try {
         const response = await apiRequest<{
           captureId: string;
@@ -249,12 +252,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           redacted: number;
         }>('/api/notes/capture', {
           method: 'POST',
-          body: JSON.stringify({ sessionId: targetSession, mode: 'turn' }),
+          body: JSON.stringify(body),
           // One model call, but measured at 30–90s against a remote provider; the
           // 10s default would abandon a capture that is still running server-side.
-          timeoutMs: 150_000,
+          timeoutMs: treatment === 'distill' ? 150_000 : 30_000,
         });
         setCaptured((prev) => [...response.notes, ...prev]);
+        // Every capture ends in a review card rather than a jump to the page: the
+        // card is where a draft is judged, and a verbatim drop needs the same
+        // decision (approve it, edit it, or let the agent tidy it up).
         if (response.notes[0]) setDraftCardId(response.notes[0].id);
         return { ok: true, notes: response.notes, redacted: response.redacted };
       } catch (err) {
@@ -264,23 +270,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         void refresh();
         return { ok: false, notes: [], redacted: 0, message: describeError(err) };
       } finally {
-        setCapturing(false);
+        if (treatment === 'distill') setCapturing(false);
       }
     },
     [navigate, refresh],
   );
-
-  const prefill = useCallback(async (sessionId: string): Promise<string> => {
-    try {
-      const response = await apiRequest<{ text: string }>(
-        `/api/notes/prefill?sessionId=${encodeURIComponent(sessionId)}`,
-      );
-      return response.text;
-    } catch {
-      // A dialog that cannot prefill is still a dialog; the user types.
-      return '';
-    }
-  }, []);
 
   /** Write a server answer into the overlay; a row the list owns is its business. */
   const applyNote = useCallback((note: Note) => {
@@ -431,7 +425,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       capturing,
       draftCardId,
       capture,
-      prefill,
       fetchNote,
       saveDraft: approve,
       discardDraft,
@@ -457,7 +450,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       capturing,
       draftCardId,
       capture,
-      prefill,
       fetchNote,
       approve,
       discardDraft,

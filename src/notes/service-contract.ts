@@ -19,14 +19,46 @@ import type {
   NoteStatusReason,
 } from './types.js';
 
+/**
+ * What to do with the material, which is a different question from where it came
+ * from (`mode`).
+ *
+ *   - `distill` — the model reads it and proposes notes. The default for a
+ *     conversation window, and what the ballistic-capture modes always do.
+ *   - `verbatim` — store the text as the user handed it over. No model call, no
+ *     recap gate: dropping a selection on the ball means "keep these words", and
+ *     paraphrasing them is the one thing that would make it useless.
+ *
+ * Only `text` mode can be `verbatim`; every other mode reads stored rows the user
+ * did not author.
+ */
+export type CaptureTreatment = 'distill' | 'verbatim';
+
 /** Everything a capture can be asked for. `text`/`messageIds` per mode (§5.1). */
 export interface CaptureRequest {
   sessionId: string;
   mode: CaptureMode;
+  /**
+   * `distill` | `verbatim`. Defaults to `verbatim` for `text` mode and `distill`
+   * for every other mode, because `text` is the one mode where the material is
+   * already the user's own words.
+   */
+  treatment?: CaptureTreatment;
   /** `selection` mode. */
   messageIds?: string[];
-  /** `text` mode — verbatim user content; no message is read. */
+  /** `text` mode — the content itself; no message is read. */
   text?: string;
+  /**
+   * A free-form instruction from the user ("keep the command you shared", "turn
+   * today's chat into notes, not the earlier stuff").
+   *
+   * It is passed to the distiller as the requirement it must satisfy, and it
+   * also relaxes two defaults that exist to second-guess a free-running model:
+   * the recap gate stops dropping notes, and the window opens wider than one
+   * turn. Both are heuristics for "the model decided on its own"; an explicit
+   * instruction is not.
+   */
+  instruction?: string;
   /** Overrides the inferred kind (a `--kind pitfall` style hint). */
   kind?: NoteKind;
   /** Overrides the inferred scope. `session` can only arrive this way (§5.7). */
@@ -115,11 +147,6 @@ export interface NotesStats {
  */
 export interface NotesService {
   capture(request: CaptureRequest): Promise<CaptureResult>;
-  /**
-   * The session's last user message, so the "keep just this sentence" dialog opens
-   * with something in it. `null` when the session has no user message yet.
-   */
-  prefill(sessionId: string): string | null;
   createManual(input: ManualNoteInput): ManualNoteResult;
   list(query: NoteListQuery): NoteListResult;
   get(id: string): Note | undefined;

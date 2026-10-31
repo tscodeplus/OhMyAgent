@@ -7,10 +7,16 @@
  * and the model call is the one thing tests replace. `CaptureDeps.distill` is that
  * seam.
  *
- * `text` mode branches off early and is the exception: the user's own sentence is
- * stored verbatim, `active` on arrival, and the model never sees it. Authorship
- * decides review (§4.2-2) — distilling "remember this sentence" would turn a
- * command into a suggestion, and a sentence the user typed is not a candidate.
+ * `treatment` is a second axis, and `text` mode is where it earns its keep: text
+ * dropped on the floating ball arrives `verbatim` (no model, no recap gate — the
+ * user said "keep these words", which is the opposite of paraphrasing them) while
+ * the same text with "let the agent tidy this up" asks for `distill`. Everything
+ * else reads stored messages and is always distilled.
+ *
+ * `text` mode does not skip the review gate. Authorship decides *who* reviews, not
+ * *whether* a note exists yet: a dropped selection has no title and no kind, so it
+ * lands `draft` with `origin: 'user'` — the human supplied the words, nobody has
+ * said they are a note.
  *
  * Ordering matters and is enforced here:
  *
@@ -117,17 +123,29 @@ export class CapturePipeline {
       return { ok: false, code: 'no_session', message: `unknown session ${request.sessionId}` };
     }
 
-    if (request.mode === 'text') return this.captureVerbatim(request, session);
+    const treatment = this.treatmentOf(request);
+    if (treatment === 'verbatim') return this.captureVerbatim(request, session);
+
+    /**
+     * An instruction is a request about the conversation, not about the last
+     * exchange: "把刚才分享的命令存下来" and "把今天的聊天整理成笔记" are both
+     * wider than one turn. Widening only when the instruction says so keeps the
+     * default capture cheap — one exchange is what the button promises.
+     */
+    const instructed = (request.instruction ?? '').trim().length > 0;
+    const mode = instructed && request.mode === 'turn' ? 'recent' : request.mode;
+    const turns =
+      request.turns ?? (instructed ? Math.max(config.windowTurns, 5) : config.windowTurns);
 
     // How much history to load depends on the mode: `recent` needs turns × 2 plus
     // tool rows, `turn` needs the tail, `selection` needs ids only.
-    const historyLimit = request.mode === 'recent' ? Math.min((request.turns ?? 5) * 8, 200) : 60;
+    const historyLimit = mode === 'recent' ? Math.min(turns * 8, 200) : 60;
     const history = this.readMessages(session.id, historyLimit);
 
     const window: ResolvedWindow = resolveWindow(history, {
       sessionId: session.id,
-      mode: request.mode,
-      turns: request.turns ?? config.windowTurns,
+      mode,
+      turns,
       messageIds: request.messageIds,
       text: request.text,
       includeTools: config.includeTools,
@@ -137,7 +155,7 @@ export class CapturePipeline {
     const captureId = this.deps.repository.createCaptureRun({
       sessionId: session.id,
       scope: request.scope ?? 'user',
-      mode: request.mode,
+      mode,
       messageIds: window.messageIds,
       tokenEst: window.tokenEst,
       status: 'ok',
@@ -161,14 +179,26 @@ export class CapturePipeline {
       ? redactSecrets(rawWindowText)
       : { text: rawWindowText, count: 0 };
 
-    const hint = request.kind ? `如果确实是这个类别，用 kind="${request.kind}"。` : undefined;
+    /**
+     * Citable evidence is every message *in the window*, which for `text` mode is
+     * the synthetic `selection` row. `window.messageIds` stays the real-message
+     * ids used for the capture ledger, so a distilled selection can cite its own
+     * material without inventing a stored message (see the sources mapping below).
+     */
+    const citableIds = window.messages.map((message) => message.id);
+    const instruction = (request.instruction ?? '').trim() || undefined;
+    const kindHint = request.kind
+      ? `If it really is that category, use kind="${request.kind}".`
+      : undefined;
+
     let outcome: DistillOutcome;
     try {
       outcome = await this.runDistill({
         windowText: redacted.text,
-        windowIds: window.messageIds,
+        windowIds: citableIds,
         maxNotes: config.maxNotesPerCapture,
-        hint,
+        instruction,
+        hint: kindHint,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -209,13 +239,23 @@ export class CapturePipeline {
         tags: candidate.tags,
         windowText: redacted.text,
       });
+      /**
+       * The gate exists to catch the model summarising the conversation when
+       * nobody asked for a summary — "把今天的聊天整理成笔记" *is* that request, so
+       * an explicit instruction downgrades the gate to a logged signal. The draft
+       * still needs approval, which is the human check the gate was standing in for.
+       */
       if (verdict.recap) {
-        droppedRecaps += 1;
         this.deps.logger.debug(
-          { score: verdict.score, title: candidate.title },
-          'Note draft dropped as a recap of the window',
+          { score: verdict.score, title: candidate.title, instructed },
+          verdict.recap && !instructed
+            ? 'Note draft dropped as a recap of the window'
+            : 'Note draft restates the window, kept because the user asked for it',
         );
-        continue;
+        if (!instructed) {
+          droppedRecaps += 1;
+          continue;
+        }
       }
 
       const created = this.deps.repository.create({
@@ -225,7 +265,7 @@ export class CapturePipeline {
         body: candidate.body,
         fields: candidate.fields,
         tags: candidate.tags,
-        // The hard gate of the layer: agent-distilled content is never active.
+        // The hard gate of the layer: model-distilled content is never active.
         status: 'draft',
         origin: 'agent',
         scope: finalScope.scope,
@@ -235,7 +275,7 @@ export class CapturePipeline {
           session.channel && session.channel !== 'unknown' ? asChannel(session.channel) : null,
         confidence: candidate.confidence,
         captureId,
-        sources: candidate.evidence.map((id) => ({ kind: 'message' as const, id })),
+        sources: this.sourcesFor(request, candidate.evidence, session),
         actor: request.actor ?? 'agent',
       });
 
@@ -263,7 +303,7 @@ export class CapturePipeline {
             session.channel && session.channel !== 'unknown' ? asChannel(session.channel) : null,
           confidence: candidate.confidence,
           captureId,
-          sources: candidate.evidence.map((id) => ({ kind: 'message' as const, id })),
+          sources: this.sourcesFor(request, candidate.evidence, session),
           actor: request.actor ?? 'agent',
         });
         if (fallback.ok) drafts.push(fallback.note);
@@ -313,11 +353,51 @@ export class CapturePipeline {
   }
 
   /**
-   * `text` mode: store the user's sentence as-is.
+   * `distill` | `verbatim`, defaulted by mode.
    *
-   * No model call, no draft, no recap gate — all three exist to judge content the
-   * agent produced. The title falls back to the sentence's first line, because the
-   * caller is a dialog with one input, not a form with two.
+   * The default is the interesting part: `text` is the only mode whose material
+   * the user wrote, so "just keep it" is the safe assumption and distilling is the
+   * thing you have to ask for. A window of stored messages has no such reading —
+   * nobody wants a note that is a copy of the transcript.
+   */
+  private treatmentOf(request: CaptureRequest): 'distill' | 'verbatim' {
+    if (request.treatment) {
+      // `verbatim` only means something for text; asking for it over a stored
+      // window would store a transcript, which is the failure the layer exists to
+      // prevent. Coerced rather than rejected: the caller is our own UI.
+      if (request.treatment === 'verbatim' && request.mode === 'text') return 'verbatim';
+      return 'distill';
+    }
+    return request.mode === 'text' ? 'verbatim' : 'distill';
+  }
+
+  /**
+   * Where a distilled note's provenance points.
+   *
+   * A note distilled from dropped text cites the synthetic `selection` row, which
+   * is not a stored message — recording it as `{kind:'message'}` would claim a
+   * quote nobody can open. The session it was captured in is the honest answer,
+   * and it is exactly what a verbatim capture records too.
+   */
+  private sourcesFor(
+    request: CaptureRequest,
+    evidence: string[],
+    session: CaptureSession,
+  ): Array<{ kind: 'message' | 'session'; id: string }> {
+    if (request.mode === 'text') return [{ kind: 'session', id: session.id }];
+    return evidence.map((id) => ({ kind: 'message' as const, id }));
+  }
+
+  /**
+   * `verbatim`: store the text exactly as it arrived.
+   *
+   * No model call and no recap gate — there is nothing to judge, the text is what
+   * the user chose. It still lands `draft`, because authorship decides *who*
+   * reviews, not whether a pile of words is already a note: a dropped selection
+   * has no title and no kind, so `origin: 'user'` records who supplied it and
+   * `draft` records that nobody has said it is worth keeping yet. The redactor
+   * stays out of the way too, for the same reason it always did here — hiding a key
+   * the user deliberately pasted is editing their note without saying so.
    */
   private captureVerbatim(request: CaptureRequest, session: CaptureSession): CaptureResult {
     const text = (request.text ?? '').trim();
@@ -341,8 +421,6 @@ export class CapturePipeline {
     }
 
     const scope = this.resolveScope(request, session);
-    // The user wrote it, so the redactor stays out of the way: hiding a key they
-    // deliberately pasted would be editing their note without saying so.
     const body = text.slice(0, TEXT_NOTE_MAX_CHARS);
     const title = titleFromText(body);
     const created = this.deps.repository.create({
@@ -352,17 +430,17 @@ export class CapturePipeline {
       body,
       fields: [],
       tags: [],
-      // Authorship decides review (§4.2-2): the human typing it is the review.
-      status: 'active',
+      // Raw material, not a note yet: see the method comment.
+      status: 'draft',
       origin: 'user',
       scope: scope.scope,
       scopeKey: scope.scopeKey,
       sessionId: session.id,
       channel: session.channel && session.channel !== 'unknown' ? asChannel(session.channel) : null,
       captureId,
-      // Provenance is the conversation it was said in, not a message: the sentence
-      // may be a tidy-up of what the user meant, so citing a message id would
-      // claim a quote that is not there.
+      // Provenance is the conversation it was dropped in, not a message: the text
+      // may be a tidy-up of what the user meant, so citing a message id would claim
+      // a quote that is not there.
       sources: [{ kind: 'session', id: session.id }],
       actor: request.actor ?? 'user',
     });
@@ -384,26 +462,11 @@ export class CapturePipeline {
     return { ok: true, captureId, notes: [created.note], redacted: 0, droppedRecaps: 0 };
   }
 
-  /**
-   * The last thing the user said in this session, for the "just keep this sentence"
-   * dialog to start from. Returns null when the session has no user message yet — an
-   * empty dialog is honest, a fabricated prefill is not.
-   */
-  prefillText(sessionId: string): string | null {
-    const rows = this.readMessages(sessionId, 40);
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const message = rows[index];
-      if (message.role !== 'user') continue;
-      const text = message.content.trim();
-      if (text) return text.slice(0, TEXT_NOTE_MAX_CHARS);
-    }
-    return null;
-  }
-
   private runDistill(input: {
     windowText: string;
     windowIds: string[];
     maxNotes: number;
+    instruction?: string;
     hint?: string;
   }): Promise<DistillOutcome> {
     if (this.deps.distill) return this.deps.distill(input);

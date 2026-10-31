@@ -1611,21 +1611,23 @@
       "save": "批准",
       "edit": "编辑",
       "regenerate": "换一版",
-      "discard": "删除"
+      "discard": "删除",
+      "tidy": "让 AI 整理"
     },
     "capture": {
       "title": "记一条笔记",
-      "turn": "本轮对话",
-      "quote": "只记我这句话",
+      "turn": "基于这个会话整理笔记",
       "manual": "手写笔记",
       "drafts": "草稿箱",
       "failed": "这次没提炼出能用的内容，要不要手写一条？",
       "noSession": "这里没有打开的会话，先去对话里再记",
       "working": "正在整理…",
-      "quoteTitle": "记下这句话",
-      "quotePlaceholder": "写下要记的原话，会原样保存",
-      "quoteEmpty": "先写一句话",
-      "keep": "记下"
+      "instruction": "按照要求整理笔记",
+      "instructionTitle": "按照要求整理笔记",
+      "instructionPlaceholder": "写清要留下什么，例如：把刚才分享的查看端口占用的命令存下来、把最终建议连同理由摘成一条、把今天的聊天整理成笔记但不含之前的内容",
+      "instructionEmpty": "先写一句要求",
+      "instructionSubmit": "开始整理",
+      "dropHint": "松手即可把选中的文字原样存成草稿"
     },
     "editor": {
       "titlePlaceholder": "标题",

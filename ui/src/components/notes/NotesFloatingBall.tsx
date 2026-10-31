@@ -14,6 +14,14 @@
  * before and after a tap reads as "nothing happened". So while `capturing` the icon
  * becomes a spinner, a ring pulses outward, and a label says what is going on.
  *
+ * The second entry point is the drop. Selecting words in a conversation and
+ * dragging them onto the ball is "keep these words", so the drop handler stores
+ * them verbatim and opens the same review card a capture does — the card is where
+ * a pile of words becomes a note (title, kind, and, if the user wants it, an agent
+ * rewrite). Dropping is a direct manipulation, so the hover state is a static ring
+ * and a one-line hint rather than an animation: the ball only moves when work is
+ * actually in flight.
+ *
  * It only appears where capturing makes sense — a chat or an IM transcript
  * (`/p/*`, `/inbox/*`, which is also what the archive opens). On the notes page
  * itself the page *is* the tool, and on settings/dashboard a capture button would
@@ -29,9 +37,9 @@ import {
   Loader2,
   NotebookPen,
   Plus,
-  Quote,
   RefreshCw,
   Sparkles,
+  Wand2,
   X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -55,16 +63,18 @@ export default function NotesFloatingBall() {
     capturing,
     draftCardId,
     capture,
-    prefill,
     saveDraft,
     discardDraft,
     dismissDraftCard,
   } = useNotes();
 
   const [menuOpen, setMenuOpen] = useState(false);
-  /** The "keep this sentence" dialog; `null` when closed. */
-  const [sentence, setSentence] = useState<string | null>(null);
-  const [sentenceError, setSentenceError] = useState<string | null>(null);
+  /** The "tidy this up my way" dialog; `null` when closed. */
+  const [instruction, setInstruction] = useState<string | null>(null);
+  const [instructionError, setInstructionError] = useState<string | null>(null);
+  /** True while a text selection is hovering the ball as a drop target. */
+  const [dropHover, setDropHover] = useState(false);
+  const dropDepth = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -145,25 +155,24 @@ export default function NotesFloatingBall() {
   }, [captureError]);
   const draft = drafts.find((item) => item.id === draftCardId) ?? null;
 
-  const startCapture = (mode: 'turn' | 'text' | 'manual') => {
+  const startCapture = (mode: 'turn' | 'instruction' | 'manual') => {
     closeMenu();
     setCaptureError(null);
     if (mode !== 'manual' && !sessionId) {
-      // "Write it myself" needs no session; the other two read a conversation.
+      // "Write it myself" needs no session; the others read a conversation.
       setCaptureError(t('notes.capture.noSession'));
       return;
     }
 
-    if (mode === 'text' && sessionId) {
-      // The server keeps a sentence verbatim (no model, no draft), so the dialog is
-      // the whole feature: prefill it with what the user just said and let them
-      // trim it, because "只记我这句话" is usually "keep the last thing I wrote".
-      setSentence(null);
-      setSentenceError(null);
-      void prefill(sessionId).then((text) => setSentence(text));
+    if (mode === 'instruction') {
+      // The dialog *is* the feature: an empty instruction means "just use the
+      // default", which is the other menu item, so it opens empty rather than
+      // prefilled with a guess about what the user wants.
+      setInstruction('');
+      setInstructionError(null);
       return;
     }
-    void capture(mode, sessionId).then((outcome) => {
+    void capture({ mode, sessionId }).then((outcome) => {
       if (outcome.ok) return;
       // A capture that produced nothing is not an error: "this turn had nothing
       // worth keeping" is a normal answer, and 422 is how the server says it.
@@ -171,19 +180,47 @@ export default function NotesFloatingBall() {
     });
   };
 
-  const submitSentence = () => {
-    const text = (sentence ?? '').trim();
+  const submitInstruction = () => {
+    const text = (instruction ?? '').trim();
     if (!text) {
-      setSentenceError(t('notes.capture.quoteEmpty'));
+      setInstructionError(t('notes.capture.instructionEmpty'));
       return;
     }
-    void capture('text', sessionId, text).then((outcome) => {
+    void capture({ mode: 'instruction', sessionId, instruction: text }).then((outcome) => {
       if (outcome.ok) {
-        setSentence(null);
-        setSentenceError(null);
+        setInstruction(null);
+        setInstructionError(null);
         return;
       }
-      setSentenceError(outcome.message ?? t('notes.capture.failed'));
+      setInstructionError(outcome.message ?? t('notes.capture.failed'));
+    });
+  };
+
+  /**
+   * A dropped selection is stored verbatim: the user chose those words, and a
+   * model paraphrasing them is the one thing that would make the note useless.
+   * `text/plain` is the only type worth reading — dragging a file or an image onto
+   * the ball is not a note, so it falls through to the browser.
+   */
+  const carriesText = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer?.types ?? []).includes('text/plain');
+
+  const onDrop = (event: React.DragEvent) => {
+    if (!carriesText(event)) return;
+    event.preventDefault();
+    dropDepth.current = 0;
+    setDropHover(false);
+    const text = event.dataTransfer.getData('text/plain').trim();
+    if (!text) return;
+    if (!sessionId) {
+      setCaptureError(t('notes.capture.noSession'));
+      return;
+    }
+    closeMenu();
+    setCaptureError(null);
+    void capture({ mode: 'drop', sessionId, text, treatment: 'verbatim' }).then((outcome) => {
+      if (outcome.ok) return;
+      setCaptureError(outcome.message ?? t('notes.capture.failed'));
     });
   };
 
@@ -217,20 +254,20 @@ export default function NotesFloatingBall() {
           </div>
         )}
 
-        {sentence !== null && (
+        {instruction !== null && (
           <div
             className="pointer-events-auto w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900"
             role="dialog"
-            aria-label={t('notes.capture.quoteTitle')}
+            aria-label={t('notes.capture.instructionTitle')}
           >
             <div className="flex items-center gap-1.5 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800">
-              <Quote className="h-3.5 w-3.5 text-neutral-400" />
+              <Sparkles className="h-3.5 w-3.5 text-neutral-400" />
               <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                {t('notes.capture.quoteTitle')}
+                {t('notes.capture.instructionTitle')}
               </span>
               <button
                 type="button"
-                onClick={() => setSentence(null)}
+                onClick={() => setInstruction(null)}
                 aria-label={t('notes.close')}
                 className="ml-auto rounded p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               >
@@ -240,32 +277,34 @@ export default function NotesFloatingBall() {
             <div className="px-3 py-2">
               <textarea
                 autoFocus
-                value={sentence}
-                onChange={(event) => setSentence(event.target.value)}
+                value={instruction}
+                onChange={(event) => setInstruction(event.target.value)}
                 onKeyDown={(event) => {
-                  // Enter keeps; Shift+Enter is a new line — the same rule as the
+                  // Enter asks; Shift+Enter is a new line — the same rule as the
                   // chat composer beside it.
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault();
-                    submitSentence();
+                    submitInstruction();
                   }
                 }}
                 rows={3}
-                placeholder={t('notes.capture.quotePlaceholder')}
+                placeholder={t('notes.capture.instructionPlaceholder')}
                 className="w-full resize-y rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-[12.5px] leading-relaxed text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
               />
-              {sentenceError && (
-                <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{sentenceError}</p>
+              {instructionError && (
+                <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                  {instructionError}
+                </p>
               )}
             </div>
             <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
-              <Button size="sm" onClick={submitSentence} className="h-7">
-                {t('notes.capture.keep')}
+              <Button size="sm" onClick={submitInstruction} className="h-7">
+                {t('notes.capture.instructionSubmit')}
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setSentence(null)}
+                onClick={() => setInstruction(null)}
                 className="h-7 ml-auto"
               >
                 {t('notes.cancel')}
@@ -285,10 +324,23 @@ export default function NotesFloatingBall() {
               navigate(`/notes/${draft.id}?edit=1`);
             }}
             onRegenerate={() => {
-              // A second pass over the same window, then retire the first draft:
+              // The same material, distilled again, then the first draft retires:
               // the server has no "rewrite this draft" call, and a re-distill is
               // exactly what the button promises.
-              void capture('turn', sessionId).then((outcome) => {
+              //
+              // For a draft the *user* supplied it is the material that differs,
+              // not the window: dropped words are tidy-up-able, so the agent sees
+              // the draft's own body instead of another reading of the transcript.
+              const verbatim = draft.origin === 'user';
+              const intent = verbatim
+                ? {
+                    mode: 'drop' as const,
+                    sessionId,
+                    text: draft.body,
+                    treatment: 'distill' as const,
+                  }
+                : { mode: 'turn' as const, sessionId };
+              void capture(intent).then((outcome) => {
                 if (outcome.ok) void discardDraft(draft.id);
                 else setCaptureError(outcome.message ?? t('notes.capture.failed'));
               });
@@ -313,9 +365,9 @@ export default function NotesFloatingBall() {
               onClick={() => startCapture('turn')}
             />
             <MenuItem
-              icon={Quote}
-              label={t('notes.capture.quote')}
-              onClick={() => startCapture('text')}
+              icon={Wand2}
+              label={t('notes.capture.instruction')}
+              onClick={() => startCapture('instruction')}
             />
             <div className="my-1 h-px bg-neutral-200 dark:bg-neutral-800" />
             <MenuItem
@@ -359,7 +411,37 @@ export default function NotesFloatingBall() {
           </div>
         )}
 
-        <div className="pointer-events-auto relative">
+        <div
+          className="pointer-events-auto relative"
+          // The drop target is the ball's own box, and it is entered/left by child
+          // nodes constantly, so depth is counted rather than toggled: a naive
+          // `dragleave` clears the highlight while the pointer is still inside.
+          onDragEnter={(event) => {
+            if (!carriesText(event)) return;
+            dropDepth.current += 1;
+            setDropHover(true);
+          }}
+          onDragOver={(event) => {
+            if (!carriesText(event)) return;
+            // Without this the drop never fires: the default action for text is
+            // the browser's own, and this box is not a text field.
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragLeave={() => {
+            dropDepth.current = Math.max(0, dropDepth.current - 1);
+            if (dropDepth.current === 0) setDropHover(false);
+          }}
+          onDrop={onDrop}
+        >
+          {dropHover && (
+            <div
+              role="status"
+              className="pointer-events-none absolute bottom-full right-0 mb-2 w-[210px] rounded-xl border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] leading-relaxed text-neutral-700 shadow-lg shadow-indigo-900/10 dark:border-indigo-400/30 dark:bg-neutral-900 dark:text-neutral-200"
+            >
+              {t('notes.capture.dropHint')}
+            </div>
+          )}
           <button
             type="button"
             {...placement.handlers}
@@ -377,6 +459,10 @@ export default function NotesFloatingBall() {
               // Only a capture animates; at rest the ball is still (see the header).
               capturing ? 'cursor-wait' : 'hover:opacity-90',
               capturing ? '' : placement.dragging ? 'cursor-grabbing' : 'cursor-grab',
+              // A drop hovering is a state, not motion: a ring says "this will land
+              // here", and the hint above says what landing means.
+              dropHover &&
+                'ring-4 ring-indigo-300 ring-offset-2 ring-offset-white dark:ring-offset-neutral-950',
             )}
             // The logo's indigo, flat — a gradient read as "decorative" and the
             // ball is an entry point, not an ornament. `touchAction: none` lets a
@@ -535,7 +621,9 @@ function DraftCard({
         </Button>
         <Button size="sm" variant="ghost" onClick={onRegenerate} className="h-7">
           <RefreshCw className="h-3 w-3" />
-          {t('notes.draftCard.regenerate')}
+          {/* A draft distilled from the window is re-read; a draft the user dragged
+              in is raw material, so the honest label is "tidy this up". */}
+          {draft.origin === 'user' ? t('notes.draftCard.tidy') : t('notes.draftCard.regenerate')}
         </Button>
         <button
           type="button"

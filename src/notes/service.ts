@@ -58,10 +58,6 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       return capture.capture(request);
     },
 
-    prefill(sessionId: string): string | null {
-      return capture.prefillText(sessionId);
-    },
-
     createManual(input: ManualNoteInput): ManualNoteResult {
       const tags = normalizeTags(input.tags);
       const created = repository.create({

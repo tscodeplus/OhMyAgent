@@ -1611,21 +1611,23 @@
       "save": "Approve",
       "edit": "Edit",
       "regenerate": "Another take",
-      "discard": "Delete"
+      "discard": "Delete",
+      "tidy": "Let the agent tidy it"
     },
     "capture": {
       "title": "Capture a note",
-      "turn": "This turn",
-      "quote": "Just what I said",
+      "turn": "Distil notes from this conversation",
       "manual": "Write it myself",
       "drafts": "Drafts",
       "failed": "Nothing usable came out of that — write one by hand?",
       "noSession": "No conversation is open here — capture from a chat",
       "working": "Distilling…",
-      "quoteTitle": "Keep this sentence",
-      "quotePlaceholder": "Type the sentence to keep; it is saved as-is",
-      "quoteEmpty": "Write the sentence first",
-      "keep": "Keep"
+      "instruction": "Distil notes from your own brief",
+      "instructionTitle": "Notes from your own brief",
+      "instructionPlaceholder": "Say what to keep, e.g. save the command you shared for checking port usage; keep the final recommendation and its reasoning; turn today’s chat into notes, not the earlier one",
+      "instructionEmpty": "Write a brief first",
+      "instructionSubmit": "Distil",
+      "dropHint": "Drop to keep the selected text as a draft"
     },
     "editor": {
       "titlePlaceholder": "Title",

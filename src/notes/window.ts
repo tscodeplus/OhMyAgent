@@ -44,7 +44,7 @@ export interface ResolvedWindow {
   messages: WindowMessage[];
   /** Ids the distiller is allowed to cite. */
   messageIds: string[];
-  /** Last user message — what "只记我这句话" captures. */
+  /** Last user message — the tail of a `turn` window. */
   lastUserMessage: WindowMessage | null;
   tokenEst: number;
   /** Set when the window could not be built at all (`invalid` capture run). */
@@ -293,7 +293,7 @@ function lastUserOf(ordered: readonly Message[]): WindowMessage | null {
 /**
  * The window as prompt text.
  *
- * Roles are spelled out (`用户` / `助手`) instead of emitted as a chat history:
+ * Roles are spelled out (`user` / `assistant`) instead of emitted as a chat history:
  * the model must see this as *material to distil*, not as a conversation to
  * continue, and a transcript-shaped prompt is exactly what produces the recap
  * failure mode the 4-gram gate then has to catch.
@@ -302,7 +302,7 @@ export function renderWindowPrompt(messages: readonly WindowMessage[]): string {
   return messages
     .map(
       (message) =>
-        `${message.role === 'user' ? '用户' : '助手'} (${message.id})：\n${message.content}`,
+        `${message.role === 'user' ? 'user' : 'assistant'} (${message.id}):\n${message.content}`,
     )
     .join('\n\n---\n\n');
 }

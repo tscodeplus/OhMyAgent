@@ -202,30 +202,60 @@ describe('notes routes', () => {
     expect(service.get(id)?.viewCount).toBe(1);
   });
 
-  it('prefills the sentence dialog from the session, and never 404s on empty', async () => {
-    const ok = await app.inject({ url: '/api/notes/prefill?sessionId=' + SESSION_ID });
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json().text).toContain('vitest 全量跑太慢');
-
-    // Unknown session: an empty box, not an error — the dialog is the same either way.
-    const missing = await app.inject({ url: '/api/notes/prefill?sessionId=nope' });
-    expect(missing.statusCode).toBe(200);
-    expect(missing.json().text).toBe('');
-
-    const noParam = await app.inject({ url: '/api/notes/prefill' });
-    expect(noParam.statusCode).toBe(400);
-  });
-
-  it('keeps a sentence verbatim through the capture route', async () => {
+  it('keeps dropped text verbatim through the capture route', async () => {
     const response = await app.inject({
       method: 'POST',
       url: '/api/notes/capture',
-      payload: { sessionId: SESSION_ID, mode: 'text', text: '记住：先跑单文件。' },
+      payload: {
+        sessionId: SESSION_ID,
+        mode: 'text',
+        treatment: 'verbatim',
+        text: '记住：先跑单文件。',
+      },
     });
     expect(response.statusCode).toBe(200);
     const note = response.json().notes[0];
     expect(note.body).toBe('记住：先跑单文件。');
-    expect(note.status).toBe('active');
+    // Raw material: the user supplied the words, nobody approved them as a note.
+    expect(note.status).toBe('draft');
     expect(note.origin).toBe('user');
+  });
+
+  it('rejects verbatim over a stored window, and unknown treatments', async () => {
+    const overWindow = await app.inject({
+      method: 'POST',
+      url: '/api/notes/capture',
+      payload: { sessionId: SESSION_ID, mode: 'turn', treatment: 'verbatim' },
+    });
+    // Copying the transcript is the failure the layer exists to prevent.
+    expect(overWindow.statusCode).toBe(400);
+
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/api/notes/capture',
+      payload: { sessionId: SESSION_ID, mode: 'text', treatment: 'rewrite', text: 'x' },
+    });
+    expect(unknown.statusCode).toBe(400);
+  });
+
+  it('accepts an instruction and refuses an over-long one', async () => {
+    const ok = await app.inject({
+      method: 'POST',
+      url: '/api/notes/capture',
+      payload: { sessionId: SESSION_ID, mode: 'recent', instruction: '只要那条命令' },
+    });
+    expect([200, 422]).toContain(ok.statusCode);
+
+    const tooLong = await app.inject({
+      method: 'POST',
+      url: '/api/notes/capture',
+      payload: { sessionId: SESSION_ID, mode: 'recent', instruction: 'x'.repeat(501) },
+    });
+    expect(tooLong.statusCode).toBe(400);
+  });
+
+  it('no longer serves the removed sentence-dialog prefill', async () => {
+    const response = await app.inject({ url: '/api/notes/prefill?sessionId=' + SESSION_ID });
+    expect(response.statusCode).toBe(404);
   });
 });
