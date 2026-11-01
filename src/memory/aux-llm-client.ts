@@ -20,6 +20,8 @@ import {
   observeAuxUsage,
   resolveThinkingMode,
   sendsThinkingField,
+  thinkingOffFields,
+  wasTruncated,
   type AuxThinkingMode,
 } from './aux-call-options.js';
 
@@ -135,14 +137,19 @@ export function clearAuxClientPool(): void {
  */
 const thinkingWarned = new Set<string>();
 
-function warnThinkingUnverifiedOnce(logger: Logger, modelRef: string, known: boolean): void {
+function warnThinkingUnverifiedOnce(
+  logger: Logger,
+  modelRef: string,
+  known: boolean,
+  field: string,
+): void {
   if (thinkingWarned.has(modelRef)) return;
   thinkingWarned.add(modelRef);
   logger.warn(
-    { modelRef, known },
+    { modelRef, known, field },
     known
-      ? 'Aux model has no switchable thinking level according to the catalog; thinking=disabled is sent anyway, so the budget may still be spent on reasoning'
-      : 'Aux model is not in the model catalog; thinking=disabled is sent anyway, but if the gateway does not understand the field it can answer by thinking harder',
+      ? `Aux model has no switchable thinking level according to the catalog; thinking=off is still sent as "${field}", so the budget may still be spent on reasoning`
+      : `Aux model is not in the model catalog; thinking=off is sent as "${field}" (the vLLM/Qwen template switch), which is the shape unlisted gateways usually read`,
   );
 }
 
@@ -192,7 +199,12 @@ export async function auxLLMCall(
         // The field goes out regardless — the operator set the switch. Say once per
         // model that the catalog has no evidence this one honours it, so the reading
         // of a token bill later is not a mystery.
-        warnThinkingUnverifiedOnce(options.logger, modelRef, capabilities.known);
+        warnThinkingUnverifiedOnce(
+          options.logger,
+          modelRef,
+          capabilities.known,
+          Object.keys(thinkingOffFields(capabilities)).join('+'),
+        );
       }
 
       const params = buildAuxChatParams({
@@ -200,7 +212,9 @@ export async function auxLLMCall(
         systemPrompt: options.systemPrompt,
         userPrompt: options.userPrompt,
         temperature: options.temperature ?? config.temperature ?? 0.3,
-        maxTokens: options.maxTokens ?? 2000,
+        // Passthrough, not a default: an unset budget must stay unset so the field is
+        // absent from the request and the gateway's own limit applies.
+        maxTokens: options.maxTokens,
         thinking,
         capabilities,
       });
@@ -212,6 +226,16 @@ export async function auxLLMCall(
       );
 
       const usage = observeAuxUsage(completion);
+      if (wasTruncated(completion)) {
+        // Loud on purpose: this is the only trace that separates "the model answered
+        // badly" from "we ran out of output budget", and the downstream parser
+        // reports the former for both. It also answers, without a provider invoice,
+        // what an omitted `max_tokens` actually resolves to on this gateway.
+        options.logger.warn(
+          { modelRef, ...usage },
+          'Aux model output hit the provider limit (finish_reason=length); the answer is cut short',
+        );
+      }
       // The only way to answer "is the thinking switch doing anything?" without
       // reading the provider's invoice: completion tokens plus whether hidden
       // reasoning came back at all.
@@ -225,7 +249,7 @@ export async function auxLLMCall(
         // ignores the switch", and it is the only signal that it is happening.
         options.logger.warn(
           { modelRef, reasoningChars: usage.reasoningChars },
-          'Aux model ignored thinking=disabled; output budget is still paying for reasoning',
+          'Aux model ignored the thinking-off fields; output budget is still paying for reasoning',
         );
       }
 

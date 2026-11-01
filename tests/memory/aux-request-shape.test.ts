@@ -29,18 +29,19 @@ import {
   isFieldRejection,
   lookupAuxCapabilities,
   resolveThinkingMode,
+  thinkingOffFields,
 } from '../../src/memory/aux-call-options.js';
 
 const PROVIDER = 'aux-test';
 const BASE_URL = 'https://aux.test/v1';
 /**
- * A model the shipped catalog marks as thinking-switchable (`glm-5.3-flash` has
- * `off` in its `thinkingLevelMap`). The thinking field is only sent to such a
- * model, so every "the field went out" assertion needs one of these rather than
- * the synthetic `aux-test/test-model`, which is deliberately unknown.
+ * A model whose catalog entry names its thinking format (`compat.thinkingFormat:
+ * "deepseek"`), i.e. the shape that gateway reads. The *shape* matters as much as
+ * the value: `thinking: {type:"disabled"}` switched thinking off on this gateway
+ * and switched it on at agnes.
  */
 const KNOWN_PROVIDER = 'opencode-go';
-const KNOWN_MODEL = `${KNOWN_PROVIDER}/glm-5.3-flash`;
+const KNOWN_MODEL = `${KNOWN_PROVIDER}/deepseek-v4.1-flash`;
 
 interface Capture {
   body: Record<string, unknown>;
@@ -128,7 +129,7 @@ describe('aux request shape', () => {
     clearAuxClientPool();
   });
 
-  it('sends thinking as a top-level body field, never as extraBody', async () => {
+  it('sends thinking as a top-level body field for a deepseek-format gateway', async () => {
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
 
     await auxLLMCall(knownConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
@@ -139,21 +140,23 @@ describe('aux request shape', () => {
     expect(captured[0].body.extraBody).toBeUndefined();
   });
 
-  it('sends thinking to a model the catalog has never heard of', async () => {
-    // `agnes/agnes-3.0-flash` is a `custom_providers` entry with no catalog metadata,
-    // and its gateway was measured to answer the field by thinking *more* (1432 vs
-    // 480 completion tokens). The switch still sends it: a switch whose effect
-    // depends on catalog data the operator cannot see is one nobody can reason about.
-    // The warning is what carries the risk.
+  it('uses the template switch for a model the catalog does not describe', async () => {
+    // `agnes/agnes-3.0-flash` is a `custom_providers` entry with no catalog metadata.
+    // Measured there, `thinking: {type:"disabled"}` was read as "think" (61 → 265
+    // completion tokens, 787 characters of reasoning), while the template switch did
+    // what it says (61 → 35, no reasoning). The operator's `off` is still sent — in
+    // the shape such gateways read.
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
 
     await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
 
-    expect(captured[0].body.thinking).toEqual({ type: 'disabled' });
+    expect(captured[0].body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    // The field that inverted at agnes must not be there at all.
+    expect(captured[0].body.thinking).toBeUndefined();
     expect(captured[0].body.temperature).toBe(0.3);
   });
 
-  it('sends thinking to a catalog model that cannot stop thinking, and says so', async () => {
+  it('warns when the model cannot stop thinking, and still sends the switch', async () => {
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
     const logger = loggerStub();
 
@@ -167,7 +170,7 @@ describe('aux request shape', () => {
       callOptions(logger) as never,
     );
 
-    expect(captured[0].body.thinking).toEqual({ type: 'disabled' });
+    expect(captured[0].body.chat_template_kwargs).toEqual({ enable_thinking: false });
     expect(logger.warn.mock.calls.map((c: unknown[]) => String(c[1]))).toContainEqual(
       expect.stringContaining('no switchable thinking level'),
     );
@@ -302,7 +305,7 @@ describe('aux reasoning fallback', () => {
 
     expect(answer).toBe('{"ok":true}');
     expect(logger.warn.mock.calls.map((c: unknown[]) => String(c[1]))).toContainEqual(
-      expect.stringContaining('ignored thinking=disabled'),
+      expect.stringContaining('ignored the thinking-off fields'),
     );
   });
 
@@ -316,6 +319,43 @@ describe('aux reasoning fallback', () => {
     expect(debugPayloads).toContainEqual(
       expect.objectContaining({ completionTokens: 42, reasoningChars: 0, thinking: 'off' }),
     );
+  });
+});
+
+describe('thinking-off shape per gateway', () => {
+  // The switch is not one field. Measured on a fixed extraction prompt at
+  // `max_tokens: 400`: the template switch worked on all four gateways tried, and
+  // `thinking: {type:"disabled"}` — the obvious spelling — was read as "think" by one
+  // of them (61 -> 265 completion tokens, 787 characters of reasoning), while
+  // `{type:"enabled"}` produced 277/806. Same body, opposite meaning.
+  const off = (capabilities: { thinkingFormat?: string }) => thinkingOffFields(capabilities);
+
+  it('uses the deepseek/glm thinking object where the catalog names that format', () => {
+    expect(off({ thinkingFormat: 'deepseek' })).toEqual({ thinking: { type: 'disabled' } });
+    expect(off({ thinkingFormat: 'zai' })).toEqual({ thinking: { type: 'disabled' } });
+    expect(off({ thinkingFormat: 'string-thinking' })).toEqual({ thinking: 'none' });
+  });
+
+  it('uses the template switch for qwen-style gateways', () => {
+    expect(off({ thinkingFormat: 'qwen' })).toEqual({ enable_thinking: false });
+    expect(off({ thinkingFormat: 'qwen-chat-template' })).toEqual({
+      chat_template_kwargs: { enable_thinking: false, preserve_thinking: true },
+    });
+  });
+
+  it('uses the vendor-specific shapes pi-mono already knows', () => {
+    expect(off({ thinkingFormat: 'openrouter' })).toEqual({ reasoning: { effort: 'none' } });
+    expect(off({ thinkingFormat: 'together' })).toEqual({ reasoning: { enabled: false } });
+    expect(off({ thinkingFormat: 'baseten' })).toEqual({
+      chat_template_args: { enable_thinking: false },
+    });
+  });
+
+  it('falls back to the template switch, not the thinking object, when it knows nothing', () => {
+    // This is the agnes path: no catalog entry, so no format. The template switch is
+    // the only shape measured to work everywhere tried and to be inert (rather than
+    // inverted) on gateways that do not implement it.
+    expect(off({})).toEqual({ chat_template_kwargs: { enable_thinking: false } });
   });
 });
 
@@ -356,8 +396,11 @@ describe('catalog capabilities', () => {
       capabilities: { known: true, supportsTemperature: false, canDisableThinking: false },
     });
     expect('temperature' in params).toBe(false);
-    // Thinking is still requested: the catalog informs the warning, not the decision.
-    expect((params as unknown as Record<string, unknown>).thinking).toEqual({ type: 'disabled' });
+    // Thinking is still requested — in the template shape, because this model's
+    // catalog entry names no thinking format.
+    expect((params as unknown as Record<string, unknown>).chat_template_kwargs).toEqual({
+      enable_thinking: false,
+    });
   });
 });
 

@@ -361,7 +361,7 @@
       "auxThinking": "思考（推理）",
       "auxThinkingAuto": "跟随模型默认",
       "auxThinkingOff": "关闭",
-      "auxThinkingHint": "辅助调用是「材料进、固定格式出」的活，推理会先烧掉同一份 max_tokens：实测同一段材料，关掉后 419→34 tokens。字段总是按你的设置发出去；网关若忽略它、甚至因此思考更多（自定义供应商实测 3 倍 token），日志里会有一条告警。",
+      "auxThinkingHint": "辅助调用是「材料进、固定格式出」的活，推理会先烧掉同一份 max_tokens：实测同一段材料，关掉后 419→34 tokens。字段总是按你的设置发出去，具体形状跟随网关（deepseek 系用 thinking、qwen 系用 chat_template_kwargs）；网关不吃这一套时长里会记一条告警。",
       "auxTemperature": "温度",
       "auxTemperatureHint": "默认 0.3；蒸馏与补正各有自己的取值。目录里标注不支持温度的模型会自动不发这个字段。",
       "fallbackModels": "备用模型",

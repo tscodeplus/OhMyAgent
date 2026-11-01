@@ -60,10 +60,14 @@ provider:
 #   # Aux work is "material in, fixed-format answer out", so reasoning only spends
 #   # the same max_tokens before the answer. `off` sends thinking={type:disabled}
 #   # (DeepSeek/GLM/Qwen/MiniMax style); `auto` keeps the model default.
-#   # The field is sent whenever this is `off`, for custom providers too — a switch
-#   # whose effect depends on catalog data is not a switch. A gateway that ignores it,
-#   # or answers it by thinking *more*, is reported in the log (measured on
-#   # agnes-3.0-flash: 3x the completion tokens of the same call without it).
+#   # Always sent when `off`, for custom providers too — a switch whose effect depends
+#   # on catalog data is not a switch. The *shape* follows the gateway: pi-mono's
+#   # `compat.thinkingFormat` picks thinking={type:disabled} (deepseek/zai),
+#   # enable_thinking (qwen), reasoning.effort (openrouter) and so on, and a gateway the
+#   # catalog does not describe gets `chat_template_kwargs: {enable_thinking: false}`.
+#   # That last default is measured, not stylistic: agnes reads `thinking:{type:disabled}`
+#   # as "think" (61 -> 265 completion tokens, 787 chars of reasoning) while its
+#   # documented `chat_template_kwargs` switch does what it says (61 -> 35).
 #   thinking: off
 #   # Default aux temperature (call sites may override; notes distillation uses its own).
 #   temperature: 0.3

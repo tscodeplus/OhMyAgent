@@ -362,7 +362,7 @@
       "auxThinking": "Thinking (reasoning)",
       "auxThinkingAuto": "Model default",
       "auxThinkingOff": "Off",
-      "auxThinkingHint": "Aux calls are \"material in, fixed-format answer out\" — reasoning burns the same max_tokens first (measured: 419 → 34 tokens on identical material). The field is always sent as configured; if the gateway ignores it, or answers it by thinking harder (a custom provider measured at 3x tokens), the log says so.",
+      "auxThinkingHint": "Aux calls are \"material in, fixed-format answer out\" — reasoning burns the same max_tokens first (measured: 419 → 34 tokens on identical material). The field is always sent as configured, in the shape the gateway reads (thinking for deepseek-family, chat_template_kwargs for qwen-family); a gateway that ignores it is reported in the log.",
       "auxTemperature": "Temperature",
       "auxTemperatureHint": "Default 0.3; distillation and its repair retry use their own values. Models the catalog marks as not supporting temperature never receive the field.",
       "fallbackModels": "Fallback Models",

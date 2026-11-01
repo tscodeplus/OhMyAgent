@@ -35,6 +35,7 @@
 
 import type { Logger } from 'pino';
 import type OpenAI from 'openai';
+import { getModel } from '@earendil-works/pi-ai';
 import type { AuxModelConfig } from './aux-llm-client.js';
 
 export type AuxThinkingMode = 'auto' | 'off';
@@ -44,8 +45,20 @@ export type NotesThinkingMode = AuxThinkingMode | 'inherit';
 
 export type AuxChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming;
 
-/** Fields this module may add to a request, and may therefore have to take back out. */
-const OPTIONAL_FIELDS = ['temperature', 'thinking'] as const;
+/**
+ * Fields this module may add to a request, and may therefore have to take back out.
+ *
+ * The thinking switch is not one field: which one carries it depends on the gateway
+ * (`compat.thinkingFormat`), so every shape it can take has to be strippable too.
+ */
+const OPTIONAL_FIELDS = [
+  'temperature',
+  'thinking',
+  'chat_template_kwargs',
+  'chat_template_args',
+  'reasoning',
+  'enable_thinking',
+] as const;
 export type AuxOptionalField = (typeof OPTIONAL_FIELDS)[number];
 
 export interface AuxCapabilities {
@@ -54,19 +67,31 @@ export interface AuxCapabilities {
   /** False when the catalog says the model rejects `temperature`. */
   supportsTemperature: boolean;
   /**
-   * Whether the catalog gives us any reason to believe the model accepts
-   * `thinking: { type: "disabled" }`.
+   * `compat.thinkingFormat`: which request field this gateway reads as "stop
+   * thinking". `undefined` for a model the catalog does not describe.
    *
-   * Advisory only, and never a gate: an operator who sets `thinking: off` gets the
-   * field on the wire, because a switch that silently depends on catalog data the
-   * operator cannot see is a switch nobody can reason about. What this flag does buy
-   * is the warning, and it is `false` for an unknown model — including every
-   * `custom_providers` entry, which is where sending it is a genuine gamble:
-   * measured on `agnes/agnes-3.0-flash`, the field produced 4.9k-6.3k characters of
-   * `reasoning_content` on every call and 1432 completion tokens against 480 for the
-   * identical call without it. A gateway that does not understand the field can
-   * answer it by thinking harder, and the response is a 200, so nothing downstream
-   * notices.
+   * Load-bearing rather than cosmetic, because the field is not portable: measured
+   * on a fixed extraction prompt at `max_tokens: 400`,
+   *
+   *   - `chat_template_kwargs: { enable_thinking: false }` switched thinking off on
+   *     all four gateways tried (agnes 61→35 tokens, opencode-go deepseek 178→46);
+   *   - `thinking: { type: "disabled" }` switched it off on the deepseek/glm/qwen
+   *     gateways (178→66) and switched it **on** at agnes (61→265 tokens, 787
+   *     characters of `reasoning_content`, indistinguishable from sending
+   *     `{ type: "enabled" }`).
+   *
+   * So the shape cannot be chosen by taste, and "send `thinking` and let unknown
+   * gateways ignore it" is wrong: this one does not ignore it, it reads the presence
+   * of the object as a request to think.
+   */
+  thinkingFormat?: string;
+  /**
+   * Whether the catalog gives us any reason to believe the model's thinking can be
+   * switched off at all.
+   *
+   * Advisory only, never a gate: the operator's `off` reaches the wire either way.
+   * It decides the warning, and `false` is what an unknown model gets — including
+   * every `custom_providers` entry.
    */
   canDisableThinking: boolean;
 }
@@ -95,6 +120,7 @@ function compatOf(model: unknown): {
   supportsTemperature?: boolean;
   forceAdaptiveThinking?: boolean;
   thinkingLevelMap?: Record<string, unknown> | null;
+  thinkingFormat?: string;
 } {
   const candidate = model as {
     compat?: Record<string, unknown>;
@@ -106,6 +132,7 @@ function compatOf(model: unknown): {
       typeof compat.supportsTemperature === 'boolean' ? compat.supportsTemperature : undefined,
     forceAdaptiveThinking: compat.forceAdaptiveThinking === true,
     thinkingLevelMap: candidate.thinkingLevelMap ?? undefined,
+    thinkingFormat: typeof compat.thinkingFormat === 'string' ? compat.thinkingFormat : undefined,
   };
 }
 
@@ -130,7 +157,9 @@ export async function lookupAuxCapabilities(
   modelId: string,
 ): Promise<AuxCapabilities> {
   try {
-    const { getModel } = await import('@earendil-works/pi-ai');
+    // Imported statically on purpose: the dynamic `import()` here cost ~7.5s on the
+    // first call, which is invisible in production (the module is already loaded) and
+    // fatal in a test that measures the call against a 10s timeout.
     const model = getModel(provider, modelId);
     if (!model) return UNKNOWN_CAPABILITIES;
     const compat = compatOf(model);
@@ -140,6 +169,7 @@ export async function lookupAuxCapabilities(
       known: true,
       supportsTemperature: compat.supportsTemperature !== false,
       canDisableThinking: !compat.forceAdaptiveThinking && !mapExcludesOff,
+      thinkingFormat: compat.thinkingFormat,
     };
   } catch {
     // No catalog access (standalone test, stripped build): unknown. Temperature is
@@ -150,22 +180,63 @@ export async function lookupAuxCapabilities(
 }
 
 /**
- * Whether the request carries `thinking: { type: "disabled" }`.
+ * Whether the request asks for thinking to be off at all.
  *
- * The operator's word is the whole rule. Catalog knowledge decides what we *say*
- * about the call, never whether the switch is honoured — a `thinking: off` that
- * quietly turns itself back on for models the catalog does not know is worse than
- * one that is sent and ignored, because the first is invisible from the config.
+ * The operator's word is the whole rule. Catalog knowledge decides *which field*
+ * carries it and what we say about the call, never whether it is sent — a
+ * `thinking: off` that quietly turns itself back on for models the catalog does not
+ * describe is worse than one that is sent in a shape the gateway may not read,
+ * because the first is invisible from the config.
  */
 export function sendsThinkingField(thinking: AuxThinkingMode): boolean {
   return thinking === 'off';
+}
+
+/**
+ * The body fields that ask *this* gateway to stop thinking.
+ *
+ * Mirrors pi-mono's `openai-completions` format table (the agent path and the aux
+ * path must not disagree about how a provider is told to be quiet), reduced to the
+ * "off" half. `default` is not a fallback in the sloppy sense: for a gateway we know
+ * nothing about, the vLLM/Qwen template switch is the only one measured to work
+ * everywhere tried *and* to be ignored rather than inverted where it means nothing.
+ */
+export function thinkingOffFields(capabilities: {
+  thinkingFormat?: string;
+}): Record<string, unknown> {
+  switch (capabilities.thinkingFormat) {
+    case 'deepseek':
+    case 'zai':
+      return { thinking: { type: 'disabled' } };
+    case 'qwen':
+      return { enable_thinking: false };
+    case 'qwen-chat-template':
+      return { chat_template_kwargs: { enable_thinking: false, preserve_thinking: true } };
+    case 'chat-template':
+      return { chat_template_kwargs: { enable_thinking: false } };
+    case 'baseten':
+      return { chat_template_args: { enable_thinking: false } };
+    case 'openrouter':
+      return { reasoning: { effort: 'none' } };
+    case 'together':
+      return { reasoning: { enabled: false } };
+    case 'string-thinking':
+      return { thinking: 'none' };
+    default:
+      return { chat_template_kwargs: { enable_thinking: false } };
+  }
 }
 
 export interface AuxChatParamsInput {
   model: string;
   systemPrompt: string;
   userPrompt: string;
-  maxTokens: number;
+  /**
+   * Omitted = the field is not sent at all and the gateway applies its own default.
+   * Left unset by the notes distiller on purpose: a budget we compute is a guess
+   * about the model, and a wrong guess cuts the answer mid-object.
+   */
+  maxTokens?: number;
   /** Call-site temperature; omitted when the provider must not receive one. */
   temperature?: number;
   thinking: AuxThinkingMode;
@@ -188,9 +259,9 @@ export function buildAuxChatParams(input: AuxChatParamsInput): AuxChatParams {
       { role: 'system', content: input.systemPrompt },
       { role: 'user', content: input.userPrompt },
     ],
-    max_tokens: input.maxTokens,
+    ...(input.maxTokens !== undefined ? { max_tokens: input.maxTokens } : {}),
     ...(sendTemperature ? { temperature: input.temperature } : {}),
-    ...(sendsThinkingField(input.thinking) ? { thinking: { type: 'disabled' } } : {}),
+    ...(sendsThinkingField(input.thinking) ? thinkingOffFields(input.capabilities) : {}),
   } as AuxChatParams;
 }
 
@@ -268,4 +339,19 @@ export function observeAuxUsage(completion: unknown): AuxUsageObservation {
     completionTokens: usage?.completion_tokens,
     reasoningChars: (message?.reasoning_content ?? '').length,
   };
+}
+
+/**
+ * Did the provider stop because the output budget ran out instead of finishing?
+ *
+ * The one signal that distinguishes "the model wrote a bad answer" from "we cut its
+ * answer in half". Without it, a truncated JSON body reaches the parser and is
+ * reported as the model's fault — which is how a request-shaping bug survived as an
+ * `invalid_json` metric. `finish_reason` is the OpenAI-compatible spelling; `length`
+ * is why `stopReason: 'length'` exists in pi-ai's own type.
+ */
+export function wasTruncated(completion: unknown): boolean {
+  const choice = (completion as { choices?: Array<{ finish_reason?: string | null }> } | null)
+    ?.choices?.[0];
+  return choice?.finish_reason === 'length';
 }

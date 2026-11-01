@@ -104,9 +104,10 @@ function buildPipeline(
 }
 
 const AUX: AuxModelConfig = {
-  // Deliberately a model the catalog has never heard of: the thinking field goes out
-  // because the operator asked for it, and this fixture proves that end to end
-  // through the real distiller rather than through the request builder alone.
+  // Deliberately a model the catalog has never heard of: the thinking-off switch goes
+  // out because the operator asked for it, in the template shape such gateways read
+  // (a `thinking: {type:"disabled"}` object is read as "think" by at least one of
+  // them). This proves it end to end through the real distiller.
   modelRef: 'aux-test/test-model',
   apiKeys: { 'aux-test': 'sk-test' },
   baseUrls: { 'aux-test': 'https://aux.test/v1' },
@@ -136,7 +137,7 @@ describe('notes distillation request shape', () => {
 
     expect(result.ok).toBe(true);
     expect(bodies).toHaveLength(1);
-    expect(bodies[0].thinking).toEqual({ type: 'disabled' });
+    expect(bodies[0].chat_template_kwargs).toEqual({ enable_thinking: false });
   });
 
   it('lets the notes tab override an aux chain set to auto', async () => {
@@ -148,7 +149,7 @@ describe('notes distillation request shape', () => {
 
     await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
 
-    expect(bodies[0].thinking).toEqual({ type: 'disabled' });
+    expect(bodies[0].chat_template_kwargs).toEqual({ enable_thinking: false });
   });
 
   it('sends the capture temperature, and halves it for the repair retry', async () => {
