@@ -3,6 +3,13 @@ import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { config as dotenvConfig } from 'dotenv';
 import type { AppConfig } from './types.js';
 import { loadYamlFile, yamlToAppConfigRaw } from './config-loader.js';
+import {
+  BODY_MAX_DEFAULT,
+  BODY_MAX_MAX,
+  BODY_MAX_MIN,
+  MAX_NOTES_DEFAULT,
+  deriveMaxOutputTokens,
+} from '../notes/output-budget.js';
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../mcp/config.js';
 import { envBool } from '../shared/env.js';
 import { ConfigError } from '../shared/errors.js';
@@ -260,7 +267,7 @@ export const notesSectionSchema = z
         /** Distillation model; empty = reuse `memory_aux_models`. */
         modelRef: z.string().default(''),
         /** Upper bound on drafts one capture may produce. */
-        maxNotesPerCapture: z.coerce.number().int().nonnegative().default(3),
+        maxNotesPerCapture: z.coerce.number().int().nonnegative().default(MAX_NOTES_DEFAULT),
         /** `recent` window size, in turns. */
         windowTurns: z.coerce.number().int().min(1).max(20).default(5),
         /** Token budget for the window; oldest messages are trimmed first. */
@@ -269,6 +276,56 @@ export const notesSectionSchema = z
         includeTools: z.enum(['off', 'args']).default('off'),
         /** Redact credential-shaped spans before the model sees them. */
         redact: z.boolean().default(true),
+        /**
+         * Body cap per note, in characters. Raised from the original 600 once a
+         * capture stopped splitting one subject into several notes: a single note
+         * now has to hold the aspects that used to become separate rows.
+         *
+         * There is deliberately no "0 = unlimited": the real ceiling is the model's
+         * output budget, so "unlimited" would be a promise only the truncation path
+         * could break — and it breaks as `invalid_json`, which reads as a model bug.
+         */
+        bodyMaxChars: z.coerce
+          .number()
+          .int()
+          .min(BODY_MAX_MIN)
+          .max(BODY_MAX_MAX)
+          .default(BODY_MAX_DEFAULT),
+        /**
+         * Output budget for one distillation call. Omitted = derived from
+         * `bodyMaxChars` x `maxNotesPerCapture` (`deriveMaxOutputTokens`), which is
+         * the value that cannot silently disagree with the body cap.
+         *
+         * Set it only for a model that pads fields and tags; a value below the
+         * derived one is a startup error, because its only effect is truncating the
+         * JSON mid-object and reporting that as an unparseable model response.
+         */
+        maxOutputTokens: z.coerce.number().int().positive().optional(),
+      })
+      .default({})
+      .superRefine((capture, ctx) => {
+        if (capture.maxOutputTokens === undefined) return;
+        const required = deriveMaxOutputTokens(capture.bodyMaxChars, capture.maxNotesPerCapture);
+        if (capture.maxOutputTokens >= required) return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['maxOutputTokens'],
+          message: `must be at least ${required} (bodyMaxChars ${capture.bodyMaxChars} x maxNotesPerCapture ${capture.maxNotesPerCapture}); a smaller budget cuts the JSON mid-object and is reported as invalid_json`,
+        });
+      }),
+    /**
+     * The floating ball on conversation pages.
+     *
+     * A UI preference that lives server-side on purpose. Per-browser localStorage
+     * made "hide the ball" a device-local decision nobody could undo from another
+     * device, and the only way back was a small button on the notes page that
+     * vanished in narrow layouts. `config.yaml` is where both the settings page and
+     * the ball's own menu write it, so hiding it is one decision for the deployment.
+     */
+    ball: z
+      .object({
+        /** Show the ball on conversation pages. */
+        show: z.boolean().default(true),
       })
       .default({}),
     draft: z

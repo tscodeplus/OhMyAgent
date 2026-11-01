@@ -93,16 +93,13 @@ export interface CaptureOutcome {
 /** Ball size: the full 56px target, or a dot that does not cover the transcript. */
 export type BallSize = 'normal' | 'compact';
 
-const BALL_HIDDEN_KEY = 'oma-notes-ball-hidden';
+/**
+ * Ball visibility is NOT here: it is `notes.ball.show` in `config.yaml`, because
+ * "hide the ball" has to be undoable from the settings page rather than from whichever
+ * browser happened to hide it. Size stays local — it answers "how much room does this
+ * screen have", which is the one question the server cannot answer.
+ */
 const BALL_SIZE_KEY = 'oma-notes-ball-size';
-
-function readBallHidden(): boolean {
-  try {
-    return window.localStorage.getItem(BALL_HIDDEN_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
 
 function readBallSize(): BallSize {
   try {
@@ -220,7 +217,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<NotesStatsView | null>(null);
-  const [ballHidden, setBallHiddenState] = useState(readBallHidden);
+  const [ballHidden, setBallHiddenState] = useState(false);
   const [ballSize, setBallSizeState] = useState<BallSize>(readBallSize);
   const [query, setQueryState] = useState<NotesQuery>({ status: 'active' });
   const [capturing, setCapturing] = useState(false);
@@ -274,6 +271,28 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * Read the ball's visibility from `config.yaml` once per page load.
+   *
+   * A failed read leaves the ball visible: "config unreachable" must not be read as
+   * "the operator hid it", because the only way back from a hidden ball is a page the
+   * user may not think to visit.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void apiRequest<{ notes?: { ball?: { show?: boolean } } }>('/api/config')
+      .then((config) => {
+        if (cancelled) return;
+        if (config?.notes?.ball?.show === false) setBallHiddenState(true);
+      })
+      .catch(() => {
+        /* see above */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** The list plus anything captured since the last fetch, de-duplicated by id. */
   const notes = useMemo(() => {
@@ -514,14 +533,22 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [applyNote, refresh],
   );
 
+  /**
+   * Persisted to `config.yaml` through the same `PUT /api/config` dot-notation the
+   * settings page uses, so the ball's own menu and the settings toggle are two
+   * entrances to one value instead of two values that disagree.
+   *
+   * Optimistic: the ball disappears on the click, and a failed write puts it back
+   * rather than leaving a hidden ball and a config file that says visible.
+   */
   const setBallHidden = useCallback((hidden: boolean) => {
     setBallHiddenState(hidden);
-    try {
-      window.localStorage.setItem(BALL_HIDDEN_KEY, hidden ? '1' : '0');
-    } catch {
-      // A browser with storage disabled still gets the state for this session; the
-      // preference simply does not survive a reload, which beats a thrown exception.
-    }
+    void apiRequest('/api/config', {
+      method: 'PUT',
+      body: JSON.stringify({ 'notes.ball.show': !hidden }),
+    }).catch(() => {
+      setBallHiddenState(!hidden);
+    });
   }, []);
 
   const setBallSize = useCallback((size: BallSize) => {

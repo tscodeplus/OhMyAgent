@@ -70,6 +70,9 @@ export interface CaptureDeps {
     windowText: string;
     windowIds: string[];
     maxNotes: number;
+    bodyMaxChars: number;
+    maxOutputTokens?: number;
+    instruction?: string;
     hint?: string;
   }) => Promise<DistillOutcome>;
 }
@@ -203,6 +206,8 @@ export class CapturePipeline {
         windowText: redacted.text,
         windowIds: citableIds,
         maxNotes: config.maxNotesPerCapture,
+        bodyMaxChars: config.bodyMaxChars,
+        maxOutputTokens: config.maxOutputTokens,
         instruction,
         hint: kindHint,
       });
@@ -254,7 +259,17 @@ export class CapturePipeline {
     const drafts: Note[] = [];
     const duplicates: DuplicateNote[] = [];
     let droppedRecaps = 0;
-    for (const candidate of outcome.notes.slice(0, config.maxNotesPerCapture)) {
+    let overCap = 0;
+    /**
+     * Iterate *every* candidate and apply the cap at creation time, not by slicing the
+     * response first.
+     *
+     * The old order (`slice(0, max)` then filters) spent a slot on a candidate the local
+     * gates were about to drop: two duplicates in front meant a unique third note was
+     * never created, and nothing said so. The gates here are cheap and local, so they run
+     * on the whole response and the cap decides only what gets a row.
+     */
+    for (const candidate of outcome.notes) {
       const verdict = isRecap({
         body: candidate.body,
         tags: candidate.tags,
@@ -290,6 +305,14 @@ export class CapturePipeline {
       );
       if (owner) {
         duplicates.push({ title: candidate.title, existingId: owner.id, status: owner.status });
+        continue;
+      }
+
+      if (drafts.length >= config.maxNotesPerCapture) {
+        // Past the cap. Counted rather than silently dropped: a config whose cap is
+        // smaller than what the material holds is a decision the operator made, and the
+        // log is where they find out it cost them a note.
+        overCap += 1;
         continue;
       }
 
@@ -333,6 +356,13 @@ export class CapturePipeline {
       noteCount: drafts.length,
       error: redactionMarker(redacted.count),
     });
+
+    if (overCap > 0) {
+      this.deps.logger.warn(
+        { captureId, overCap, cap: config.maxNotesPerCapture, produced: outcome.notes.length },
+        'Note capture produced more drafts than notes.capture.maxNotesPerCapture allows; the excess was not stored',
+      );
+    }
 
     if (drafts.length === 0) {
       // "Already have it" and "nothing worth keeping" are different answers, and the
@@ -520,6 +550,8 @@ export class CapturePipeline {
     windowText: string;
     windowIds: string[];
     maxNotes: number;
+    bodyMaxChars: number;
+    maxOutputTokens?: number;
     instruction?: string;
     hint?: string;
   }): Promise<DistillOutcome> {

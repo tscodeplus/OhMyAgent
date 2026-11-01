@@ -21,6 +21,7 @@ import type { AppConfig } from '../types.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CapturePipeline } from '../../notes/capture.js';
 import { NotesRepository } from '../../notes/repository.js';
+import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../notes/output-budget.js';
 import { createNotesService } from '../../notes/service.js';
 import type { NotesRuntimeConfig, NotesService } from '../../notes/service-contract.js';
 
@@ -50,11 +51,13 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
   // of taking the process down. In production the schema always fills these in.
   const notes = config.notes;
   return {
-    maxNotesPerCapture: notes?.capture?.maxNotesPerCapture ?? 3,
+    maxNotesPerCapture: notes?.capture?.maxNotesPerCapture ?? MAX_NOTES_DEFAULT,
     windowTurns: notes?.capture?.windowTurns ?? 5,
     tokenBudget: notes?.capture?.tokenBudget ?? 4000,
     includeTools: notes?.capture?.includeTools ?? 'off',
     redact: notes?.capture?.redact ?? true,
+    bodyMaxChars: notes?.capture?.bodyMaxChars ?? BODY_MAX_DEFAULT,
+    maxOutputTokens: notes?.capture?.maxOutputTokens,
     ttlDays: notes?.draft?.ttlDays ?? 14,
     logRetentionDays: notes?.logRetentionDays ?? 90,
     modelRef: notes?.capture?.modelRef ?? '',

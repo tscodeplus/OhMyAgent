@@ -535,7 +535,14 @@
       "draftTtlDays": "Unreviewed drafts kept for (days)",
       "logRetentionDays": "Operation log kept for (days)",
       "retentionHint": "An expired draft is archived as “expired”, never deleted, and can be restored. 0 keeps forever (the log then grows with writes).",
-      "restartHint": "The two restart-owned fields (the switch and the distillation model) apply after a service restart; everything else applies on the next capture or the next cleanup run."
+      "restartHint": "The two restart-owned fields (the switch and the distillation model) apply after a service restart; everything else applies on the next capture or the next cleanup run.",
+      "bodyMaxChars": "Body cap (characters)",
+      "bodyMaxCharsHint": "Maximum body length per note; longer bodies are truncated. One note now usually carries several aspects of its subject, hence 1200. The hard ceiling is 4000 — past that it is a document, not something a review queue can absorb.",
+      "ball": "Floating ball",
+      "ballShow": "Show the notes ball on conversation pages",
+      "ballShowHint": "When off, conversation pages show no ball. Written to config.yaml, so it applies to every device; saves apply on the next visit to a conversation, no restart needed.",
+      "hideWhere": "Settings → Notes",
+      "hideHint": "Turn it back on in Settings → Notes"
     },
     "tools": {
       "shell": "Shell Tool",
@@ -1728,8 +1735,8 @@
       "compact": "Shrink the ball",
       "expand": "Expand the ball",
       "hide": "Hide the ball",
-      "show": "Show notes ball",
-      "showHint": "The ball is hidden — bring it back to conversation pages"
+      "hideHint": "Turn it back on in Settings → Notes",
+      "hideWhere": "Settings → Notes"
     },
     "rejectHint": "Delete and record why",
     "reject": {

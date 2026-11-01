@@ -330,6 +330,66 @@ describe('notes service', () => {
     expect(result.duplicates.map((item) => item.title)).toEqual(['already here']);
   });
 
+  it('does not let duplicates spend a slot under the capture cap', async () => {
+    // The old order sliced the model response to `maxNotesPerCapture` *before* the
+    // local gates, so two duplicates in front silently cost the fourth note its row.
+    // Gates are cheap; the cap decides only what gets stored.
+    const { service, repository } = createTestService(db, {
+      config: { maxNotesPerCapture: 3 },
+      distillNotes: [
+        { ...defaultDistilled(), title: 'already here' },
+        { ...defaultDistilled(), title: 'new one' },
+        { ...defaultDistilled(), title: 'new two' },
+        { ...defaultDistilled(), title: 'new three' },
+      ],
+    });
+    repository.create({
+      kind: 'command',
+      title: 'already here',
+      summary: '',
+      body: 'b',
+      status: 'draft',
+      origin: 'agent',
+      scope: 'project',
+      scopeKey: PROJECT_ID,
+    });
+
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.notes.map((note) => note.title)).toEqual(['new one', 'new two', 'new three']);
+    expect(result.duplicates.map((item) => item.title)).toEqual(['already here']);
+  });
+
+  it('stores no more than the cap when every candidate is new', async () => {
+    const { service } = createTestService(db, {
+      config: { maxNotesPerCapture: 2 },
+      distillNotes: [
+        { ...defaultDistilled(), title: 'a' },
+        { ...defaultDistilled(), title: 'b' },
+        { ...defaultDistilled(), title: 'c' },
+      ],
+    });
+
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The excess is dropped, not merged or retitled: a lower cap is an operator
+    // decision, and the capture log records that it cost a note.
+    expect(result.notes.map((note) => note.title)).toEqual(['a', 'b']);
+  });
+
+  it('passes the configured body cap and output budget to the distiller', async () => {
+    const { service, distillationCalls } = createTestService(db, {
+      config: { maxNotesPerCapture: 2, bodyMaxChars: 900, maxOutputTokens: 5000 },
+    });
+    await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+
+    // Both come from config, and the body cap is read per call (hot), so the prompt
+    // and the validator cannot disagree about how long a note may be.
+    expect(distillationCalls[0]).toMatchObject({ bodyMaxChars: 900, maxOutputTokens: 5000 });
+  });
+
   it('approves only one of two same-titled drafts instead of throwing', () => {
     // The state a pre-dedupe library is in: two drafts, one title. Approving the
     // second must answer with the conflict, because the alternative was a 500 that

@@ -197,6 +197,10 @@ export interface NotesRuntimeConfig {
   tokenBudget: number;
   includeTools: 'off' | 'args';
   redact: boolean;
+  /** Body cap per note, in characters. */
+  bodyMaxChars: number;
+  /** Output budget; undefined = derive from bodyMaxChars x maxNotesPerCapture. */
+  maxOutputTokens?: number;
   ttlDays: number;
   logRetentionDays: number;
   /** Empty = reuse `memory_aux_models`. */

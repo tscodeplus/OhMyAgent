@@ -676,6 +676,27 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
         'notesCfg.capture.include_tools',
       ),
       redact: yamlBool(captureCfg?.redact, true, 'notesCfg.capture.redact'),
+      bodyMaxChars: num(
+        captureCfg?.body_max_chars ?? captureCfg?.bodyMaxChars,
+        1200,
+        'notesCfg.capture.body_max_chars',
+      ),
+      // Absent means "derive from bodyMaxChars x maxNotesPerCapture"; the schema keeps
+      // it optional, so it is passed through only when the file actually says it.
+      ...((captureCfg?.max_output_tokens ?? captureCfg?.maxOutputTokens) != null
+        ? {
+            maxOutputTokens: num(
+              captureCfg?.max_output_tokens ?? captureCfg?.maxOutputTokens,
+              0,
+              'notesCfg.capture.max_output_tokens',
+            ),
+          }
+        : {}),
+    },
+    // The ball's visibility is deployment state, not browser state: it is written
+    // here by both the settings page and the ball's own menu, so every device agrees.
+    ball: {
+      show: yamlBool((notesCfg.ball as YamlNode)?.show, true, 'notesCfg.ball.show'),
     },
     draft: {
       ttlDays: num(draftCfg?.ttl_days ?? draftCfg?.ttlDays, 14, 'notesCfg.draft.ttl_days'),
@@ -1790,7 +1811,16 @@ export function jsConfigToYaml(
           if (cap.tokenBudget !== undefined) ycap.token_budget = cap.tokenBudget;
           if (cap.includeTools !== undefined) ycap.include_tools = cap.includeTools;
           if (cap.redact !== undefined) ycap.redact = cap.redact;
+          if (cap.bodyMaxChars !== undefined) ycap.body_max_chars = cap.bodyMaxChars;
+          if (cap.maxOutputTokens !== undefined) ycap.max_output_tokens = cap.maxOutputTokens;
           yn.capture = ycap;
+        }
+
+        const bl = nt.ball as Record<string, unknown> | undefined;
+        if (bl) {
+          const ybl = { ...((cur.ball as Record<string, unknown>) || {}) };
+          if (bl.show !== undefined) ybl.show = bl.show;
+          yn.ball = ybl;
         }
 
         const dr = nt.draft as Record<string, unknown> | undefined;

@@ -378,8 +378,29 @@ describe('distill validation', () => {
       }),
       allowed,
     );
-    expect(outcome.notes[0].body).toHaveLength(600);
+    // The default cap, not the old hard-coded 600: one note now carries the aspects
+    // that used to become separate rows (see `notes.capture.bodyMaxChars`).
+    expect(outcome.notes[0].body).toHaveLength(1200);
     expect(outcome.rejected.some((item) => item.reason === 'too_long')).toBe(true);
+  });
+
+  it('honours a configured body cap', () => {
+    const payload = JSON.stringify({
+      notes: [
+        {
+          kind: 'other',
+          title: 't',
+          summary: 's',
+          body: 'x'.repeat(2000),
+          evidence: ['m1'],
+        },
+      ],
+    });
+    const outcome = parseDistillResponse(payload, allowed, 2000);
+    // 2000 chars fit under a 2000-char cap, so nothing is trimmed and nothing is
+    // reported — the validator and the prompt read the same number.
+    expect(outcome.notes[0].body).toHaveLength(2000);
+    expect(outcome.rejected.some((item) => item.reason === 'too_long')).toBe(false);
   });
 });
 

@@ -36,6 +36,7 @@ export const RUNTIME_CONFIG: NotesRuntimeConfig = {
   tokenBudget: 4000,
   includeTools: 'off',
   redact: true,
+  bodyMaxChars: 1200,
   ttlDays: 14,
   logRetentionDays: 90,
   modelRef: '',

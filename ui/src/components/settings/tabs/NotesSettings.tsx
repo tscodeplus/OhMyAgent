@@ -19,6 +19,12 @@
  *
  * What is deliberately absent: any switch for the review gate. `origin='agent'` is
  * always `draft`, and no key can make distillation land straight in the library.
+ *
+ * The floating ball is the one control here that is not about capture: its value is
+ * `notes.ball.show` in `config.yaml`, written through the same `setField`/save flow as
+ * everything else (and by the ball's own menu, through the same endpoint). It is hot —
+ * `NotesContext` re-reads it per page load, so hiding applies on the next navigation
+ * instead of costing a restart prompt.
  */
 
 import { useTranslation } from 'react-i18next';
@@ -65,6 +71,7 @@ export default function NotesSettings({
 
   const notes = (config?.notes as Record<string, unknown>) || {};
   const capture = (notes.capture as Record<string, unknown>) || {};
+  const ball = (notes.ball as Record<string, unknown>) || {};
   const draft = (notes.draft as Record<string, unknown>) || {};
 
   const num = (path: string, node: Record<string, unknown>, key: string, fallback: number) =>
@@ -91,6 +98,23 @@ export default function NotesSettings({
 
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-400">
             {t('settings.notes.reviewGate')}
+          </div>
+        </div>
+      </AccordionItem>
+
+      <AccordionItem title={t('settings.notes.ball')}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <label className="text-sm font-medium">{t('settings.notes.ballShow')}</label>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.notes.ballShowHint')}
+            </p>
+          </div>
+          <div className="shrink-0">
+            <Toggle
+              checked={getField('notes.ball.show', ball.show !== false) as boolean}
+              onChange={(value) => setField('notes.ball.show', value)}
+            />
           </div>
         </div>
       </AccordionItem>
@@ -124,6 +148,19 @@ export default function NotesSettings({
             value={num('notes.capture.tokenBudget', capture, 'tokenBudget', 4000)}
             onChange={(event) => setField('notes.capture.tokenBudget', event.target.value)}
           />
+          <div>
+            <Input
+              label={t('settings.notes.bodyMaxChars')}
+              type="number"
+              min={200}
+              max={4000}
+              value={num('notes.capture.bodyMaxChars', capture, 'bodyMaxChars', 1200)}
+              onChange={(event) => setField('notes.capture.bodyMaxChars', event.target.value)}
+            />
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.notes.bodyMaxCharsHint')}
+            </p>
+          </div>
         </div>
 
         {/* The two switches below change what the model is allowed to see, so they

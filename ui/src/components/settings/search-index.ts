@@ -123,6 +123,8 @@ export const SEARCH_INDEX: SearchEntry[] = [
   { tabId: 'notes', labelKey: 'settings.notes.modelRef' },
   { tabId: 'notes', labelKey: 'settings.notes.includeTools' },
   { tabId: 'notes', labelKey: 'settings.notes.redact' },
+  { tabId: 'notes', labelKey: 'settings.notes.bodyMaxChars' },
+  { tabId: 'notes', labelKey: 'settings.notes.ballShow' },
   { tabId: 'notes', labelKey: 'settings.notes.draftTtlDays' },
 
   // Multimodal

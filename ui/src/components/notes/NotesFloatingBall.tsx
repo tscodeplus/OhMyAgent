@@ -566,6 +566,10 @@ export default function NotesFloatingBall() {
             <MenuItem
               icon={EyeOff}
               label={t('notes.ball.hide')}
+              // The item removes the only visible control, so it names the way back
+              // at the moment of the decision instead of leaving a search behind it.
+              hint={t('notes.ball.hideWhere')}
+              title={t('notes.ball.hideHint')}
               onClick={() => {
                 closeMenu();
                 setBallHidden(true);
@@ -709,12 +713,15 @@ function MenuItem({
   icon: Icon,
   label,
   hint,
+  title,
   badge,
   onClick,
 }: {
   icon: typeof Inbox;
   label: string;
+  /** Short chip on the right, like a shortcut. A sentence belongs in `title`. */
   hint?: string;
+  title?: string;
   badge?: number;
   onClick: () => void;
 }) {
@@ -722,6 +729,7 @@ function MenuItem({
     <button
       type="button"
       role="menuitem"
+      title={title}
       onClick={onClick}
       className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
     >

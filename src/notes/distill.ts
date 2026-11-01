@@ -21,13 +21,13 @@ import type { Logger } from 'pino';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { extractJson } from '../memory/json-utils.js';
 import { normalizeTags } from './canonical.js';
+import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT, deriveMaxOutputTokens } from './output-budget.js';
 import { NOTE_FIELDS, isNoteKind, type NoteField, type NoteKind } from './types.js';
 
-/** Caps from the plan §5.3 validation table. */
+/** Caps from the plan §5.3 validation table. `bodyMax` is configurable, see output-budget.ts. */
 const LIMITS = {
   titleMax: 60,
   summaryMax: 120,
-  bodyMax: 600,
   tagsMax: 6,
   fieldsValueMax: 400,
 } as const;
@@ -73,10 +73,23 @@ export interface DistillOutcome {
 }
 
 /**
- * The system prompt. Kept in one template literal so the validation rules and
- * the instructions are read side by side during review.
+ * The system prompt. Kept in one function so the validation rules and the
+ * instructions are read side by side during review, and so the two numbers that
+ * appear inside it (body cap, deliberate note limit) come from config instead of
+ * being copied into prose that then drifts from the validator.
  */
-export const DISTILL_SYSTEM_PROMPT = `You are the note distiller. The user has just finished a piece of work and wants whatever will be reusable later extracted from it.
+export function buildDistillSystemPrompt(options: {
+  bodyMaxChars?: number;
+  /** Only mentioned when it narrows the defaults; see the call site. */
+  maxNotes?: number;
+}): string {
+  const bodyMax = options.bodyMaxChars ?? BODY_MAX_DEFAULT;
+  const noteCapLine =
+    options.maxNotes && options.maxNotes !== MAX_NOTES_DEFAULT
+      ? `\nThe operator allows at most ${options.maxNotes} note(s) per capture; stay within that.`
+      : '';
+
+  return `You are the note distiller. The user has just finished a piece of work and wants whatever will be reusable later extracted from it.
 
 Produce only the kind of knowledge that will be needed again:
 - command   one concrete command, flag set or one-liner, copy-pasteable as-is
@@ -88,23 +101,37 @@ Produce only the kind of knowledge that will be needed again:
 - decision  the decision, its background, and the options that were dropped
 
 Hard rules:
-1. Do not retell the conversation. Never write "the user asked X, then the assistant did Y".
-2. Every note must cite evidence: the id shown in square brackets before each entry, and only ids that appear there.
-3. If nothing is worth keeping, return {"notes": []}. Zero notes is allowed; padding is not.
-4. Keep body under 600 characters, in markdown; put commands in \`\`\` code blocks.
-5. When authoritative detail is missing, leave it out. Do not guess a flag, a version or a path.
-6. Never include secrets, cookies or personal data. Anything that looks like a credential stays out of the body.
-7. The kinds and slots above are hints, not a form. If a slot has nothing to say, write the body alone.
-   A note that fits no template but is worth keeping gets kind="other" - never drop content to fit a template.
-8. Record conclusions, not the process. Do not add a conclusion the material does not support.
-9. When a "brief from the user" is present it outranks the rules above: it may relax rule 8 (for example
-   "turn today's chat into notes") or narrow the scope (for example "only that one command").
-   It never licenses inventing something the material does not contain.
-10. Write title, summary and body in the language the material is written in - this prompt being English
-   is not an instruction to translate. Commands, paths, flags and identifiers stay exactly as written.
+1. Default to **one** note. A human reviews every draft, so every extra note costs them a read and a
+   decision: when you are unsure whether something deserves its own note, keep it inside the one you
+   are writing.
+2. Split into several notes only when the material holds different **subjects** - things that would get
+   different titles and each stand on their own. Never split one subject into background / steps /
+   pitfalls / conclusion: that is one note with sections.${noteCapLine}
+3. The title says what is inside, precisely enough that a reviewer can decide whether to open it. Name
+   the content, not the category: "Project notes", "Summary", "Misc" are wrong; when a note holds a
+   repository URL and the design philosophy behind it, "repo URL and design philosophy" is right.
+4. Do not retell the conversation. Never write "the user asked X, then the assistant did Y".
+5. Every note must cite evidence: the id shown in square brackets before each entry, and only ids that appear there.
+6. If nothing is worth keeping, return {"notes": []}. Zero notes is allowed; padding is not.
+7. Keep body under ${bodyMax} characters, in markdown; put commands in \`\`\` code blocks. Use \`## \`
+   sections when the note covers more than one aspect of its subject.
+8. When authoritative detail is missing, leave it out. Do not guess a flag, a version or a path.
+9. Never include secrets, cookies or personal data. Anything that looks like a credential stays out of the body.
+10. The kinds and slots above are hints, not a form. If a slot has nothing to say, write the body alone.
+    A note that fits no template but is worth keeping gets kind="other" - never drop content to fit a template.
+11. Record conclusions, not the process. Do not add a conclusion the material does not support.
+12. When a "brief from the user" is present it outranks the rules above: it may relax rule 11 (for example
+    "turn today's chat into notes") or narrow the scope (for example "only that one command").
+    It never licenses inventing something the material does not contain.
+13. Write title, summary and body in the language the material is written in - this prompt being English
+    is not an instruction to translate. Commands, paths, flags and identifiers stay exactly as written.
+14. Tag the subject, not the aspect: one fixed kebab-case tag per project, tool or person (the same
+    spelling every time), and let the title carry the aspect. This is what keeps notes about one subject
+    linked to each other later, and it only works if the tag is spelled the same way twice.
 
 Output strict JSON:
 {"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}`;
+}
 
 function clampText(value: unknown, max: number): string {
   if (typeof value !== 'string') return '';
@@ -155,6 +182,7 @@ function validateNote(
   allowedEvidence: Set<string>,
   rejected: DistillRejection[],
   kindFallbacks: Array<{ label: string; title: string }>,
+  bodyMaxChars: number,
 ): DistilledNote | null {
   if (!raw || typeof raw !== 'object') {
     rejected.push({ reason: 'not_object', detail: 'candidate is not an object' });
@@ -184,9 +212,7 @@ function validateNote(
 
   let tooLong = false;
   const trimmedBody =
-    bodyText.length > LIMITS.bodyMax
-      ? ((tooLong = true), bodyText.slice(0, LIMITS.bodyMax))
-      : bodyText;
+    bodyText.length > bodyMaxChars ? ((tooLong = true), bodyText.slice(0, bodyMaxChars)) : bodyText;
   const summary = clampText(candidate.summary, LIMITS.summaryMax) || firstLine(trimmedBody);
   if (summary.length > LIMITS.summaryMax) tooLong = true;
 
@@ -251,6 +277,7 @@ function firstLine(text: string): string {
 export function parseDistillResponse(
   raw: string,
   allowedEvidence: Iterable<string>,
+  bodyMaxChars: number = BODY_MAX_DEFAULT,
 ): DistillOutcome {
   const rejected: DistillRejection[] = [];
   const kindFallbacks: Array<{ label: string; title: string }> = [];
@@ -288,7 +315,7 @@ export function parseDistillResponse(
 
   const allowed = new Set(allowedEvidence);
   const notes = list
-    .map((candidate) => validateNote(candidate, allowed, rejected, kindFallbacks))
+    .map((candidate) => validateNote(candidate, allowed, rejected, kindFallbacks, bodyMaxChars))
     .filter((note): note is DistilledNote => note !== null);
 
   return { notes, rejected, kindFallbacks, rawChars: raw.length };
@@ -299,6 +326,14 @@ export interface DistillOptions {
   windowIds: string[];
   /** Upper bound from `notes.capture.maxNotesPerCapture`. */
   maxNotes?: number;
+  /** Body cap from `notes.capture.bodyMaxChars`; also what the prompt states. */
+  bodyMaxChars?: number;
+  /**
+   * Output budget. Omitted = derived from `bodyMaxChars` x `maxNotes`
+   * (`deriveMaxOutputTokens`). Exposed because a model that pads fields and tags
+   * may need headroom, and because config-level overrides are validated at boot.
+   */
+  maxOutputTokens?: number;
   modelConfig: AuxModelConfig;
   logger: Logger;
   /**
@@ -323,6 +358,21 @@ export interface DistillOptions {
  * pipeline records it as `empty` instead of failing the request.
  */
 export async function distillNotes(options: DistillOptions): Promise<DistillOutcome> {
+  const bodyMaxChars = options.bodyMaxChars ?? BODY_MAX_DEFAULT;
+  const systemPrompt = buildDistillSystemPrompt({
+    bodyMaxChars,
+    maxNotes: options.maxNotes,
+  });
+  /**
+   * The body cap is stated in the prompt; the token budget is derived from it so the
+   * two cannot drift. Stating the note cap unconditionally ("at most 3 note(s)") read
+   * as a target: a run holding one note started answering with three, which is what
+   * a number in front of a model that had no opinion yet does.
+   */
+  const maxTokens =
+    options.maxOutputTokens ??
+    deriveMaxOutputTokens(bodyMaxChars, options.maxNotes ?? MAX_NOTES_DEFAULT);
+
   const userPrompt = [
     options.instruction
       ? `Brief from the user for this capture (it outranks the defaults above; where they conflict, follow it):\n${options.instruction}`
@@ -332,20 +382,19 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     options.windowText,
     '',
     options.hint ? `Extra requirement: ${options.hint}` : '',
-    options.maxNotes ? `At most ${options.maxNotes} notes.` : '',
   ]
     .filter(Boolean)
     .join('\n');
 
   const first = await auxLLMCall(options.modelConfig, {
-    systemPrompt: DISTILL_SYSTEM_PROMPT,
+    systemPrompt,
     userPrompt,
     temperature: 0.2,
-    maxTokens: 2000,
+    maxTokens,
     logger: options.logger,
   });
 
-  const parsed = parseDistillResponse(first, options.windowIds);
+  const parsed = parseDistillResponse(first, options.windowIds, bodyMaxChars);
   const unusable =
     parsed.notes.length === 0 && parsed.rejected.some((item) => item.reason === 'invalid_json');
   if (!unusable) return parsed;
@@ -354,11 +403,11 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
   // actually fix from feedback, and a second round trip is cheaper than losing
   // the capture.
   const repaired = await auxLLMCall(options.modelConfig, {
-    systemPrompt: DISTILL_SYSTEM_PROMPT,
+    systemPrompt,
     userPrompt: `${userPrompt}\n\nThe previous output was not valid JSON. Output the JSON object only - no explanation, no code fence.`,
     temperature: 0.1,
-    maxTokens: 2000,
+    maxTokens,
     logger: options.logger,
   });
-  return parseDistillResponse(repaired, options.windowIds);
+  return parseDistillResponse(repaired, options.windowIds, bodyMaxChars);
 }

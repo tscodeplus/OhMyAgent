@@ -93,8 +93,6 @@ export default function NotesView() {
     markViewed,
     fetchNote,
     stats,
-    ballHidden,
-    setBallHidden,
   } = useNotes();
 
   /**
@@ -546,20 +544,11 @@ export default function NotesView() {
             {/* The actions breathe with the column: at 364px three controls plus the
                 title need every pixel, full-width there is room to separate them. */}
             <div className="flex shrink-0 items-center gap-2 @2xl:gap-3">
-              {/* Hiding the ball takes away the only control that could unhide it, so
-                  the way back lives here — where someone who wants it back looks. It
-                  is rendered only while hidden: a permanent toggle would be a setting
-                  nobody visits twice. */}
-              {ballHidden && (
-                <button
-                  type="button"
-                  onClick={() => setBallHidden(false)}
-                  title={t('notes.ball.showHint')}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 text-[11px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  {t('notes.ball.show')}
-                </button>
-              )}
+              {/* No ball switch here: hiding is `notes.ball.show` in config.yaml and
+                  the settings page is its one visible control. An in-page restore
+                  button looked reasonable until it vanished with the list column on
+                  narrow layouts — a way back that disappears with the layout it was
+                  meant to survive. */}
               {/* Still a toggle, not a fourth select: "archived" is a *place* in the
                   library rather than a value of a field, and a select would offer
                   "Archived: all" next to "Archived: 3", which says nothing. It sits
