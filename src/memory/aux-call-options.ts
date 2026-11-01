@@ -53,14 +53,26 @@ export interface AuxCapabilities {
   known: boolean;
   /** False when the catalog says the model rejects `temperature`. */
   supportsTemperature: boolean;
-  /** False when thinking is forced (adaptive/can't be switched off). */
+  /**
+   * True only when we have evidence that the model accepts
+   * `thinking: { type: "disabled" }`.
+   *
+   * `false` is also what an unknown model gets: with no catalog entry there is no
+   * evidence either way, and the measured cost of guessing wrong is not symmetric.
+   * Measured on `agnes/agnes-3.0-flash` (a `custom_providers` entry, so it carries
+   * no thinking metadata): sending the field produced `reasoning_content` on every
+   * call — 4.9k-6.3k characters — and 3x the completion tokens of the same call
+   * without it (1432 vs 480 tokens on identical material). A gateway that does not
+   * understand the field answers it by thinking anyway, so the "safe" default was
+   * the expensive one.
+   */
   canDisableThinking: boolean;
 }
 
 const UNKNOWN_CAPABILITIES: AuxCapabilities = {
   known: false,
   supportsTemperature: true,
-  canDisableThinking: true,
+  canDisableThinking: false,
 };
 
 /**
@@ -98,11 +110,18 @@ function compatOf(model: unknown): {
 /**
  * What the catalog says about a model's request surface.
  *
- * A model with **no** `thinkingLevelMap` is deliberately not treated as
- * "cannot disable": an absent map means "this build has no level names for it",
- * which is a different fact from an explicit map lacking `off` (that one is the
- * catalog saying the model always thinks). Guessing in that direction would stop
- * sending the field to models that happily accept it.
+ * Three states matter, and they are not the same fact:
+ *
+ *   - **unknown** (no catalog entry, which is every `custom_providers` model and
+ *     every live-discovered one) → `canDisableThinking: false`. The field is
+ *     withheld rather than risk asking a gateway to stop thinking and getting
+ *     more of it.
+ *   - **no `thinkingLevelMap`** → still switchable. An absent map means "this
+ *     build has no level names for it", not "this model always thinks", and
+ *     `opencode-go/qwen3.8-flash` (map `null`) honours the field: 419 completion
+ *     tokens with thinking on, 34 with it off.
+ *   - **a map that lacks `off`** → the catalog saying the model always thinks
+ *     (`opencode-go/claude-haiku-5-5`), so sending the field would be noise.
  */
 export async function lookupAuxCapabilities(
   provider: string,
@@ -121,10 +140,26 @@ export async function lookupAuxCapabilities(
       canDisableThinking: !compat.forceAdaptiveThinking && !mapExcludesOff,
     };
   } catch {
-    // No catalog access (standalone test, stripped build): assume the plain
-    // OpenAI-compatible surface and let the field-retry handle a rejection.
+    // No catalog access (standalone test, stripped build): treat it as unknown and
+    // withhold the thinking field, exactly as for a model the catalog has never
+    // heard of. Temperature is still sent — it is a plain OpenAI field, and the
+    // field-retry handles a provider that rejects it.
     return UNKNOWN_CAPABILITIES;
   }
+}
+
+/**
+ * Whether the request should carry `thinking: { type: "disabled" }`.
+ *
+ * Both halves are needed: the operator has to ask (`thinking: 'off'`) *and* the
+ * catalog has to say the model has a switchable budget. The second half is what
+ * keeps the field away from gateways that ignore it.
+ */
+export function sendsThinkingField(
+  thinking: AuxThinkingMode,
+  capabilities: AuxCapabilities,
+): boolean {
+  return thinking === 'off' && capabilities.canDisableThinking;
 }
 
 export interface AuxChatParamsInput {
@@ -156,7 +191,9 @@ export function buildAuxChatParams(input: AuxChatParamsInput): AuxChatParams {
     ],
     max_tokens: input.maxTokens,
     ...(sendTemperature ? { temperature: input.temperature } : {}),
-    ...(input.thinking === 'off' ? { thinking: { type: 'disabled' } } : {}),
+    ...(sendsThinkingField(input.thinking, input.capabilities)
+      ? { thinking: { type: 'disabled' } }
+      : {}),
   } as AuxChatParams;
 }
 

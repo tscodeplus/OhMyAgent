@@ -33,6 +33,14 @@ import {
 
 const PROVIDER = 'aux-test';
 const BASE_URL = 'https://aux.test/v1';
+/**
+ * A model the shipped catalog marks as thinking-switchable (`glm-5.3-flash` has
+ * `off` in its `thinkingLevelMap`). The thinking field is only sent to such a
+ * model, so every "the field went out" assertion needs one of these rather than
+ * the synthetic `aux-test/test-model`, which is deliberately unknown.
+ */
+const KNOWN_PROVIDER = 'opencode-go';
+const KNOWN_MODEL = `${KNOWN_PROVIDER}/glm-5.3-flash`;
 
 interface Capture {
   body: Record<string, unknown>;
@@ -100,6 +108,14 @@ const baseConfig = (overrides: Partial<AuxModelConfig> = {}): AuxModelConfig => 
   ...overrides,
 });
 
+/** Same call, against a model the catalog knows to be switchable. */
+const knownConfig = (overrides: Partial<AuxModelConfig> = {}): AuxModelConfig => ({
+  modelRef: KNOWN_MODEL,
+  apiKeys: { [KNOWN_PROVIDER]: 'sk-test' },
+  baseUrls: { [KNOWN_PROVIDER]: BASE_URL },
+  ...overrides,
+});
+
 const callOptions = (logger: ReturnType<typeof loggerStub>) => ({
   systemPrompt: 'system',
   userPrompt: 'material',
@@ -115,12 +131,54 @@ describe('aux request shape', () => {
   it('sends thinking as a top-level body field, never as extraBody', async () => {
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
 
-    await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
+    await auxLLMCall(knownConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
 
     expect(captured).toHaveLength(1);
     expect(captured[0].body.thinking).toEqual({ type: 'disabled' });
     // The old spelling: a field the provider never understands.
     expect(captured[0].body.extraBody).toBeUndefined();
+  });
+
+  it('withholds thinking from a model the catalog has never heard of', async () => {
+    // `agnes/agnes-3.0-flash` is a `custom_providers` entry, so nothing tells us
+    // whether its gateway understands the field. Measured: it does not — sending it
+    // produced 4.9k-6.3k characters of reasoning and 3x the completion tokens of the
+    // identical call without it. Guessing "send anyway" was the expensive choice.
+    const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
+
+    await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
+
+    expect(captured[0].body.thinking).toBeUndefined();
+    expect(captured[0].body.temperature).toBe(0.3);
+  });
+
+  it('withholds thinking from a catalog model that cannot stop thinking', async () => {
+    const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
+
+    await auxLLMCall(
+      {
+        modelRef: 'opencode-go/claude-haiku-5-5',
+        apiKeys: { [KNOWN_PROVIDER]: 'sk-test' },
+        baseUrls: { [KNOWN_PROVIDER]: BASE_URL },
+        thinking: 'off',
+      },
+      callOptions(loggerStub()) as never,
+    );
+
+    expect(captured[0].body.thinking).toBeUndefined();
+  });
+
+  it('says once per model why the field was withheld', async () => {
+    const logger = loggerStub();
+    stubFetch(() => jsonResponse(completion('{"ok":true}')));
+
+    await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(logger) as never);
+    await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(logger) as never);
+
+    const withheld = logger.warn.mock.calls.filter((c: unknown[]) =>
+      String(c[1]).includes('not in the model catalog'),
+    );
+    expect(withheld).toHaveLength(1);
   });
 
   it('omits both fields on `auto` when the model is unknown to the catalog', async () => {
@@ -230,10 +288,12 @@ describe('aux reasoning fallback', () => {
   });
 
   it('warns when a thinking-off model still returns reasoning', async () => {
+    // Only meaningful for a model we actually sent the field to: an unknown one was
+    // never asked, so "it ignored us" would be the wrong diagnosis.
     stubFetch(() => jsonResponse(completion('{"ok":true}', 'still thinking', 300)));
     const logger = loggerStub();
 
-    const answer = await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(logger) as never);
+    const answer = await auxLLMCall(knownConfig({ thinking: 'off' }), callOptions(logger) as never);
 
     expect(answer).toBe('{"ok":true}');
     expect(logger.warn.mock.calls.map((c: unknown[]) => String(c[1]))).toContainEqual(
@@ -273,9 +333,11 @@ describe('catalog capabilities', () => {
     expect(caps.supportsTemperature).toBe(true);
   });
 
-  it('falls back to the plain surface for a model outside the catalog', async () => {
+  it('withholds the thinking field for a model outside the catalog', async () => {
     const caps = await lookupAuxCapabilities('agnes', 'agnes-3.0-flash');
-    expect(caps).toEqual({ known: false, supportsTemperature: true, canDisableThinking: true });
+    // Unknown is not permissive: `canDisableThinking: false` is what stops the field
+    // from being sent to a gateway that answers it by thinking harder.
+    expect(caps).toEqual({ known: false, supportsTemperature: true, canDisableThinking: false });
   });
 
   it('drops temperature from the body when the catalog forbids it', () => {
@@ -289,9 +351,8 @@ describe('catalog capabilities', () => {
       capabilities: { known: true, supportsTemperature: false, canDisableThinking: false },
     });
     expect('temperature' in params).toBe(false);
-    // Thinking is still requested: the catalog is not authoritative enough to skip it,
-    // and the field-retry handles a provider that rejects it.
-    expect((params as unknown as Record<string, unknown>).thinking).toEqual({ type: 'disabled' });
+    // And no thinking field either: a model that cannot stop thinking is not asked to.
+    expect('thinking' in params).toBe(false);
   });
 });
 

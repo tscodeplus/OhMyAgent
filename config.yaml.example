@@ -60,6 +60,9 @@ provider:
 #   # Aux work is "material in, fixed-format answer out", so reasoning only spends
 #   # the same max_tokens before the answer. `off` sends thinking={type:disabled}
 #   # (DeepSeek/GLM/Qwen/MiniMax style); `auto` keeps the model default.
+#   # Withheld when the model is absent from the builtin catalog (custom providers) or
+#   # the catalog says its thinking cannot be switched off: a gateway that ignores the
+#   # field can answer by thinking *more* (measured: agnes-3.0-flash, 3x the tokens).
 #   thinking: off
 #   # Default aux temperature (call sites may override; notes distillation uses its own).
 #   temperature: 0.3
