@@ -113,6 +113,12 @@ export type CaptureResult =
        * halfway.
        */
       droppedMessages: number;
+      /**
+       * The scope the model reported for a brief like "only the last 3 turns", after it
+       * was enforced. Present only when the brief stated one — it is what makes the
+       * note's material auditable instead of a matter of trust.
+       */
+      appliedScope?: { turns?: number; chars?: number };
     }
   | {
       ok: false;

@@ -621,6 +621,32 @@ describe('notes service', () => {
       expect(result.readMessages + result.droppedMessages).toBe(18);
     });
 
+    it('hands the distiller a scope checker built from the window it just read', async () => {
+      // A wording the regex does not match ("前面那两段就别记了"): the window stays
+      // wide, and enforcement moves to the model's reported scope plus this checker.
+      appendTurns(8);
+      const { service, distillationCalls } = createTestService(db, {
+        distillScope: { turns: 2 },
+      });
+
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'session',
+        instruction: '前面那两段就别记了，只留后面的',
+      });
+      if (!result.ok) throw new Error(result.message);
+
+      const checker = distillationCalls[0].scopeIds;
+      expect(checker).toBeDefined();
+      // Two turns of the 9 = the last four messages; the fixture's first exchange is out.
+      const allowed = checker?.({ turns: 2 });
+      expect(allowed?.size).toBe(4);
+      expect(allowed?.has(MESSAGE_USER)).toBe(false);
+
+      // The reported scope is surfaced, so the reply can say why the note is narrow.
+      expect(result.appliedScope).toEqual({ turns: 2 });
+    });
+
     it('records the truncation on the capture run, not only on the reply', async () => {
       appendTurns(8, 400);
       const { service } = createTestService(db, { config: { tokenBudget: 300 } });

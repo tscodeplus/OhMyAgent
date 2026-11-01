@@ -12,7 +12,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveWindow, renderWindowPrompt } from '../../src/notes/window.js';
+import {
+  renderWindowPrompt,
+  resolveWindow,
+  scopeCharsIds,
+  scopeTurnsIds,
+} from '../../src/notes/window.js';
 import { WINDOW_TOKEN_DEFAULT } from '../../src/notes/output-budget.js';
 import { parseWindowIntent } from '../../src/notes/window-intent.js';
 import type { Message } from '../../src/memory/repositories/message-repository.js';
@@ -109,6 +114,36 @@ describe('resolveWindow / session', () => {
     });
     expect(picked.messageIds).toEqual([rows[1].id]);
     expect(picked.droppedMessages).toBe(0);
+  });
+});
+
+describe('scope id helpers', () => {
+  it('covers exactly the last N turns, by the same definition resolveWindow uses', () => {
+    const rows = conversation(5);
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session' });
+    const ids = scopeTurnsIds(window.messages, 2);
+
+    // Four messages: two exchanges, counting back from the end.
+    expect(ids.size).toBe(4);
+    expect(ids.has(rows[9].id)).toBe(true);
+    expect(ids.has(rows[0].id)).toBe(false);
+  });
+
+  it('counts characters from the newest message back', () => {
+    const rows = conversation(5, 100);
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session' });
+    const ids = scopeCharsIds(window.messages, 250);
+
+    // 100-char messages: the third one crosses the cap, so three are in scope.
+    expect(ids.size).toBe(3);
+    expect(ids.has(rows[9].id)).toBe(true);
+  });
+
+  it('never returns an empty set: the newest message always fits', () => {
+    const rows = conversation(3, 100);
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session' });
+    expect(scopeCharsIds(window.messages, 1).size).toBe(1);
+    expect(scopeTurnsIds(window.messages, 1).size).toBeGreaterThanOrEqual(1);
   });
 });
 

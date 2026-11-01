@@ -128,6 +128,7 @@
     "noSession": "This conversation has no stored messages yet — say something first.",
     "disabled": "Notes are switched off (notes.enabled in config.yaml).",
     "failed": "Distillation failed, so no note was written: {{error}}",
-    "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the window budget"
+    "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the window budget",
+    "scopedTurns": "Used only the last {{turns}} turns, as asked"
   }
 }

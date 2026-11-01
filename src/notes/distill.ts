@@ -21,7 +21,12 @@ import type { Logger } from 'pino';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { extractJson } from '../memory/json-utils.js';
 import { normalizeTags } from './canonical.js';
-import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT, deriveMaxOutputTokens } from './output-budget.js';
+import {
+  BODY_MAX_DEFAULT,
+  MAX_NOTES_DEFAULT,
+  WINDOW_TURNS_MAX,
+  deriveMaxOutputTokens,
+} from './output-budget.js';
 import { NOTE_FIELDS, isNoteKind, type NoteField, type NoteKind } from './types.js';
 
 /** Caps from the plan §5.3 validation table. `bodyMax` is configurable, see output-budget.ts. */
@@ -51,9 +56,24 @@ export interface DistillRejection {
     | 'too_long'
     | 'empty'
     | 'evidence_outside_window'
+    | 'evidence_outside_scope'
     | 'no_evidence';
   /** Short diagnostic, never the note body (it may contain a secret). */
   detail: string;
+}
+
+/**
+ * What the model reported the brief asked for, in numbers.
+ *
+ * The model reads the language ("只整理最近 3 轮", "last 3 exchanges", "前面那两段别记了"),
+ * the code enforces the result: evidence drawn from outside this scope is a rejection,
+ * not a style note. Parsing the same sentence with a regex only ever matched the
+ * phrasings the regex author imagined, and silently fell back to "read everything" for
+ * the rest — correctly enough, but unverifiable.
+ */
+export interface ReportedScope {
+  turns?: number;
+  chars?: number;
 }
 
 export interface DistillOutcome {
@@ -70,6 +90,8 @@ export interface DistillOutcome {
   kindFallbacks: Array<{ label: string; title: string }>;
   /** Raw model output length, for the diagnostic log. */
   rawChars: number;
+  /** What the brief said about how much to cover, when the model reported it. */
+  scope?: ReportedScope;
 }
 
 /**
@@ -123,6 +145,11 @@ Hard rules:
 12. When a "brief from the user" is present it outranks the rules above: it may relax rule 11 (for example
     "turn today's chat into notes") or narrow the scope (for example "only that one command").
     It never licenses inventing something the material does not contain.
+12b. If the brief states how much to cover - a number of turns or exchanges, or a number of characters -
+    report that number in "scope", in whatever words the brief used, and then take evidence ONLY from
+    that part of the material, counting back from the end. "scope" is a report of the brief, never your
+    own preference: omit it when the brief says nothing about how much to cover. Example: a brief saying
+    "only the last 3 exchanges" gives "scope":{"turns":3} and no evidence from earlier entries.
 13. Write title, summary and body in the language the material is written in - this prompt being English
     is not an instruction to translate. Commands, paths, flags and identifiers stay exactly as written.
 14. Tag the subject, not the aspect: one fixed kebab-case tag per project, tool or person (the same
@@ -130,7 +157,8 @@ Hard rules:
     linked to each other later, and it only works if the tag is spelled the same way twice.
 
 Output strict JSON:
-{"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}`;
+{"scope":{"turns":3},"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}
+The "scope" key is optional and may instead be {"chars":2000}; omit it entirely when the brief states no amount.`;
 }
 
 function clampText(value: unknown, max: number): string {
@@ -183,6 +211,8 @@ function validateNote(
   rejected: DistillRejection[],
   kindFallbacks: Array<{ label: string; title: string }>,
   bodyMaxChars: number,
+  /** Present only when the model reported a scope: the ids that scope permits. */
+  scopedEvidence?: Set<string>,
 ): DistilledNote | null {
   if (!raw || typeof raw !== 'object') {
     rejected.push({ reason: 'not_object', detail: 'candidate is not an object' });
@@ -230,6 +260,22 @@ function validateNote(
     });
     return null;
   }
+
+  /**
+   * The brief said "only the last N turns" and this note cites an earlier one. The
+   * note is not wrong, it is out of scope — and keeping it would silently widen a
+   * limit the user set. Rejection is per note, so the in-scope notes survive.
+   */
+  if (scopedEvidence) {
+    const beyond = evidence.filter((id) => !scopedEvidence.has(id));
+    if (beyond.length > 0) {
+      rejected.push({
+        reason: 'evidence_outside_scope',
+        detail: `${beyond.length} id(s) older than the scope the brief stated`,
+      });
+      return null;
+    }
+  }
   if (evidence.length === 0) {
     rejected.push({ reason: 'no_evidence', detail: 'agent note without evidence' });
     return null;
@@ -269,6 +315,33 @@ function firstLine(text: string): string {
 }
 
 /**
+ * Read the model's `scope` report.
+ *
+ * Deliberately forgiving about shapes (`{turns: 3}`, `{turns: "3"}`, `{chars: 2000}`)
+ * and strict about values: a number outside what a window could mean is treated as
+ * "no scope at all" rather than being clamped into one, because a clamped scope would
+ * reject good notes by accident.
+ */
+function readScope(parsed: unknown): ReportedScope | undefined {
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const raw = (parsed as { scope?: unknown }).scope;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  const number = (value: unknown): number | undefined => {
+    const numeric = typeof value === 'string' ? Number(value) : value;
+    return typeof numeric === 'number' && Number.isFinite(numeric)
+      ? Math.floor(numeric)
+      : undefined;
+  };
+  const turns = number(record.turns);
+  const chars = number(record.chars);
+  const scope: ReportedScope = {};
+  if (turns !== undefined && turns >= 1 && turns <= WINDOW_TURNS_MAX) scope.turns = turns;
+  if (chars !== undefined && chars >= 1) scope.chars = chars;
+  return scope.turns === undefined && scope.chars === undefined ? undefined : scope;
+}
+
+/**
  * Parse + validate a raw model response.
  *
  * Exported separately from the model call so the rules are testable without a
@@ -278,6 +351,12 @@ export function parseDistillResponse(
   raw: string,
   allowedEvidence: Iterable<string>,
   bodyMaxChars: number = BODY_MAX_DEFAULT,
+  /**
+   * Turns a reported scope into the ids it permits. The window owns the definition of
+   * a turn, so the caller supplies it; without this the scope is reported but not
+   * enforced, which is what a regex on the instruction used to do (badly).
+   */
+  scopeIds?: (scope: ReportedScope) => Set<string>,
 ): DistillOutcome {
   const rejected: DistillRejection[] = [];
   const kindFallbacks: Array<{ label: string; title: string }> = [];
@@ -313,12 +392,25 @@ export function parseDistillResponse(
     };
   }
 
+  const scope = readScope(parsed);
   const allowed = new Set(allowedEvidence);
+  const scoped = scope && scopeIds ? scopeIds(scope) : null;
   const notes = list
-    .map((candidate) => validateNote(candidate, allowed, rejected, kindFallbacks, bodyMaxChars))
+    .map((candidate) =>
+      validateNote(
+        candidate,
+        allowed,
+        rejected,
+        kindFallbacks,
+        bodyMaxChars,
+        // A scope can only ever narrow: an id outside the window is already an
+        // invention, and an id inside the scope is not automatically in the window.
+        scoped && scoped.size > 0 ? scoped : undefined,
+      ),
+    )
     .filter((note): note is DistilledNote => note !== null);
 
-  return { notes, rejected, kindFallbacks, rawChars: raw.length };
+  return { notes, rejected, kindFallbacks, rawChars: raw.length, scope };
 }
 
 export interface DistillOptions {
@@ -347,6 +439,12 @@ export interface DistillOptions {
   instruction?: string;
   /** Narrow hint from the caller (e.g. "the user asked for a pitfall"). */
   hint?: string;
+  /**
+   * Turns a model-reported scope into the ids it permits (see `parseDistillResponse`).
+   * Absent = the scope is reported but not enforced, which is only right when there is
+   * no window to check against.
+   */
+  scopeIds?: (scope: ReportedScope) => Set<string>;
 }
 
 /**
@@ -394,7 +492,7 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     logger: options.logger,
   });
 
-  const parsed = parseDistillResponse(first, options.windowIds, bodyMaxChars);
+  const parsed = parseDistillResponse(first, options.windowIds, bodyMaxChars, options.scopeIds);
   const unusable =
     parsed.notes.length === 0 && parsed.rejected.some((item) => item.reason === 'invalid_json');
   if (!unusable) return parsed;
@@ -409,5 +507,5 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     maxTokens,
     logger: options.logger,
   });
-  return parseDistillResponse(repaired, options.windowIds, bodyMaxChars);
+  return parseDistillResponse(repaired, options.windowIds, bodyMaxChars, options.scopeIds);
 }

@@ -857,13 +857,21 @@ async function handleNote(
 function readScopeLines(result: Extract<CaptureResult, { ok: true }>): string[] {
   // `> 0` rather than `<= 0`: a fixture or an older server that omits the field must
   // not print "read undefined messages".
-  if (!(result.droppedMessages > 0)) return [];
-  return [
-    i18n.t('commands:note.windowTruncated', {
-      read: result.readMessages,
-      dropped: result.droppedMessages,
-    }),
-  ];
+  const lines: string[] = [];
+  if (result.droppedMessages > 0) {
+    lines.push(
+      i18n.t('commands:note.windowTruncated', {
+        read: result.readMessages,
+        dropped: result.droppedMessages,
+      }),
+    );
+  }
+  // A brief that named a scope narrowed the material on purpose; saying so is what
+  // keeps "the note is short" from reading as "the capture missed things".
+  if (result.appliedScope?.turns !== undefined) {
+    lines.push(i18n.t('commands:note.scopedTurns', { turns: result.appliedScope.turns }));
+  }
+  return lines;
 }
 
 /** Status label for a note the library already held, in the reply's language. */

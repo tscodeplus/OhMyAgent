@@ -40,7 +40,13 @@ import { defaultScope } from './scope.js';
 import { isRecap } from './recap.js';
 import { redactSecrets, redactionMarker } from './redact.js';
 import { distillNotes, type DistillOutcome } from './distill.js';
-import { renderWindowPrompt, resolveWindow, type ResolvedWindow } from './window.js';
+import {
+  renderWindowPrompt,
+  resolveWindow,
+  scopeCharsIds,
+  scopeTurnsIds,
+  type ResolvedWindow,
+} from './window.js';
 import { parseWindowIntent } from './window-intent.js';
 import { WINDOW_MESSAGES_MAX } from './output-budget.js';
 import type {
@@ -71,6 +77,14 @@ export interface CaptureDeps {
   distill?: (options: {
     windowText: string;
     windowIds: string[];
+    /** The resolved window, for `scopeIds` to narrow. Absent in older call sites. */
+    windowMessages?: ResolvedWindow['messages'];
+    /**
+     * What a model-reported scope permits, in ids. The seam takes it as a function so
+     * a stubbed distiller can hand back a `scope` and still be checked by the real
+     * validator.
+     */
+    scopeIds?: (scope: { turns?: number; chars?: number }) => Set<string>;
     maxNotes: number;
     bodyMaxChars: number;
     maxOutputTokens?: number;
@@ -214,11 +228,28 @@ export class CapturePipeline {
       ? `If it really is that category, use kind="${request.kind}".`
       : undefined;
 
+    /**
+     * What the brief's scope covers, in ids, once the model reports it.
+     *
+     * The model reads the language, this closure enforces the number: a note citing a
+     * message older than "the last 3 turns" is rejected as `evidence_outside_scope`
+     * instead of quietly widening a limit the user set. The regex in
+     * `window-intent.ts` still runs first, but only as a way to *read less* — it is a
+     * cost optimization, not the correctness mechanism, because it can only ever match
+     * the phrasings someone thought of.
+     */
+    const scopeIds = (scope: { turns?: number; chars?: number }): Set<string> => {
+      if (scope.chars !== undefined) return scopeCharsIds(window.messages, scope.chars);
+      return scopeTurnsIds(window.messages, scope.turns ?? window.messages.length);
+    };
+
     let outcome: DistillOutcome;
     try {
       outcome = await this.runDistill({
         windowText: redacted.text,
         windowIds: citableIds,
+        windowMessages: window.messages,
+        scopeIds,
         maxNotes: config.maxNotesPerCapture,
         bodyMaxChars: config.bodyMaxChars,
         maxOutputTokens: config.maxOutputTokens,
@@ -408,6 +439,7 @@ export class CapturePipeline {
       droppedRecaps,
       readMessages: window.messages.length,
       droppedMessages: window.droppedMessages,
+      appliedScope: outcome.scope,
     };
   }
 
@@ -568,6 +600,8 @@ export class CapturePipeline {
   private runDistill(input: {
     windowText: string;
     windowIds: string[];
+    windowMessages?: ResolvedWindow['messages'];
+    scopeIds?: (scope: { turns?: number; chars?: number }) => Set<string>;
     maxNotes: number;
     bodyMaxChars: number;
     maxOutputTokens?: number;

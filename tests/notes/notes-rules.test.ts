@@ -286,6 +286,76 @@ describe('distill validation', () => {
     expect(outcome.notes[0].confidence).toBe(1);
   });
 
+  describe('reported scope', () => {
+    const scoped = (evidence: string[], scope: unknown) =>
+      JSON.stringify({
+        scope,
+        notes: [{ kind: 'insight', title: 't', summary: 's', body: 'b', evidence }],
+      });
+
+    it('rejects a note that cites a message older than the brief allowed', () => {
+      // "只整理最近 3 轮": the model reported the number, so the window turns it into the
+      // ids it covers. A citation from outside is out of scope, not merely out of window.
+      const outcome = parseDistillResponse(
+        scoped(['m1'], { turns: 1 }),
+        allowed,
+        1200,
+        () => new Set(['m2']),
+      );
+
+      expect(outcome.notes).toHaveLength(0);
+      expect(outcome.rejected[0].reason).toBe('evidence_outside_scope');
+      expect(outcome.scope).toEqual({ turns: 1 });
+    });
+
+    it('keeps a note that stays inside the reported scope', () => {
+      const outcome = parseDistillResponse(
+        scoped(['m2'], { turns: 1 }),
+        allowed,
+        1200,
+        () => new Set(['m2']),
+      );
+
+      expect(outcome.notes).toHaveLength(1);
+      expect(outcome.scope).toEqual({ turns: 1 });
+    });
+
+    it('does not enforce anything when the model reports no scope', () => {
+      const outcome = parseDistillResponse(
+        scoped(['m1'], undefined),
+        allowed,
+        1200,
+        () => new Set(['m2']),
+      );
+
+      expect(outcome.notes).toHaveLength(1);
+      expect(outcome.scope).toBeUndefined();
+    });
+
+    it('ignores a scope whose number could not come from a window', () => {
+      // Clamping would be worse than ignoring: a scope of 0 or 999 turns would reject
+      // good notes by accident rather than simply not narrowing.
+      const outcome = parseDistillResponse(
+        scoped(['m1'], { turns: 999 }),
+        allowed,
+        1200,
+        () => new Set(['m2']),
+      );
+      expect(outcome.scope).toBeUndefined();
+      expect(outcome.notes).toHaveLength(1);
+    });
+
+    it('reads a string number, because models quote them', () => {
+      const outcome = parseDistillResponse(
+        scoped(['m2'], { turns: '2' }),
+        allowed,
+        1200,
+        () => new Set(['m2']),
+      );
+      expect(outcome.scope).toEqual({ turns: 2 });
+    });
+  });
+
   it('drops a note citing an id outside the window', () => {
     const outcome = parseDistillResponse(
       JSON.stringify({

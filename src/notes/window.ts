@@ -163,6 +163,48 @@ function render(message: Message, includeTools: 'off' | 'args'): WindowMessage |
 }
 
 /**
+ * The ids a "last N turns" scope covers, within an already-resolved window.
+ *
+ * Used to *check* the model rather than to decide what it reads: when a brief says
+ * "only the last 3 turns" the distiller may answer from anything it was shown, so the
+ * claim has to become mechanical — a note citing a message outside this set is
+ * rejected (`evidence_outside_scope`). The turn walk matches `resolveWindow`, because
+ * two definitions of "a turn" would disagree exactly when it matters.
+ */
+export function scopeTurnsIds(messages: readonly WindowMessage[], turns: number): Set<string> {
+  const wanted = Math.max(1, Math.min(Math.floor(turns), messages.length));
+  const picked: string[] = [];
+  let seen = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    picked.push(messages[index].id);
+    if (messages[index].role === 'user') {
+      seen += 1;
+      if (seen >= wanted) break;
+    }
+  }
+  return new Set(picked);
+}
+
+/**
+ * The ids an "N characters" scope covers, counted from the newest message back.
+ *
+ * Character counts are not something a model can measure reliably, which is why the
+ * number is computed here and the model only *reports* what the brief asked for. The
+ * newest message always fits, so a tiny cap cannot produce an empty evidence set.
+ */
+export function scopeCharsIds(messages: readonly WindowMessage[], chars: number): Set<string> {
+  const limit = Math.max(0, Math.floor(chars));
+  const picked: string[] = [];
+  let total = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    total += messages[index].content.length;
+    picked.push(messages[index].id);
+    if (total > limit) break;
+  }
+  return new Set(picked);
+}
+
+/**
  * Trim from the oldest end until the estimate fits, but never below one turn.
  *
  * The dropped count is returned rather than discarded: `capture.ts` puts it on the

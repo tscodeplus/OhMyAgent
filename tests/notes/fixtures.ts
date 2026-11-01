@@ -82,20 +82,25 @@ export interface DistillationCall {
   maxNotes: number;
   instruction?: string;
   hint?: string;
+  /** What a model-reported scope permits — the real validator runs it. */
+  scopeIds?: (scope: { turns?: number; chars?: number }) => Set<string>;
 }
 
 export function cannedDistill(
   notes: DistillOutcome['notes'],
   calls: DistillationCall[] = [],
+  scope?: DistillOutcome['scope'],
 ): (input: DistillationCall) => Promise<DistillOutcome> {
   return async (input) => {
     calls.push(input);
-    return { notes, rejected: [], kindFallbacks: [], rawChars: 0 };
+    return { notes, rejected: [], kindFallbacks: [], rawChars: 0, scope };
   };
 }
 
 export interface TestServiceOptions {
   distillNotes?: DistillOutcome['notes'];
+  /** What the model reports about the brief's scope, when the test cares. */
+  distillScope?: DistillOutcome['scope'];
   config?: Partial<NotesRuntimeConfig>;
 }
 
@@ -118,7 +123,11 @@ export function createTestService(
       warn: () => {},
       error: () => {},
     } as never,
-    distill: cannedDistill(options.distillNotes ?? [defaultDistilled()], distillationCalls),
+    distill: cannedDistill(
+      options.distillNotes ?? [defaultDistilled()],
+      distillationCalls,
+      options.distillScope,
+    ),
   });
   const service = createNotesService({
     repository,
