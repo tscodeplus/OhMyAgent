@@ -225,9 +225,9 @@ export function openDatabase(dbPath: string): Database.Database {
   }
 
   // V31: the notes tables (MyDocs/NOTES_LAYER_PLAN.md §4). A new table set, so
-  // it runs after applySchema() like v14/v17/v18 — schema.ts owns no DDL for
-  // these tables and therefore has no index that could reference a missing
-  // column. Every statement is IF NOT EXISTS, so a replay is a no-op.
+  // it runs after applySchema() — schema.ts owns no DDL for these tables and
+  // therefore has no index that could reference a missing column. Every
+  // statement is IF NOT EXISTS, so a replay is a no-op.
   const v31Result = migrateV31(db);
   if (v31Result.created) {
     logger.info('[V31] Created notes tables (notes, sources, capture runs, events, FTS)');

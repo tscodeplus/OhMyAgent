@@ -11,6 +11,7 @@ import { applySchema } from '../../src/memory/schema';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository';
 import { MemoryTermRepository } from '../../src/memory/repositories/memory-term-repository';
 import { registerMemoryRoutes } from '../../src/app/webui/memory-routes';
+import { DREAMCYCLE_PHASE_NAMES } from '../../src/memory/dream-cycle';
 import { resetWebUIToken } from '../../src/app/webui-auth';
 
 describe('memory routes — governance / batch / pipeline status', () => {
@@ -270,8 +271,7 @@ describe('memory routes — governance / batch / pipeline status', () => {
       expect(body.layers).toHaveLength(4);
       expect(body.layers.map((l: any) => l.layer)).toEqual(['L0', 'L1', 'L2', 'L3']);
       expect(body.layers[1].recordCount).toBe(1);
-      expect(body.dreamCycle).toHaveLength(7);
-      expect(body.dreamCycle[0].phase).toBe('synthesize');
+      expect(body.dreamCycle.map((p: any) => p.phase)).toEqual([...DREAMCYCLE_PHASE_NAMES]);
       expect(body.observability).toHaveProperty('total');
       expect(body.observability).toHaveProperty('windowHours', 24);
       expect(body.observabilityAllTime).toHaveProperty('total');

@@ -6,8 +6,8 @@
  *   2. Try config.fallbackRefs in order
  *   3. Throw if all fail — caller catches and falls back to rule-based logic.
  *
- * All four aux tasks (query_expansion, entity_extraction, memory_merge,
- * summary) share a single connection pool via AuxLLMClientPool, reusing
+ * All memory aux tasks (query expansion, memory merge, summary, notes capture)
+ * share a single connection pool via AuxLLMClientPool, reusing
  * OpenAI client instances when apiKey + baseUrl match.
  */
 

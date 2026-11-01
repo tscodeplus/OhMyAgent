@@ -225,9 +225,8 @@ export default function NotesView() {
   /**
    * The citation whose conversation is open in the bottom sheet (§4.7).
    *
-   * Shaped as a `SearchResult` because the drawer already existed for knowledge
-   * search and a second transcript viewer would have drifted from it: same sheet,
-   * same focus highlight, same "open full session" footer.
+   * Shaped as a `SearchResult` so the citation reuses the existing search
+   * drawer: same sheet, same focus highlight, same "open full session" footer.
    */
   const [contextHit, setContextHit] = useState<SearchResult | null>(null);
   /**

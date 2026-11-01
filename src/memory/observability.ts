@@ -19,10 +19,10 @@ export type MemoryObservationEvent =
    */
   | 'memory.injection'
   /**
-   * A tool call acted on a page `memory.injection` offered (the plan's
+   * A tool call acted on an item `memory.injection` offered (the plan's
    * ②「是否被引用」). Correlated event, same shape of measurement: it says the
    * offer was not wasted, which no offline eval can see. Written only for the
-   * knowledge lane — the other two lanes have no tool that reads them back.
+   * `memories` lane — the message lane has no tool that reads an excerpt back.
    */
   | 'memory.injection.referenced'
   /**

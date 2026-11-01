@@ -18,20 +18,13 @@ import {
 import { MaintenanceRunRepository } from '../../memory/maintenance/maintenance-run-repository.js';
 import { PersonaFeedback } from '../../memory/persona/feedback.js';
 import { DEGRADATION_EVENT_SQL } from '../../memory/observability.js';
+import { DREAMCYCLE_PHASE_NAMES } from '../../memory/dream-cycle.js';
 import { assessDurability } from '../../memory/write/durability.js';
 import type { UserPersona } from '../../memory/persona-model.js';
 import { parseEpochMs } from '../../shared/timestamp.js';
 
-/** DreamCycle phases — mirrors the phase list in dream-cycle.ts runAll(). */
-const DREAMCYCLE_PHASES = [
-  'synthesize',
-  'backlinks',
-  'extract',
-  'sceneCluster',
-  'hygiene',
-  'embed',
-  'purge',
-] as const;
+/** DreamCycle phases — the same list the orchestrator executes. */
+const DREAMCYCLE_PHASES = DREAMCYCLE_PHASE_NAMES;
 
 const VALID_VISIBILITIES = new Set(['shared', 'private', 'agent']);
 
@@ -110,8 +103,9 @@ function recordPersonaManualOverride(
  *
  * The `memory.injection` family is a measurement, not a fault (plan §6 K0 item
  * 3): one `memory.injection` row per prompt build, and one
- * `memory.injection.referenced` row whenever a tool read an offered page. All
- * three counters answer the same question — "what is degrading right now?" —
+ * `memory.injection.referenced` row whenever a tool reads back an offered
+ * memory. All three counters answer the same question — "what is degrading
+ * right now?" —
  * and the panel renders them on one line, so they must agree on the answer; an
  * unfiltered one would report thousands of healthy rows while the others read
  * zero, which is how a panel gets ignored. The exclusion is a negative

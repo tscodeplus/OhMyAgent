@@ -53,7 +53,7 @@ export interface SessionAccessPolicy {
 /**
  * The session's channel, recorded value first.
  *
- * Same precedence `graph-routes.ts` uses for `/api/sessions/:id/context`
+ * Same precedence `inbox-routes.ts` uses for `/api/inbox/:sid/messages`
  * (`COALESCE(channel, inferChannel(id, chat_id))`): rows written before v9 have
  * no `channel` column value, and `inferChannel` derives it from the identifiers
  * those rows do carry.

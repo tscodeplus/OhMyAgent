@@ -45,7 +45,6 @@ const memory: any = {
   episodeRepository: {},
   memoryRepository: {},
   embeddingRepository: {},
-  memoryLinkRepo: {},
   embeddingClient: {},
   personaAuditService: {},
   memoryDoctor: {},

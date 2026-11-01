@@ -100,9 +100,6 @@ export function migrateV5(db: Database.Database): void {
   // approval_decisions
   total += convertColumn(db, 'approval_decisions', 'created_at', false);
 
-  // memory_links
-  total += convertColumn(db, 'memory_links', 'created_at', false);
-
   // persona_distillation_runs (finished_at is nullable)
   total += convertColumn(db, 'persona_distillation_runs', 'started_at', false);
   total += convertColumn(db, 'persona_distillation_runs', 'finished_at', true);

@@ -6,7 +6,7 @@
  *
  * 1. **A write is DELETE by `note_id`, then INSERT.** FTS5 has no uniqueness
  *    constraint, so an INSERT-only update leaves the previous body searchable —
- *    the same discipline `memory/fts.ts` and `memory/knowledge/indexer.ts` apply.
+ *    the same discipline `memory/fts.ts` and the note indexer apply.
  * 2. **Status and scope are indexed as UNINDEXED columns.** Reads filter in SQL
  *    rather than after the fact, so a draft never consumes a result slot and a
  *    note outside the caller's scope is never briefly visible.

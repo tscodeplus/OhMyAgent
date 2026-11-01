@@ -418,11 +418,6 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
           true,
           'memCfg?.maintenance?.jobs?.embedding_cache_trim',
         ),
-        entity_backfill: yamlBool(
-          memCfg?.maintenance?.jobs?.entity_backfill,
-          true,
-          'memCfg?.maintenance?.jobs?.entity_backfill',
-        ),
         provenance_backfill: yamlBool(
           memCfg?.maintenance?.jobs?.provenance_backfill,
           true,

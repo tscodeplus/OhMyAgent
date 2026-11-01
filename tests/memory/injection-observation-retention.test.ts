@@ -9,9 +9,9 @@ const INJECTION = 'memory.injection';
 const FTS_FAILED = 'memory.fts.failed';
 
 /**
- * `memory.injection` retention, which rides on the existing hygiene pass for
- * the same reason `knowledge_log` does: that table is append-only and grows
- * with prompt builds, and the plan forbids a second scheduler.
+ * `memory.injection` retention, which rides on the existing hygiene pass: these
+ * rows are append-only and grow with prompt builds, and the plan forbids a
+ * second scheduler.
  *
  * `created_at` is a TEXT column whose DEFAULT writes epoch-ms as a digit
  * string, so rows are inserted in that production format and the horizon is

@@ -501,7 +501,6 @@
       "job_memory_hygiene": "Memory Hygiene",
       "job_embedding_backfill": "Embedding Backfill",
       "job_embedding_cache_trim": "Embedding Cache Trim",
-      "job_entity_backfill": "Entity Backfill",
       "job_persona_consistency": "Persona Consistency",
       "job_offload_hygiene": "Offload Hygiene",
       "job_scene_cluster": "Scene Cluster",

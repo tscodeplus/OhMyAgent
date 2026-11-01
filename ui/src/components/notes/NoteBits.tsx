@@ -371,7 +371,7 @@ export function SourceChip({
     <button
       type="button"
       // A citation is a claim with a receipt: clicking it shows the receipt in
-      // place, the same drawer the knowledge search used, rather than throwing the
+      // place, in the same drawer search results use, rather than throwing the
       // reader into the middle of a long transcript.
       onClick={onOpen ? () => onOpen(source) : undefined}
       title={source.excerpt || t('notes.traceOpen')}

@@ -6,7 +6,6 @@ import { MemoryRepository } from '../src/memory/repositories/memory-repository.j
 import { EmbeddingRepository } from '../src/memory/repositories/embedding-repository.js';
 import { EmbeddingCacheRepo } from '../src/memory/repositories/embedding-cache-repository.js';
 import { hashContent } from '../src/memory/repositories/embedding-cache-repository.js';
-import { MemoryLinkRepository } from '../src/memory/repositories/memory-link-repository.js';
 import { MemoryTermRepository } from '../src/memory/repositories/memory-term-repository.js';
 import { MemoryWriter } from '../src/memory/memory-writer.js';
 import { MemoryRetriever } from '../src/memory/memory-retriever.js';
@@ -689,7 +688,6 @@ async function runEval(fixture: BuiltFixture, options: EvalRunOptions): Promise<
   const memoryRepository = new MemoryRepository(db);
   const embeddingRepository = new EmbeddingRepository(db);
   const embeddingCacheRepo = new EmbeddingCacheRepo(db, 50000);
-  const memoryLinkRepo = new MemoryLinkRepository(db);
   const memoryTermRepo = new MemoryTermRepository(db);
   const embeddingClient = options.embeddingClient;
   const writer = new MemoryWriter({
@@ -697,7 +695,6 @@ async function runEval(fixture: BuiltFixture, options: EvalRunOptions): Promise<
     embeddingRepository,
     embeddingClient: embeddingClient as any,
     embeddingCacheRepo,
-    memoryLinkRepo,
     memoryTermRepo,
   });
 
@@ -727,7 +724,6 @@ async function runEval(fixture: BuiltFixture, options: EvalRunOptions): Promise<
     },
     decayConfig: { halfLifeDays: 36500 },
     defaultMinScore: 0.01,
-    memoryLinkRepo,
     plannerConfig: DEFAULT_PLANNER_CONFIG,
     recallConfig: options.recallConfig,
   });

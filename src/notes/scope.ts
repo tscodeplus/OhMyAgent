@@ -3,8 +3,8 @@
  *
  * One function, called by the repository's list/get, the FTS lane and the HTTP
  * routes, because a filter that ranks differently from the layer that returns it
- * leaks the rows it meant to exclude — the lesson `knowledge/scope.ts` already
- * carries.
+ * leaks the rows it meant to exclude — the lesson every scope filter in this
+ * codebase carries.
  *
  * The rule is a four-way match against the caller's context:
  *
@@ -13,7 +13,7 @@
  *     OR (scope='channel' AND scope_key = '<channel>:<chatId>')
  *     OR (scope='session' AND scope_key = <current session>)
  *
- * There is no "global" level, unlike knowledge: a note is either personal, or
+ * There is no "global" level: a note is either personal, or
  * scoped to a project, a chat, or one session. A console request with no context
  * sees everything, which is what makes the WebUI page (where a human is looking
  * at their own library) work.

@@ -347,8 +347,7 @@ export class MemoryWriter {
     // Atomic unit: the memory row, its lexical terms and its embedding must
     // commit together. Previously these were three independent writes, so a
     // crash/throw between them could leave a row with no embedding (permanent
-    // recall gap) or stale terms. Entity extraction (async) stays best-effort
-    // outside the transaction.
+    // recall gap) or stale terms.
     type WriteOutcome = { raced: Memory } | { created: Memory };
     const outcome = this.memoryRepository.runInTransaction<WriteOutcome>(() => {
       // Step 1's dedup probe ran before the embedding await above — a window

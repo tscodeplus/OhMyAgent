@@ -2,7 +2,7 @@
  * The notes layer's shared contract: closed sets, the stored row shape, and the
  * shapes the repository/service/HTTP boundary speak.
  *
- * Two shapes per concept, the same split `memory/knowledge/types.ts` uses:
+ * Two shapes per concept, the same split the memory layer uses:
  *
  *   - `NoteRow` / `NoteSourceRow` mirror the v31 tables — snake_case columns,
  *     JSON columns still as the TEXT they are stored as.

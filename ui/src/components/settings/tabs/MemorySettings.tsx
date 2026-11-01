@@ -560,7 +560,6 @@ export default function MemorySettings({
           {[
             'embedding_backfill',
             'embedding_cache_trim',
-            'entity_backfill',
             'persona_consistency',
             'offload_hygiene',
             'memory_doctor',

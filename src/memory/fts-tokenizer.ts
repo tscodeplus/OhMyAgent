@@ -109,9 +109,9 @@ export function tokenizeForIndex(text: string): string {
  * Ordered jieba tokens of `text`, unfiltered.
  *
  * `segmentCJK` is the recall-side helper and deliberately drops single chars and
- * stop words, which loses the neighbour relation entity mining needs: 知识图谱
- * arrives as the adjacent pair 知识|图谱, and only the adjacency tells it apart
- * from two unrelated words. Returns [] when jieba is unavailable.
+ * stop words, which loses the adjacency the conversation lane's phrase matching
+ * needs: 知识图谱 arrives as the adjacent pair 知识|图谱, and only the adjacency
+ * tells it apart from two unrelated words. Returns [] when jieba is unavailable.
  */
 export function cutCJK(text: string): string[] {
   const jieba = getJieba();

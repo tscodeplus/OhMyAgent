@@ -86,9 +86,9 @@ OhMyAgent's memory system is its core, not an afterthought:
 
 - **Hybrid retrieval** — vector similarity (sqlite-vec cosine + vec search) combined with FTS5 BM25 full-text search and term sidecar index, merged via RRF or coverage-based fusion
 - **LLM-driven summarization** — incremental session summaries extract preferences and key facts, compressing conversation history without losing signal
-- **DreamCycle nightly maintenance** — 8-phase background job: lint orphan records, rebuild entity links, re-extract entities, cluster scenes, expire stale memories, fill missing embeddings, and evict cache
+- **DreamCycle nightly maintenance** — background job: synthesize session memories, cluster scenes, run hygiene, fill missing embeddings, and evict cache
 - **Scene clustering** — groups memories by scope + time windows into structured Markdown documents, enabling long-term narrative recall
-- **Entity graph expansion** — regex-based entity extraction builds a `memory_links` graph; retrieval traverses related memories you didn't explicitly ask for
+- **Notes** — distilled, reusable knowledge (commands, pitfalls, workflows) captured out of a conversation and reviewed by you before it goes live
 - **Memory hygiene** — automatic cleanup of temporary facts and tasks while preserving preferences and summaries indefinitely
 - **Persona distillation** — background persona extraction from accumulated memories, giving the agent a stable sense of who you are
 - **Multi-pool recall** — current / shared / other-agent pools with weighted scoring, temporal decay, and confidence-based reranking

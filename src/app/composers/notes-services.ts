@@ -65,9 +65,8 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
  * Apply `notes.capture.modelRef` on top of the aux chain.
  *
  * A dedicated extraction model belongs at the *front* of the chain with the aux
- * model as fallback (the same shape `memory.entity_extraction.model` uses):
- * overriding both would turn a configured extraction model into a single point of
- * failure for capture.
+ * model as fallback: overriding both would turn a configured extraction model
+ * into a single point of failure for capture.
  */
 export function resolveNotesModelConfig(
   auxConfig: AuxModelConfig,

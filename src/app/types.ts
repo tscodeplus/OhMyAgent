@@ -72,8 +72,8 @@ export interface MemoryAuxModels {
   /** Fallback models tried in order. */
   fallback_models?: string[];
   /**
-   * Suppress reasoning/thinking for memory aux tasks (query expansion, entity
-   * extraction, merging, planning). Sends `thinking: { type: "disabled" }`
+   * Suppress reasoning/thinking for memory aux tasks (query expansion, memory
+   * merge, notes capture). Sends `thinking: { type: "disabled" }`
    * to DeepSeek/Zhipu/MiniMax-style reasoning models to cut token cost.
    */
   disableThinking?: boolean;

@@ -42,6 +42,24 @@ import type { MergeConfig } from './memory-merge.js';
 import { generateId } from '../shared/ids.js';
 import { parseEpochMs } from '../shared/timestamp.js';
 
+/**
+ * Phase names in execution order.
+ *
+ * Exported because `/api/memory/pipeline/status` renders exactly this list: the
+ * route and this class each used to carry their own copy, and the copies
+ * drifted — the panel reported phases (`backlinks`, `extract`) that no longer
+ * had a runner, so they showed "never ran" forever.
+ */
+export const DREAMCYCLE_PHASE_NAMES = [
+  'synthesize',
+  'sceneCluster',
+  'hygiene',
+  'embed',
+  'purge',
+] as const;
+
+export type DreamCyclePhaseName = (typeof DREAMCYCLE_PHASE_NAMES)[number];
+
 // ── Config ──────────────────────────────────────────────────────────────
 
 export interface DreamCycleConfig {
@@ -252,17 +270,20 @@ export class DreamCycle {
         this.logger.info('DreamCycle started outside grace window — heavy phases will be skipped');
       }
 
-      const phases: Array<{
-        name: string;
-        heavy: boolean;
-        fn: (signal: AbortSignal) => Promise<number>;
-      }> = [
-        { name: 'synthesize', heavy: true, fn: (s) => this.synthesize(s) },
-        { name: 'sceneCluster', heavy: true, fn: (s) => this.sceneCluster(s) },
-        { name: 'hygiene', heavy: false, fn: async (s) => this.hygiene(s) },
-        { name: 'embed', heavy: true, fn: (s) => this.embed(s) },
-        { name: 'purge', heavy: false, fn: async (s) => this.purge(s) },
-      ];
+      const runners: Record<
+        DreamCyclePhaseName,
+        { heavy: boolean; fn: (signal: AbortSignal) => Promise<number> }
+      > = {
+        synthesize: { heavy: true, fn: (s) => this.synthesize(s) },
+        sceneCluster: { heavy: true, fn: (s) => this.sceneCluster(s) },
+        hygiene: { heavy: false, fn: async (s) => this.hygiene(s) },
+        embed: { heavy: true, fn: (s) => this.embed(s) },
+        purge: { heavy: false, fn: async (s) => this.purge(s) },
+      };
+      // `Record<DreamCyclePhaseName, …>` is exhaustive: a name added to
+      // DREAMCYCLE_PHASE_NAMES without a runner fails the build, and
+      // `DREAMCYCLE_PHASE_NAMES.map` is what keeps the run order.
+      const phases = DREAMCYCLE_PHASE_NAMES.map((name) => ({ name, ...runners[name] }));
 
       const results: PhaseResult[] = [];
 

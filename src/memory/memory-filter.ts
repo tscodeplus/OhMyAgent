@@ -63,9 +63,9 @@ const HTML_PATTERN = /<[^>]+>/;
  * Credentials that must never be stored verbatim as a memory.
  *
  * A memory is replayed into other sessions forever, so a secret that reaches one
- * is a secret that reaches a model context, a log line, a note and an
- * Obsidian export. The device corpus had two: a `sk-…` API key stored as a
- * `preference`, and a `Clawvard exam token` JWT in a user-scope memory that the
+ * is a secret that reaches a model context, a log line and a note. The device
+ * corpus had two: a `sk-…` API key stored as a `preference`, and a
+ * `Clawvard exam token` JWT in a user-scope memory that the
  * per-turn `<memory_context>` block then quoted back. Neither was "unsafe" by
  * any existing rule — `isSafe` checks size and prompt injection only.
  *

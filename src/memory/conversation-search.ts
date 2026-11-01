@@ -272,7 +272,7 @@ function toEpochMs(value: unknown): number | undefined {
   return Number.isFinite(asNumber) && asNumber > 0 ? asNumber : undefined;
 }
 
-/** The BM25 query form `graph-routes.ts` already uses for message search. */
+/** The BM25 query form the conversation lane uses for message search. */
 function queryFts(
   db: Database.Database,
   ftsQuery: string,

@@ -563,7 +563,7 @@ What it asserts, and why each line exists:
   TBL  memories            712      712        0
   TBL  messages           1813     1817       +4
   TBL  sessions             46       46        0
-  TBL  memory_links        123      123        0
+  TBL  notes                64       64        0
   OK   data preserved — no row count fell below the pre-upgrade snapshot
   ```
 

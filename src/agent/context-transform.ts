@@ -237,19 +237,13 @@ const lastCompressionSummaryBySession = new LRUCache<string, string>({ max: 500 
  *
  * Fragments are extracted at build time from the item's own text (memory
  * content, excerpt) rather than from the rendered block, so the block's headers
- * — date, channel, `user:` — never become evidence. A lane carries
- * none: a page is matched by slug, which is exact and needs no text.
+ * — date, channel, `user:` — never become evidence. A lane whose reference is an
+ * exact id rather than text would carry none.
  */
 interface InjectionOfferItem {
   id: string;
   /** Normalised evidence fragments, compared against the normalised answer. */
   fragments: string[];
-  /**
-   * When true EVERY fragment must appear in the answer; the default is "any
-   * one". A graph hint is a claim about a pair (neighbour name + relation), so
-   * half of it is not evidence — a name alone is a topic both texts can share.
-   */
-  allFragments?: boolean;
 }
 
 /**
@@ -270,7 +264,7 @@ const REFERENCE_FRAGMENT_MAX_CHARS = 60;
 /** Fragments kept per item, longest first. */
 const REFERENCE_FRAGMENTS_PER_ITEM = 2;
 
-/** Offers examined per lane at turn end — a build caps at 5/2/2, this is the belt. */
+/** Offers examined per lane at turn end — a build caps at 5/2, this is the belt. */
 const REFERENCE_MAX_ITEMS_PER_LANE = 8;
 
 /**
@@ -715,7 +709,7 @@ function formatEpisodicEntry(item: EpisodicContextItem): string {
  * Render a tagged block from entries, or `null` for an empty lane.
  *
  * Budgets are not enforced here: `allocateInjectionCandidates` owns that, because
- * the three blocks share one pool and a block is only cheap to rebuild while
+ * the two blocks share one pool and a block is only cheap to rebuild while
  * deciding what fits. An empty tag is never rendered — it is pure cost.
  */
 function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string | null {
@@ -724,8 +718,7 @@ function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string
   if (lane === 'memories') {
     return `\n\n<memory_context>\nRelevant remembered information:\n${body}\n</memory_context>`;
   }
-  const tag = blockTag(lane);
-  return `\n\n<${tag}>\n${body}\n</${tag}>`;
+  return `\n\n<recent_conversation>\n${body}\n</recent_conversation>`;
 }
 
 /**
@@ -855,10 +848,6 @@ function allocateInjectionCandidates(
   }
 
   return { kept, blocks };
-}
-
-function blockTag(_lane: Exclude<InjectedBlockLane, 'memories'>): 'recent_conversation' {
-  return 'recent_conversation';
 }
 
 // ── Per-turn injection telemetry (plan §6 K0 item 3) ────────────────────────
@@ -1024,7 +1013,7 @@ function recordReferencedIds(
   const referenced = new Set(ids);
   const offered = offer[lane];
 
-  // Consume: one reference per offer, so reading the same page twice in a turn
+  // Consume: one reference per offer, so reading the same item twice in a turn
   // is one reference, and an id offered again next build can be credited again.
   injectedOfferBySession.set(scopeKey, {
     ...offer,
@@ -1118,17 +1107,12 @@ export function readInjectionReferences(params: {
 /**
  * Is this offer item present in the answer?
  *
- * An ordinary item needs any one of its fragments (a quoted clause); a graph
- * hint needs all of them (neighbour name AND relation word), because half of a
- * statement is not the statement. Empty fragments are never evidence, so an
- * item that normalised to nothing cannot match on the strength of it.
+ * Any one of its fragments (a quoted clause) is enough. Empty fragments are
+ * never evidence, so an item that normalised to nothing cannot match on the
+ * strength of it.
  */
 function isReferenced(item: InjectionOfferItem, haystack: string): boolean {
-  const fragments = item.fragments.filter((fragment) => fragment !== '');
-  if (fragments.length === 0) return false;
-  return item.allFragments === true
-    ? fragments.every((fragment) => haystack.includes(fragment))
-    : fragments.some((fragment) => haystack.includes(fragment));
+  return item.fragments.some((fragment) => fragment !== '' && haystack.includes(fragment));
 }
 
 /**

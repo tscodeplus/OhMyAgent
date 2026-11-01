@@ -1,7 +1,6 @@
 // src/memory/rrf-merge.ts
 
-export type RetrievalSource =
-  'vector' | 'fts5' | 'cosine' | 'entity_graph' | 'metadata_expansion' | 'terms';
+export type RetrievalSource = 'vector' | 'fts5' | 'cosine' | 'metadata_expansion' | 'terms';
 
 export interface SourceResult {
   id: string; // memory_id

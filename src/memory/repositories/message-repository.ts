@@ -31,30 +31,9 @@ export interface UpdateMessageInput {
 
 export class MessageRepository {
   private readonly db: Database.Database;
-  /** Told about every user message row {@link create} writes. See {@link onUserMessage}. */
-  private readonly userMessageListeners: Array<(message: Message) => void> = [];
 
   constructor(db: Database.Database) {
     this.db = db;
-  }
-
-  /**
-   * Register a listener for newly stored user messages.
-   *
-   * This is the seam the share-curation trigger hangs on (plan §6 K2-5, third
-   * entry point — `src/memory/knowledge/share-trigger.ts`): Feishu, Telegram,
-   * WeChat, QQ and the WebUI all reach the `messages` table through this one call
-   * (`AgentService.persistMessages`), so a trigger registered here covers every
-   * channel without a hook in any of them — and without a hook on the turn path,
-   * where it would sit between the user's message and their reply.
-   *
-   * Listeners run after the row exists, synchronously, and their exceptions are
-   * swallowed: the message is already stored, so a knowledge page is never a
-   * reason for a turn to fail. Take `ShareCurationTrigger.observeUserMessage` as
-   * the model — it only enqueues, and does the real work off the reply path.
-   */
-  onUserMessage(listener: (message: Message) => void): void {
-    this.userMessageListeners.push(listener);
   }
 
   create(input: CreateMessageInput): Message {
@@ -72,23 +51,11 @@ export class MessageRepository {
       created_at: input.created_at ?? Date.now(),
     });
     const created = this.findById(input.id)!;
-    // Keep messages_fts_jieba in step with the row: unified search and the
-    // knowledge graph read it, and the index used to be written only once
-    // (migration-v10 backfill), so every later message was invisible to search.
+    // Keep messages_fts_jieba in step with the row: both unified-search lanes
+    // read it, and the index used to be written only once (migration-v10
+    // backfill), so every later message was invisible to search.
     syncMessageJiebaFts(this.db, 'insert', created);
-    if (created.role === 'user') this.notifyUserMessage(created);
     return created;
-  }
-
-  /** Told after the row is committed; a listener that throws cannot fail the write. */
-  private notifyUserMessage(message: Message): void {
-    for (const listener of this.userMessageListeners) {
-      try {
-        listener(message);
-      } catch {
-        // Swallowed on purpose — see onUserMessage.
-      }
-    }
   }
 
   findById(id: string): Message | undefined {

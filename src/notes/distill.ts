@@ -3,7 +3,7 @@
  *
  * One model call, low temperature, aux model by default (`notes.capture.modelRef`
  * overrides). Extraction is throughput work and wants a fast non-reasoning model —
- * the same argument `memory.entity_extraction.model` already carries.
+ * the same argument memory summarization already carries.
  *
  * The prompt's job is to prevent two failure modes, in this order:
  *   1. **Recap** — "the user asked X, then the assistant did Y". The 4-gram gate
