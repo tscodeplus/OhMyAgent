@@ -135,14 +135,14 @@ export function clearAuxClientPool(): void {
  */
 const thinkingWarned = new Set<string>();
 
-function warnThinkingWithheldOnce(logger: Logger, modelRef: string, known: boolean): void {
+function warnThinkingUnverifiedOnce(logger: Logger, modelRef: string, known: boolean): void {
   if (thinkingWarned.has(modelRef)) return;
   thinkingWarned.add(modelRef);
   logger.warn(
     { modelRef, known },
     known
-      ? 'Aux model has no switchable thinking level according to the catalog; thinking=off is not sent, so its budget may still be spent on reasoning'
-      : 'Aux model is not in the model catalog, so the request shape is unknown; thinking=off is not sent, because a gateway that does not understand the field can answer it by thinking anyway',
+      ? 'Aux model has no switchable thinking level according to the catalog; thinking=disabled is sent anyway, so the budget may still be spent on reasoning'
+      : 'Aux model is not in the model catalog; thinking=disabled is sent anyway, but if the gateway does not understand the field it can answer by thinking harder',
   );
 }
 
@@ -189,9 +189,10 @@ export async function auxLLMCall(
       const client = await getClient(apiKey, baseUrl, resolved.provider);
       const capabilities = await lookupAuxCapabilities(resolved.provider, modelId);
       if (thinking === 'off' && !capabilities.canDisableThinking) {
-        // Say it once per model, not once per capture: an aux chain runs on every
-        // message, so a per-call warning becomes the log.
-        warnThinkingWithheldOnce(options.logger, modelRef, capabilities.known);
+        // The field goes out regardless — the operator set the switch. Say once per
+        // model that the catalog has no evidence this one honours it, so the reading
+        // of a token bill later is not a mystery.
+        warnThinkingUnverifiedOnce(options.logger, modelRef, capabilities.known);
       }
 
       const params = buildAuxChatParams({
@@ -218,10 +219,10 @@ export async function auxLLMCall(
         { modelRef, thinking, ...usage },
         'aux LLM call completed (completion tokens / reasoning chars)',
       );
-      if (usage.reasoningChars > 0 && sendsThinkingField(thinking, capabilities)) {
-        // We asked, the model says it can, and it thought anyway: that is a real
-        // capability mismatch worth knowing about (measured on glm-5.3-flash, whose
-        // gateway accepts the field and sometimes reasons regardless).
+      if (usage.reasoningChars > 0 && sendsThinkingField(thinking)) {
+        // We asked and the model thought anyway. Worth saying on every call rather
+        // than once: this is the line that turns "the bill went up" into "agnes
+        // ignores the switch", and it is the only signal that it is happening.
         options.logger.warn(
           { modelRef, reasoningChars: usage.reasoningChars },
           'Aux model ignored thinking=disabled; output budget is still paying for reasoning',

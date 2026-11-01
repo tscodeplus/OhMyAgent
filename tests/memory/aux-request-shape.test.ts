@@ -139,21 +139,23 @@ describe('aux request shape', () => {
     expect(captured[0].body.extraBody).toBeUndefined();
   });
 
-  it('withholds thinking from a model the catalog has never heard of', async () => {
-    // `agnes/agnes-3.0-flash` is a `custom_providers` entry, so nothing tells us
-    // whether its gateway understands the field. Measured: it does not — sending it
-    // produced 4.9k-6.3k characters of reasoning and 3x the completion tokens of the
-    // identical call without it. Guessing "send anyway" was the expensive choice.
+  it('sends thinking to a model the catalog has never heard of', async () => {
+    // `agnes/agnes-3.0-flash` is a `custom_providers` entry with no catalog metadata,
+    // and its gateway was measured to answer the field by thinking *more* (1432 vs
+    // 480 completion tokens). The switch still sends it: a switch whose effect
+    // depends on catalog data the operator cannot see is one nobody can reason about.
+    // The warning is what carries the risk.
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
 
     await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(loggerStub()) as never);
 
-    expect(captured[0].body.thinking).toBeUndefined();
+    expect(captured[0].body.thinking).toEqual({ type: 'disabled' });
     expect(captured[0].body.temperature).toBe(0.3);
   });
 
-  it('withholds thinking from a catalog model that cannot stop thinking', async () => {
+  it('sends thinking to a catalog model that cannot stop thinking, and says so', async () => {
     const { captured } = stubFetch(() => jsonResponse(completion('{"ok":true}')));
+    const logger = loggerStub();
 
     await auxLLMCall(
       {
@@ -162,23 +164,26 @@ describe('aux request shape', () => {
         baseUrls: { [KNOWN_PROVIDER]: BASE_URL },
         thinking: 'off',
       },
-      callOptions(loggerStub()) as never,
+      callOptions(logger) as never,
     );
 
-    expect(captured[0].body.thinking).toBeUndefined();
+    expect(captured[0].body.thinking).toEqual({ type: 'disabled' });
+    expect(logger.warn.mock.calls.map((c: unknown[]) => String(c[1]))).toContainEqual(
+      expect.stringContaining('no switchable thinking level'),
+    );
   });
 
-  it('says once per model why the field was withheld', async () => {
+  it('warns once per model that the switch is unverified, not once per call', async () => {
     const logger = loggerStub();
     stubFetch(() => jsonResponse(completion('{"ok":true}')));
 
     await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(logger) as never);
     await auxLLMCall(baseConfig({ thinking: 'off' }), callOptions(logger) as never);
 
-    const withheld = logger.warn.mock.calls.filter((c: unknown[]) =>
+    const unverified = logger.warn.mock.calls.filter((c: unknown[]) =>
       String(c[1]).includes('not in the model catalog'),
     );
-    expect(withheld).toHaveLength(1);
+    expect(unverified).toHaveLength(1);
   });
 
   it('omits both fields on `auto` when the model is unknown to the catalog', async () => {
@@ -333,10 +338,10 @@ describe('catalog capabilities', () => {
     expect(caps.supportsTemperature).toBe(true);
   });
 
-  it('withholds the thinking field for a model outside the catalog', async () => {
+  it('reports no evidence for a model outside the catalog', async () => {
     const caps = await lookupAuxCapabilities('agnes', 'agnes-3.0-flash');
-    // Unknown is not permissive: `canDisableThinking: false` is what stops the field
-    // from being sent to a gateway that answers it by thinking harder.
+    // `canDisableThinking: false` here means "nothing known", and its only consumer is
+    // the warning — the field is still sent when the operator asks for it.
     expect(caps).toEqual({ known: false, supportsTemperature: true, canDisableThinking: false });
   });
 
@@ -351,8 +356,8 @@ describe('catalog capabilities', () => {
       capabilities: { known: true, supportsTemperature: false, canDisableThinking: false },
     });
     expect('temperature' in params).toBe(false);
-    // And no thinking field either: a model that cannot stop thinking is not asked to.
-    expect('thinking' in params).toBe(false);
+    // Thinking is still requested: the catalog informs the warning, not the decision.
+    expect((params as unknown as Record<string, unknown>).thinking).toEqual({ type: 'disabled' });
   });
 });
 

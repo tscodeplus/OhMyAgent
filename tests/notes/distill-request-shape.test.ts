@@ -104,12 +104,12 @@ function buildPipeline(
 }
 
 const AUX: AuxModelConfig = {
-  // A catalog model with a switchable thinking budget. The thinking field is only
-  // sent to such a model (see `sendsThinkingField`), and these tests are about the
-  // field's value rather than that filter, so the fixture has to be a known one.
-  modelRef: 'opencode-go/glm-5.3-flash',
-  apiKeys: { 'opencode-go': 'sk-test' },
-  baseUrls: { 'opencode-go': 'https://aux.test/v1' },
+  // Deliberately a model the catalog has never heard of: the thinking field goes out
+  // because the operator asked for it, and this fixture proves that end to end
+  // through the real distiller rather than through the request builder alone.
+  modelRef: 'aux-test/test-model',
+  apiKeys: { 'aux-test': 'sk-test' },
+  baseUrls: { 'aux-test': 'https://aux.test/v1' },
 };
 
 describe('notes distillation request shape', () => {
