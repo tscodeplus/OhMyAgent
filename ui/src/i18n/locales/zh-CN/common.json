@@ -1655,7 +1655,7 @@
       "group": "共 {{count}} 条"
     },
     "capture": {
-      "title": "记一条笔记",
+      "title": "整理笔记",
       "turn": "基于这个会话整理笔记",
       "manual": "手写笔记",
       "drafts": "草稿箱",

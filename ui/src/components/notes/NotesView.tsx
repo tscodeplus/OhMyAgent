@@ -543,7 +543,9 @@ export default function NotesView() {
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            {/* The actions breathe with the column: at 364px three controls plus the
+                title need every pixel, full-width there is room to separate them. */}
+            <div className="flex shrink-0 items-center gap-2 @2xl:gap-3">
               {/* Hiding the ball takes away the only control that could unhide it, so
                   the way back lives here — where someone who wants it back looks. It
                   is rendered only while hidden: a permanent toggle would be a setting
@@ -556,6 +558,29 @@ export default function NotesView() {
                   className="inline-flex h-8 items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 text-[11px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
                   {t('notes.ball.show')}
+                </button>
+              )}
+              {/* Still a toggle, not a fourth select: "archived" is a *place* in the
+                  library rather than a value of a field, and a select would offer
+                  "Archived: all" next to "Archived: 3", which says nothing. It sits
+                  beside 草稿箱 because both are places you go, not filters you narrow. */}
+              {counts.archived > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStatusFilter((current) => (current === 'archived' ? 'active' : 'archived'))
+                  }
+                  aria-pressed={statusFilter === 'archived'}
+                  className={cn(
+                    'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[11px] font-medium tabular-nums transition-colors',
+                    // The same active state as 草稿箱: both are places you go, so the
+                    // pressed look is one vocabulary, not a slightly quieter second one.
+                    statusFilter === 'archived'
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300'
+                      : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                  )}
+                >
+                  {t('notes.archivedToggle', { count: counts.archived })}
                 </button>
               )}
               <button
@@ -685,36 +710,15 @@ export default function NotesView() {
             )}
           </div>
 
-          {(counts.archived > 0 || hasFilters) && (
+          {hasFilters && (
             <div className="flex items-center gap-2 text-[11px]">
-              {/* Still a toggle, not a fourth select: "archived" is a *place* in the
-                  library rather than a value of a field, and a select would offer
-                  "Archived: all" next to "Archived: 3", which says nothing. */}
-              {counts.archived > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStatusFilter((current) => (current === 'archived' ? 'active' : 'archived'))
-                  }
-                  className={cn(
-                    'shrink-0 rounded-md border px-1.5 py-0.5 transition-colors',
-                    statusFilter === 'archived'
-                      ? 'border-neutral-300 bg-neutral-100 text-neutral-700 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200'
-                      : 'border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
-                  )}
-                >
-                  {t('notes.archivedToggle', { count: counts.archived })}
-                </button>
-              )}
-              {hasFilters && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="ml-auto shrink-0 text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
-                >
-                  {t('notes.clearFilters')}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="ml-auto shrink-0 text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
+              >
+                {t('notes.clearFilters')}
+              </button>
             </div>
           )}
 
@@ -760,12 +764,16 @@ export default function NotesView() {
               }
             />
           )}
-          {allNotes.map((note) => (
+          {allNotes.map((note, index) => (
             <li key={note.id}>
               <NoteRow
                 note={note}
                 language={i18n.language}
                 active={note.id === noteId}
+                // Banded like a spreadsheet: two rows of the same height, weight and
+                // card outline read as one block otherwise, and the eye loses the row
+                // it was on when it comes back from the detail pane.
+                banded={index % 2 === 1}
                 // Clicking the open row closes the detail, the same way its back
                 // arrow does — including the unsaved-changes question, which is why
                 // this calls `requestClose` and not `navigate`.
@@ -991,11 +999,14 @@ function NoteRow({
   note,
   language,
   active,
+  banded,
   onSelect,
 }: {
   note: Note;
   language: string;
   active: boolean;
+  /** Second row of a pair — see the banding comment at the call site. */
+  banded: boolean;
   onSelect: () => void;
 }) {
   const { t } = useTranslation('common');
@@ -1012,11 +1023,17 @@ function NoteRow({
         // marks the open note is the rail below, not a recoloured edge — a card whose
         // border changes colour on click reads as a state of the *control*, while the
         // rail reads as "this is the note in the pane on the right".
-        'group relative w-full rounded-xl border border-neutral-200/80 bg-white px-3 py-2.5 text-left transition-colors',
+        'group relative w-full rounded-xl border border-neutral-200/80 px-3 py-2.5 text-left transition-colors',
+        // One band for the whole list: a draft and an approved note are the same
+        // *row*, so they stripe the same — the badge and the hollow dot already say
+        // which is which, and a second colour system would fight the first.
+        banded
+          ? 'bg-neutral-200/55 hover:bg-neutral-200/75 dark:bg-neutral-700/60 dark:hover:bg-neutral-700/80'
+          : 'bg-white hover:bg-neutral-50 dark:bg-neutral-900/40 dark:hover:bg-neutral-800/60',
         // `dark:border-neutral-700` is this app's dark-mode *border* tone (the inputs
         // and cards use it); neutral-800 sat at the same value as the surface below,
         // which made the card edges almost invisible on #0d1117.
-        'hover:border-neutral-300 dark:border-neutral-700/80 dark:bg-neutral-900/40 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/50',
+        'hover:border-neutral-300 dark:border-neutral-700/80 dark:hover:border-neutral-600',
       )}
     >
       {/* Inset far enough (3px) to clear the card's own border, so it is an accent

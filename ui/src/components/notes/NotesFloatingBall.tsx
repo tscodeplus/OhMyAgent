@@ -499,7 +499,6 @@ export default function NotesFloatingBall() {
             <MenuItem
               icon={Sparkles}
               label={t('notes.capture.turn')}
-              hint="↵"
               onClick={() => startCapture('turn')}
             />
             <MenuItem

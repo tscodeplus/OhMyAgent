@@ -1655,7 +1655,7 @@
       "group": "{{count}} in total"
     },
     "capture": {
-      "title": "Capture a note",
+      "title": "Distil notes",
       "turn": "Distil notes from this conversation",
       "manual": "Write it myself",
       "drafts": "Drafts",
