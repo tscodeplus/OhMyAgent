@@ -1219,6 +1219,10 @@ function NoteDetail({
                           </span>
                           <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
                             {t(`notes.kind.${item.kind}`)}
+                            {/* Why, not just that: a bare 「相关」 list is the part
+                                people stop trusting. One word is enough. */}
+                            <span className="text-neutral-300 dark:text-neutral-600"> · </span>
+                            {t(`notes.related.${item.basis}`)}
                           </span>
                         </span>
                       </button>

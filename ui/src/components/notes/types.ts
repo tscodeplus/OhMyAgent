@@ -66,10 +66,18 @@ export interface NoteSource {
   sessionId?: string | null;
 }
 
+/**
+ * Why two notes are related, mirroring `NOTE_RELATION_BASES` on the server
+ * (`src/notes/types.ts`). Stored, not derived: the list has to be able to say *why*
+ * without re-running the rules in the browser.
+ */
+export type NoteRelationBasis = 'session' | 'title' | 'tags';
+
 export interface NoteRelated {
   id: string;
   title: string;
   kind: NoteKind;
+  basis: NoteRelationBasis;
 }
 
 /**

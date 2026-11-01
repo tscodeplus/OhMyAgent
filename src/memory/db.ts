@@ -17,6 +17,7 @@ import { migrateV28 } from './migration-v28.js';
 import { migrateV30 } from './migration-v30.js';
 import { migrateV31 } from './migration-v31.js';
 import { migrateV32 } from './migration-v32.js';
+import { migrateV33 } from './migration-v33.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -241,6 +242,20 @@ export function openDatabase(dbPath: string): Database.Database {
   const v32Result = migrateV32(db);
   if (v32Result.dropped.length > 0) {
     logger.info(`[V32] Dropped ${v32Result.dropped.length} retired table(s)`);
+  }
+
+  // V33 rebuilds `note_relations` with a `basis` column. v31 created that table for a
+  // feature nothing wrote to, so the rebuild cannot lose a row — but it is still a
+  // rebuild rather than a column add, because the column it replaces is named
+  // `origin`, which everywhere else in this database means authorship. After
+  // applySchema like the other new-table migrations: `note_relations` is created by
+  // v31 (also after applySchema) and schema.ts owns no DDL for it.
+  const v33Result = migrateV33(db);
+  if (v33Result.rebuilt) {
+    logger.info(
+      { discardedRows: v33Result.discardedRows },
+      '[V33] note_relations rebuilt with a basis column',
+    );
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

@@ -12,6 +12,7 @@ import {
   Monitor,
   Wrench,
   BrainCircuit,
+  NotebookPen,
   BookOpen,
   Network,
   SlidersHorizontal,
@@ -34,6 +35,7 @@ import ComputerUseSettings from './tabs/ComputerUseSettings';
 import McpSettings from './tabs/McpSettings';
 import DesktopSettings from './tabs/DesktopSettings';
 import GatewaySettings from './tabs/GatewaySettings';
+import NotesSettings from './tabs/NotesSettings';
 import HarnessSettings from './tabs/HarnessSettings';
 import { isElectron } from '../../utils/env';
 import { getToken } from '../../utils/api';
@@ -121,6 +123,7 @@ export const SETTINGS_GROUPS: readonly SettingsTabDef[] = [
   // ── ⚙️ 系统 ──
   { id: 'tools', labelKey: 'settings.groups.toolsPolicy', group: 'system', icon: Wrench },
   { id: 'memory', labelKey: 'settings.groups.memory', group: 'system', icon: BrainCircuit },
+  { id: 'notes', labelKey: 'settings.groups.notes', group: 'system', icon: NotebookPen },
   { id: 'gateway', labelKey: 'settings.groups.gateway', group: 'system', icon: Network },
   { id: 'about', labelKey: 'settings.groups.about', group: 'system', icon: Info },
 ] as const;
@@ -143,6 +146,7 @@ const COMPONENT_MAP: Record<string, React.ComponentType<any>> = {
   tools: ToolsPolicySettings,
   websearch: WebSearchSettings,
   memory: MemorySettings,
+  notes: NotesSettings,
   multimodal: MultimodalSettings,
   computer: ComputerUseSettings,
   mcp: McpSettings,
@@ -516,6 +520,11 @@ export default function SettingsModal({ onClose, initialTab, initialSubTab }: Se
             {mountedTabs.has('memory') && (
               <div style={{ display: activeGroup === 'memory' ? undefined : 'none' }}>
                 <MemorySettings {...tabProps} />
+              </div>
+            )}
+            {mountedTabs.has('notes') && (
+              <div style={{ display: activeGroup === 'notes' ? undefined : 'none' }}>
+                <NotesSettings {...tabProps} />
               </div>
             )}
             {mountedTabs.has('multimodal') && (

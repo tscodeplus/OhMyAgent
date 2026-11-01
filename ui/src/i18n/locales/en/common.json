@@ -213,7 +213,8 @@
       "groupIntegration": "Integrations",
       "groupSystem": "System",
       "unsavedBadge": "Unsaved changes",
-      "searchPlaceholder": "Search settings..."
+      "searchPlaceholder": "Search settings...",
+      "notes": "Notes"
     },
     "subscriptions": {
       "description": "Sign in to use Claude Pro/Max, ChatGPT Plus/Pro, or GitHub Copilot models.",
@@ -513,6 +514,28 @@
       "dreamCycle.windowGraceMinutes": "Grace Window (min)",
       "dreamCycle.phaseTimeoutMs": "Phase Timeout (ms)",
       "dreamCycle.synthesizeBatchSize": "Merge Batch Size"
+    },
+    "notes": {
+      "basics": "Basics",
+      "enabled": "Enable notes",
+      "enabledHint": "Off means no capture entry points, no notes page, no model calls. Requires a restart.",
+      "reviewGate": "The review gate is not configurable: agent-distilled notes always land as drafts and only enter the library once a human approves them. That is the core constraint of this layer, not a switch.",
+      "capture": "Capture",
+      "modelRef": "Distillation model",
+      "maxNotes": "Max notes per capture",
+      "windowTurns": "Window (turns)",
+      "tokenBudget": "Window token budget",
+      "includeTools": "Tool calls",
+      "includeToolsHint": "“With arguments” adds one line per tool call (no results); off keeps conclusions only.",
+      "includeToolsOff": "Omit",
+      "includeToolsArgs": "With arguments",
+      "redact": "Redact credential-shaped spans",
+      "redactHint": "Masking happens before the material reaches the model. Turning this off means keys and tokens can travel verbatim.",
+      "retention": "Retention",
+      "draftTtlDays": "Unreviewed drafts kept for (days)",
+      "logRetentionDays": "Operation log kept for (days)",
+      "retentionHint": "An expired draft is archived as “expired”, never deleted, and can be restored. 0 keeps forever (the log then grows with writes).",
+      "restartHint": "The two restart-owned fields (the switch and the distillation model) apply after a service restart; everything else applies on the next capture or the next cleanup run."
     },
     "tools": {
       "shell": "Shell Tool",
@@ -1593,6 +1616,11 @@
     "traceNone": "Hand-written — no messages cited",
     "sourcesGone": "Original message was cleaned up; the note still works",
     "relatedTitle": "Related notes",
+    "related": {
+      "session": "same conversation",
+      "title": "similar title",
+      "tags": "shared tags"
+    },
     "empty": "No notes yet. Tap the ball in the corner, or press Ctrl+Shift+N.",
     "emptySearch": "No notes match",
     "emptyDrafts": "No drafts waiting for approval",

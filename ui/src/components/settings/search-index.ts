@@ -117,6 +117,14 @@ export const SEARCH_INDEX: SearchEntry[] = [
   // Memory
   { tabId: 'memory', labelKey: 'settings.memory.title' },
 
+  // Notes
+  { tabId: 'notes', labelKey: 'settings.groups.notes' },
+  { tabId: 'notes', labelKey: 'settings.notes.enabled' },
+  { tabId: 'notes', labelKey: 'settings.notes.modelRef' },
+  { tabId: 'notes', labelKey: 'settings.notes.includeTools' },
+  { tabId: 'notes', labelKey: 'settings.notes.redact' },
+  { tabId: 'notes', labelKey: 'settings.notes.draftTtlDays' },
+
   // Multimodal
   { tabId: 'multimodal', labelKey: 'settings.multimodal.title' },
   { tabId: 'multimodal', labelKey: 'settings.multimodal.image' },

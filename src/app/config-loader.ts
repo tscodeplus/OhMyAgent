@@ -1767,6 +1767,43 @@ export function jsConfigToYaml(
         break;
       }
 
+      // ────── notes → notes ───────
+      // The nested keys must be written snake_case. `buildNotesSection()` accepts the
+      // camelCase form too (so a hand-written file keeps working), but with `??`
+      // precedence: a section holding BOTH would silently prefer the old snake_case
+      // value, and every save from the WebUI would look applied while nothing changed.
+      // Writing only snake_case makes that state unreachable.
+      case 'notes': {
+        const nt = value as Record<string, unknown>;
+        const cur = (existingYaml.notes as Record<string, unknown>) || {};
+        const yn: Record<string, unknown> = { ...cur };
+        if (nt.enabled !== undefined) yn.enabled = nt.enabled;
+        if (nt.logRetentionDays !== undefined) yn.log_retention_days = nt.logRetentionDays;
+
+        const cap = nt.capture as Record<string, unknown> | undefined;
+        if (cap) {
+          const ycap = { ...((cur.capture as Record<string, unknown>) || {}) };
+          if (cap.modelRef !== undefined) ycap.model_ref = cap.modelRef;
+          if (cap.maxNotesPerCapture !== undefined)
+            ycap.max_notes_per_capture = cap.maxNotesPerCapture;
+          if (cap.windowTurns !== undefined) ycap.window_turns = cap.windowTurns;
+          if (cap.tokenBudget !== undefined) ycap.token_budget = cap.tokenBudget;
+          if (cap.includeTools !== undefined) ycap.include_tools = cap.includeTools;
+          if (cap.redact !== undefined) ycap.redact = cap.redact;
+          yn.capture = ycap;
+        }
+
+        const dr = nt.draft as Record<string, unknown> | undefined;
+        if (dr) {
+          const ydr = { ...((cur.draft as Record<string, unknown>) || {}) };
+          if (dr.ttlDays !== undefined) ydr.ttl_days = dr.ttlDays;
+          yn.draft = ydr;
+        }
+
+        yaml.notes = yn;
+        break;
+      }
+
       // ─── multimodal (already snake_case) ───
       case 'multimodal':
         yaml.multimodal = value;

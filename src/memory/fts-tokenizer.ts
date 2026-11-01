@@ -147,6 +147,28 @@ export function segmentCJK(text: string): string[] {
 }
 
 /**
+ * Every token of `text`, both scripts, unfiltered — jieba when available.
+ *
+ * A third tokenizer entry point exists because the two above each drop half the
+ * alphabet by design: `segmentCJK()` refuses Latin (its callers want Chinese words),
+ * and `tokenizeForIndex()` joins everything into one string for FTS storage. Notes
+ * relations need the token *list* of a title like `Ubuntu 26.04 LTS`, where the
+ * subject is Latin and the words must stay separate to be compared.
+ *
+ * Falls back to whitespace splitting when jieba is unavailable, which keeps the
+ * caller working (worse segmentation, same contract) on a build without the native
+ * binding.
+ */
+export function cutAll(text: string): string[] {
+  const jieba = getJieba();
+  if (!jieba) return text.split(/\s+/).filter(Boolean);
+  return jieba
+    .cutForSearch(text, true)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+/**
  * Build an FTS5 MATCH query string from raw user text.
  *
  * Uses jieba `cutForSearch()` for accurate Chinese word segmentation,

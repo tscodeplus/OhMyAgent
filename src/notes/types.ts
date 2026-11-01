@@ -212,10 +212,26 @@ export interface NoteSource {
   sessionId?: string | null;
 }
 
+/**
+ * A neighbour in the 「相关」 list.
+ *
+ * `basis` is *why*, and it is stored rather than recomputed at read time so that
+ * "why is this related?" has one answer shared by the API, the UI and any script
+ * inspecting the table. See `relations.ts` for the three rules.
+ */
 export interface NoteRelated {
   id: string;
   title: string;
   kind: NoteKind;
+  basis: NoteRelationBasis;
+}
+
+/** The signal that made a pair related. Strongest first (see `relations.ts`). */
+export const NOTE_RELATION_BASES = ['session', 'title', 'tags'] as const;
+export type NoteRelationBasis = (typeof NOTE_RELATION_BASES)[number];
+
+export function isRelationBasis(value: unknown): value is NoteRelationBasis {
+  return typeof value === 'string' && (NOTE_RELATION_BASES as readonly string[]).includes(value);
 }
 
 /** A note as stored (`notes` row). JSON columns are TEXT or NULL. */

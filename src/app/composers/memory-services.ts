@@ -398,11 +398,21 @@ export async function createMemoryServices(
     );
     mergeConfig.outputLanguage = c.memory.outputLanguage;
     if (distillerConfig) distillerConfig.outputLanguage = c.memory.outputLanguage;
+    // Hygiene reads its knobs off this object on every run, so a reload that did not
+    // mutate it here would leave the horizon frozen at whatever the process booted
+    // with — while the settings tab happily showed the new number. It also carries the
+    // two notes knobs (`draft.ttlDays`, `logRetentionDays`), which is why they can be
+    // edited without a restart.
+    hygieneConfig.tempRetentionDays = c.memory.hygiene.retentionDays;
+    hygieneConfig.notesDraftTtlDays = c.notes?.draft.ttlDays ?? 14;
+    hygieneConfig.notesLogRetentionDays = c.notes?.logRetentionDays ?? 90;
     logger.info(
       {
         primary: auxModelConfig.modelRef,
         fallbackCount: auxModelConfig.fallbackRefs?.length ?? 0,
         outputLanguage: c.memory.outputLanguage,
+        retentionDays: hygieneConfig.tempRetentionDays,
+        notesDraftTtlDays: hygieneConfig.notesDraftTtlDays,
       },
       'Memory aux models reloaded (hot)',
     );

@@ -36,7 +36,6 @@ const BOOT_FIELD_PREFIXES = [
   'memory.embeddingCacheMaxEntries',
   'memory.queryEmbeddingTimeoutMs',
   'memory.embeddingCircuitBreaker.',
-  'memory.hygiene.retentionDays',
   'memory.persona.',
   'memory.sceneClustering.',
   'memory.maintenance.',

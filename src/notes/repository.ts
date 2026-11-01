@@ -26,6 +26,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { normalizeTags, normalizeTitle } from './canonical.js';
 import { ftsFacetTokens } from './facets.js';
+import { NoteRelations } from './relations.js';
 import { indexNote, searchNoteIds } from './indexer.js';
 import { readableScopeSql } from './scope.js';
 import {
@@ -36,6 +37,7 @@ import {
   isNoteStatus,
   isNoteStatusReason,
   isNoteSourceKind,
+  isRelationBasis,
   type CaptureRunInput,
   type CreateNoteInput,
   type Note,
@@ -95,9 +97,17 @@ function clampExcerpt(text: string | undefined): string | null {
 
 export class NotesRepository {
   private readonly db: Database.Database;
+  /**
+   * Relation writer, sharing this connection so it runs inside the same transaction
+   * as the write that triggered it (`create` / `update`). It is not injectable on
+   * purpose: unlike the distiller or the clock, a relation has no dependency worth
+   * faking — the same rows either exist or they do not, and the tests assert on them.
+   */
+  private readonly relations: NoteRelations;
 
   constructor(db: Database.Database) {
     this.db = db;
+    this.relations = new NoteRelations(db);
   }
 
   // ── row mapping ────────────────────────────────────────────────────
@@ -211,28 +221,31 @@ export class NotesRepository {
   }
 
   /**
-   * Related notes — **read path only, and there is no writer.**
+   * Related notes, written by `NoteRelations` (see `relations.ts` for the rules).
    *
-   * `note_relations` is created by v31 and nothing inserts into it, so this always
-   * returns `[]` and the detail page's 「相关 N 条」 block never renders. That is a
-   * known, deliberate state rather than a bug: the plan defers auto-relations to M4
-   * (§4.4), and the table plus this reader are what that work will plug into.
-   * If it is still empty when someone next touches this file, delete both — a sink
-   * with no producer is worse than no sink, because it reads as a working feature.
+   * Two filters here and nowhere else: the target must be `active` (a discarded or
+   * unreviewed note must not be advertised from a published one) and its *own* scope
+   * is not re-checked — the writer only links within one `(scope, scope_key)`, and
+   * duplicating that predicate in SQL would be a second implementation of a rule that
+   * has to agree with the first.
+   *
+   * Rows for a note that has since been archived simply stop appearing here rather
+   * than being deleted, which is what lets un-archiving restore the list for free.
    */
   private relatedFor(noteId: string): Note['related'] {
     const rows = this.db
       .prepare(
-        `SELECT r.related_id AS id, n.title AS title, n.kind AS kind
+        `SELECT r.related_id AS id, n.title AS title, n.kind AS kind, r.basis AS basis
            FROM note_relations r JOIN notes n ON n.id = r.related_id
           WHERE r.note_id = ? AND n.status = 'active'
-          ORDER BY r.score DESC LIMIT 5`,
+          ORDER BY r.score DESC, r.related_id ASC LIMIT 5`,
       )
-      .all(noteId) as Array<{ id: string; title: string; kind: string }>;
+      .all(noteId) as Array<{ id: string; title: string; kind: string; basis: string }>;
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
       kind: isNoteKind(row.kind) ? row.kind : 'other',
+      basis: isRelationBasis(row.basis) ? row.basis : 'tags',
     }));
   }
 
@@ -493,6 +506,10 @@ export class NotesRepository {
         null,
         now,
       );
+      // Inside the transaction: a note whose relations were half-written would render
+      // a one-sided pair, and this is a row of pure derivation — rolling it back with
+      // the insert costs nothing.
+      this.relations.rebuild(id, now);
     })();
 
     const created = this.rawRow(id);
@@ -616,6 +633,12 @@ export class NotesRepository {
         ],
       });
       this.appendEvent(id, 'edit', input.actor ?? 'user', null, now);
+      // Only the two signals that feed a relation: retitling or retagging can create
+      // and destroy edges, while editing the body cannot. Recomputing on every save
+      // would make the neighbours flicker for no change.
+      if (input.title !== undefined || input.tags !== undefined || input.scope !== undefined) {
+        this.relations.rebuild(id, now);
+      }
     })();
 
     const updated = this.rawRow(id);

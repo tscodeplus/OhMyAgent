@@ -213,7 +213,8 @@
       "groupIntegration": "集成",
       "groupSystem": "系统",
       "unsavedBadge": "有未保存的更改",
-      "searchPlaceholder": "搜索设置..."
+      "searchPlaceholder": "搜索设置...",
+      "notes": "笔记"
     },
     "subscriptions": {
       "description": "登录 AI 订阅以使用 Claude Pro/Max、ChatGPT Plus/Pro 或 GitHub Copilot 的模型。",
@@ -513,6 +514,28 @@
       "dreamCycle.windowGraceMinutes": "宽限期 (分钟)",
       "dreamCycle.phaseTimeoutMs": "阶段超时 (毫秒)",
       "dreamCycle.synthesizeBatchSize": "合并批次数"
+    },
+    "notes": {
+      "basics": "基础",
+      "enabled": "启用笔记",
+      "enabledHint": "关闭后没有捕获入口、没有笔记页、不调用模型。改动需要重启服务。",
+      "reviewGate": "审核门不可配置：agent 蒸馏出的笔记一律先落草稿，必须人工批准才会进入笔记库。这是这一层的核心约束，不作为开关提供。",
+      "capture": "捕获",
+      "modelRef": "蒸馏模型",
+      "maxNotes": "单次最多几条",
+      "windowTurns": "窗口轮数",
+      "tokenBudget": "窗口 token 上限",
+      "includeTools": "工具调用",
+      "includeToolsHint": "「带参数」会为每次工具调用加一行（不含结果）；关闭时只留结论。",
+      "includeToolsOff": "不带",
+      "includeToolsArgs": "带参数",
+      "redact": "抹掉密钥形态的片段",
+      "redactHint": "在材料送去模型之前先做遮蔽。关掉意味着 key、token 可能原样进入请求。",
+      "retention": "保留",
+      "draftTtlDays": "草稿未审保留天数",
+      "logRetentionDays": "操作日志保留天数",
+      "retentionHint": "草稿到期不是删除，而是归档为「已过期」，可以恢复。两个值填 0 表示永久保留（日志会随写入一直增长）。",
+      "restartHint": "标记为需要重启的两项（启用开关、蒸馏模型）在服务重启后生效；其余改动下一次捕获或下一次清理时生效。"
     },
     "tools": {
       "shell": "Shell 工具",
@@ -1593,6 +1616,11 @@
     "traceNone": "这条笔记没有引用任何消息（手写）",
     "sourcesGone": "原消息已清理，笔记仍然可用",
     "relatedTitle": "相关笔记",
+    "related": {
+      "session": "同一次对话",
+      "title": "相近标题",
+      "tags": "相同标签"
+    },
     "empty": "还没有笔记。点右下角的笔记球，或者按 Ctrl+Shift+N。",
     "emptySearch": "没有匹配的笔记",
     "emptyDrafts": "没有等待批准的草稿",
