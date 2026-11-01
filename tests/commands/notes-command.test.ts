@@ -93,6 +93,11 @@ describe('/note and /notes', () => {
       expect(result!.reply).toBeTruthy();
       expect(result!.forwardText).toBeUndefined();
     }
+    // Not just "both reach the same handler": the requests are identical, so the
+    // two spellings cannot drift into different defaults later.
+    const [first, second, third] = capture.mock.calls.map((call) => call[0]);
+    expect(second).toEqual(first);
+    expect(third).toEqual(first);
   });
 
   it('captures the conversation, not one exchange', async () => {
