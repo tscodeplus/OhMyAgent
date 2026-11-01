@@ -177,21 +177,6 @@ export default function NotesSettings({
               {t('settings.notes.temperatureHint')}
             </p>
           </div>
-          <Input
-            label={t('settings.notes.windowTurns')}
-            type="number"
-            min={1}
-            max={20}
-            value={num('notes.capture.windowTurns', capture, 'windowTurns', 5)}
-            onChange={(event) => setField('notes.capture.windowTurns', event.target.value)}
-          />
-          <Input
-            label={t('settings.notes.tokenBudget')}
-            type="number"
-            min={500}
-            value={num('notes.capture.tokenBudget', capture, 'tokenBudget', 4000)}
-            onChange={(event) => setField('notes.capture.tokenBudget', event.target.value)}
-          />
           <div>
             <Input
               label={t('settings.notes.bodyMaxChars')}

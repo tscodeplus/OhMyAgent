@@ -181,8 +181,8 @@ export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 /**
  * How the capture window was chosen (plan §5.1).
  *
- * `turn` is one exchange, `recent` is the last `windowTurns` exchanges, `session` is
- * everything the token budget allows — the difference matters because "summarise this
+ * `turn` is one exchange, `recent` is the last N exchanges, `session` is
+ * everything the session holds — the difference matters because "summarise this
  * conversation" cannot be served by a suffix and then described as the whole.
  */
 export const CAPTURE_MODES = ['turn', 'recent', 'session', 'selection', 'text'] as const;

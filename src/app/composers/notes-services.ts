@@ -21,12 +21,7 @@ import type { AppConfig } from '../types.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CapturePipeline } from '../../notes/capture.js';
 import { NotesRepository } from '../../notes/repository.js';
-import {
-  BODY_MAX_DEFAULT,
-  MAX_NOTES_DEFAULT,
-  WINDOW_TOKEN_DEFAULT,
-  WINDOW_TURNS_DEFAULT,
-} from '../../notes/output-budget.js';
+import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../notes/output-budget.js';
 import { createNotesService } from '../../notes/service.js';
 import { configEventBus } from '../config-event-bus.js';
 import type { NotesRuntimeConfig, NotesService } from '../../notes/service-contract.js';
@@ -66,8 +61,6 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
   const notes = config.notes;
   return {
     maxNotesPerCapture: notes?.capture?.maxNotesPerCapture ?? MAX_NOTES_DEFAULT,
-    windowTurns: notes?.capture?.windowTurns ?? WINDOW_TURNS_DEFAULT,
-    tokenBudget: notes?.capture?.tokenBudget ?? WINDOW_TOKEN_DEFAULT,
     includeTools: notes?.capture?.includeTools ?? 'off',
     redact: notes?.capture?.redact ?? true,
     bodyMaxChars: notes?.capture?.bodyMaxChars ?? BODY_MAX_DEFAULT,
@@ -109,10 +102,9 @@ export function createNotesServices(input: NotesComposerInput): NotesServices {
    * The config the service reads on every capture, replaced on hot reload.
    *
    * It was the bootstrap `AppConfig` object, captured by the `getConfig` closures —
-   * so `notes.capture.token_budget`, `window_turns`, `body_max_chars` and
-   * `maxNotesPerCapture` were read once, at boot, and every later edit was invisible:
-   * a lowered budget still read the whole session, which looks exactly like the
-   * setting working. `modelRef` stays a restart (the aux chain is built from it), and
+   * so `notes.capture.body_max_chars`, `max_notes_per_capture` and the rest were read
+   * once, at boot, and every later edit was invisible — a changed number still behaved
+   * like the old one, which looks exactly like the setting working. `modelRef` stays a restart (the aux chain is built from it), and
    * `notes.enabled` stays a restart (routes are wired from it).
    */
   let runtimeConfig = config;

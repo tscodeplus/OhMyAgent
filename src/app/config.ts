@@ -8,9 +8,6 @@ import {
   BODY_MAX_MAX,
   BODY_MAX_MIN,
   MAX_NOTES_DEFAULT,
-  WINDOW_TOKEN_DEFAULT,
-  WINDOW_TURNS_DEFAULT,
-  WINDOW_TURNS_MAX,
   deriveMaxOutputTokens,
 } from '../notes/output-budget.js';
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../mcp/config.js';
@@ -271,23 +268,6 @@ export const notesSectionSchema = z
         modelRef: z.string().default(''),
         /** Upper bound on drafts one capture may produce. */
         maxNotesPerCapture: z.coerce.number().int().nonnegative().default(MAX_NOTES_DEFAULT),
-        /**
-         * `recent` window size, in turns. Only consulted by `recent`; `session` reads
-         * everything the token budget holds, and `turn` reads one exchange.
-         */
-        windowTurns: z.coerce
-          .number()
-          .int()
-          .min(1)
-          .max(WINDOW_TURNS_MAX)
-          .default(WINDOW_TURNS_DEFAULT),
-        /**
-         * Token budget for the window; oldest messages are trimmed first, and the reply
-         * says how many were dropped. Raised from 4000 to `WINDOW_TOKEN_DEFAULT`: 4000
-         * silently reduced "this conversation" to its last two or three exchanges, and
-         * the budget is the constraint that actually binds (turns rarely does).
-         */
-        tokenBudget: z.coerce.number().int().positive().default(WINDOW_TOKEN_DEFAULT),
         /** `args` adds one line per tool call (no results). Off = conclusions only. */
         includeTools: z.enum(['off', 'args']).default('off'),
         /**

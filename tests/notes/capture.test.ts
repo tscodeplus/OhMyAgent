@@ -649,9 +649,15 @@ describe('notes service', () => {
 
     it('records the truncation on the capture run, not only on the reply', async () => {
       appendTurns(8, 400);
-      const { service } = createTestService(db, { config: { tokenBudget: 300 } });
+      const { service } = createTestService(db);
 
-      const result = await service.capture({ sessionId: SESSION_ID, mode: 'session' });
+      // A character cap is the only thing that trims a window now, and it comes from
+      // the brief — so this is the path that can still produce a truncation.
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'session',
+        instruction: '只看最近 1200 字',
+      });
       if (!result.ok) throw new Error(result.message);
 
       const row = db

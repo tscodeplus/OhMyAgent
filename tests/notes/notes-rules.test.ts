@@ -218,7 +218,7 @@ describe('window', () => {
     expect(window.messages.some((item) => item.content.includes('文件列表'))).toBe(false);
   });
 
-  it('trims the oldest messages, never the last exchange', () => {
+  it('trims the oldest messages to a stated character cap, never the last exchange', () => {
     const long = [
       message('a1', 'user', 'x'.repeat(20000), 1),
       message('a2', 'assistant', 'y'.repeat(20000), 2),
@@ -229,9 +229,10 @@ describe('window', () => {
       sessionId: 's',
       mode: 'recent',
       turns: 2,
-      tokenBudget: 100,
+      charBudget: 100,
     });
     expect(window.messageIds).toEqual(['a3', 'a4']);
+    expect(window.droppedMessages).toBe(2);
   });
 
   it('rejects a selection from another session and reports why', () => {

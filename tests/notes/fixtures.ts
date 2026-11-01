@@ -32,8 +32,6 @@ const NOW = 1_780_000_000_000;
 
 export const RUNTIME_CONFIG: NotesRuntimeConfig = {
   maxNotesPerCapture: 3,
-  windowTurns: 5,
-  tokenBudget: 4000,
   includeTools: 'off',
   redact: true,
   bodyMaxChars: 1200,

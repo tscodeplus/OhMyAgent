@@ -700,16 +700,6 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
         3,
         'notesCfg.capture.max_notes_per_capture',
       ),
-      windowTurns: num(
-        captureCfg?.window_turns ?? captureCfg?.windowTurns,
-        5,
-        'notesCfg.capture.window_turns',
-      ),
-      tokenBudget: num(
-        captureCfg?.token_budget ?? captureCfg?.tokenBudget,
-        4000,
-        'notesCfg.capture.token_budget',
-      ),
       includeTools: str(
         captureCfg?.include_tools ?? captureCfg?.includeTools,
         'off',
@@ -1833,8 +1823,6 @@ export function jsConfigToYaml(
           if (cap.modelRef !== undefined) ycap.model_ref = cap.modelRef;
           if (cap.maxNotesPerCapture !== undefined)
             ycap.max_notes_per_capture = cap.maxNotesPerCapture;
-          if (cap.windowTurns !== undefined) ycap.window_turns = cap.windowTurns;
-          if (cap.tokenBudget !== undefined) ycap.token_budget = cap.tokenBudget;
           if (cap.includeTools !== undefined) ycap.include_tools = cap.includeTools;
           if (cap.thinking !== undefined) ycap.thinking = cap.thinking;
           if (cap.temperature !== undefined) ycap.temperature = cap.temperature;

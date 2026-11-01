@@ -40,12 +40,20 @@ export const MAX_NOTES_DEFAULT = 3;
 /**
  * How much conversation a capture reads, when the config does not say otherwise.
  *
- * These live here, next to the output numbers, because the two budgets are read by
- * the same schema and the same comments: an input budget too small silently loses the
- * *beginning* of a conversation, an output budget too small cuts the JSON.
+ * These live here, next to the output numbers, because the same schema and the same
+ * comments read both: an input window too narrow silently loses the *beginning* of a
+ * conversation, an output budget too small cuts the JSON mid-object.
+ *
+ * There is deliberately **no token budget** for the window. It was the constraint that
+ * actually bound while `turns` rarely did, and every value it could take was wrong in a
+ * way nobody could see: too small turned "this conversation" into its last two
+ * exchanges, 16k never fired (real captures estimated 405–774 tokens), and for a model
+ * with a 1M-token window it was off by two orders of magnitude. A model's capacity is
+ * the model's business; what we read is either the session or a character count the
+ * user typed.
  */
 
-/** `recent` default: the exchange the user just finished, plus context. */
+/** `recent` default, used only when a caller asks for `recent` without a turn count. */
 export const WINDOW_TURNS_DEFAULT = 5;
 
 /**
@@ -53,16 +61,6 @@ export const WINDOW_TURNS_DEFAULT = 5;
  * for a thousand turns would load the whole table into a prompt.
  */
 export const WINDOW_TURNS_MAX = 20;
-
-/**
- * Default input budget, in estimated tokens (~16k Chinese characters, ~64k Latin).
- *
- * It was 4000, which is fine for five turns and *below* a real session: a coding
- * conversation's assistant prose runs 800–2000 tokens per message, so 4000 silently
- * reduced "this conversation" to its last two or three exchanges. The budget is the
- * constraint that actually binds (`turns` rarely does), so it is the one worth raising.
- */
-export const WINDOW_TOKEN_DEFAULT = 16000;
 
 /**
  * Hard cap on rows read for a `session` capture. Ten times the default token budget,

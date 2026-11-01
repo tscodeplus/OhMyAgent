@@ -49,7 +49,7 @@ import {
   type ResolvedWindow,
 } from './window.js';
 import { parseWindowIntent } from './window-intent.js';
-import { WINDOW_MESSAGES_MAX } from './output-budget.js';
+import { WINDOW_MESSAGES_MAX, WINDOW_TURNS_DEFAULT } from './output-budget.js';
 import type {
   CaptureRequest,
   CaptureResult,
@@ -169,11 +169,12 @@ export class CapturePipeline {
     let mode = request.mode;
     if (instructed && mode === 'turn') mode = 'session';
     if (intent.turns !== undefined && mode !== 'selection' && mode !== 'text') mode = 'recent';
-    const turns = request.turns ?? intent.turns ?? config.windowTurns;
+    const turns = request.turns ?? intent.turns ?? WINDOW_TURNS_DEFAULT;
 
-    // How much history to load depends on the mode: `session` is bounded only by the
-    // loader cap (the token budget trims and reports), `recent` needs turns × 2 plus
-    // tool rows, `turn` needs the tail, `selection` needs ids only.
+    // How much history to load depends on the mode. `session` is bounded only by the
+    // loader cap — there is no token budget, because a token guess about a model's
+    // capacity is invisible when it is wrong. `recent` needs turns × 2 plus tool rows,
+    // `turn` needs the tail, `selection` needs ids only.
     const historyLimit =
       mode === 'session' ? WINDOW_MESSAGES_MAX : mode === 'recent' ? Math.min(turns * 8, 200) : 60;
     const history = this.readMessages(session.id, historyLimit);
@@ -185,7 +186,6 @@ export class CapturePipeline {
       messageIds: request.messageIds,
       text: request.text,
       includeTools: config.includeTools,
-      tokenBudget: config.tokenBudget,
       charBudget: intent.charBudget,
     });
 

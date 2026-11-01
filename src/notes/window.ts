@@ -3,7 +3,7 @@
  *
  * Five modes, one shape: turn / recent / session / selection / text. The default is
  * `turn` — the user just finished something and wants that thing, not the whole
- * afternoon. `session` is the opposite end of that: everything the budget can hold,
+ * afternoon. `session` is the opposite end of that: everything the session holds,
  * which is what "based on this conversation" has to mean to be true.
  *
  * Every mode reports what it *did not* read (`droppedMessages`). A suffix window that
@@ -17,12 +17,13 @@
  * conclusions are notes. `includeTools: 'args'` brings back the call *without* its
  * result, as a single line, because the command itself is often the note.
  *
- * The budget is measured in estimated tokens (`chars/4`, `chars/2` for CJK) and
- * trimmed from the oldest message, never below the last turn.
+ * The only size cap is a character count the user asked for (「只看最近 2000 字」),
+ * trimmed from the oldest message and never below the last turn. There is no token
+ * budget: `tokenEst` is accounting, not a limit.
  */
 
 import type { Message } from '../memory/repositories/message-repository.js';
-import { WINDOW_TOKEN_DEFAULT, WINDOW_TURNS_MAX } from './output-budget.js';
+import { WINDOW_TURNS_MAX } from './output-budget.js';
 import type { CaptureMode } from './types.js';
 
 export interface WindowOptions {
@@ -36,12 +37,14 @@ export interface WindowOptions {
   text?: string;
   /** `off` | `args` — see the module comment. */
   includeTools?: 'off' | 'args';
-  tokenBudget?: number;
   /**
-   * Character cap from an explicit instruction ("只看最近 2000 字"). Applies *with*
-   * the token budget — whichever binds first — because a user who says characters
-   * means characters, and converting them to tokens would silently disagree with the
-   * number they typed.
+   * Character cap from an explicit instruction ("只看最近 2000 字").
+   *
+   * This is the *only* thing that trims a window by size. There is deliberately no
+   * token budget: a token number is a guess about a model's capacity, and every way it
+   * can be wrong (too small = a suffix wearing the word "conversation"; too large = it
+   * never fires) is invisible to the person reading the note. Characters are the number
+   * the user typed, so they are the number we honour.
    */
   charBudget?: number;
 }
@@ -61,8 +64,8 @@ export interface ResolvedWindow {
   lastUserMessage: WindowMessage | null;
   tokenEst: number;
   /**
-   * Messages the token budget removed from the *old* end. Non-zero means the note was
-   * written from a suffix, which is a fact the reviewer is entitled to.
+   * Messages a stated character cap removed from the *old* end. Non-zero means the note
+   * was written from a suffix, which is a fact the reviewer is entitled to.
    */
   droppedMessages: number;
   /** Set when the window could not be built at all (`invalid` capture run). */
@@ -205,25 +208,21 @@ export function scopeCharsIds(messages: readonly WindowMessage[], chars: number)
 }
 
 /**
- * Trim from the oldest end until the estimate fits, but never below one turn.
+ * Trim from the oldest end until the character cap is met, but never below one turn.
  *
  * The dropped count is returned rather than discarded: `capture.ts` puts it on the
- * result and the reply says "read the last N (the earlier M did not fit)". A budget
- * that trims without saying so is how a note about the end of a conversation gets
- * mistaken for a note about the conversation.
+ * result and the reply says "read the last N (the earlier M did not fit)". A cap that
+ * trims without saying so is how a note about the end of a conversation gets mistaken
+ * for a note about the conversation.
  */
-function trimToBudget(
+function trimToChars(
   messages: WindowMessage[],
-  budget: number,
-  charBudget?: number,
+  charBudget: number,
 ): { messages: WindowMessage[]; dropped: number } {
-  let total = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0);
   let chars = messages.reduce((sum, message) => sum + message.content.length, 0);
-  const overChars = (): boolean => charBudget !== undefined && chars > charBudget;
   let start = 0;
   // Keep at least the last two entries (the last user + assistant exchange).
-  while ((total > budget || overChars()) && messages.length - start > 2) {
-    total -= estimateTokens(messages[start].content);
+  while (chars > charBudget && messages.length - start > 2) {
     chars -= messages[start].content.length;
     start += 1;
   }
@@ -242,7 +241,6 @@ export function resolveWindow(
   options: WindowOptions,
 ): ResolvedWindow {
   const includeTools = options.includeTools ?? 'off';
-  const budget = options.tokenBudget ?? WINDOW_TOKEN_DEFAULT;
   const ordered = [...messages].sort((a, b) => Number(a.created_at) - Number(b.created_at));
 
   if (options.mode === 'text') {
@@ -331,8 +329,8 @@ export function resolveWindow(
     };
   }
 
-  // `session` is "everything the budget allows": no turn limit, so the token budget is
-  // the only constraint and it reports what it dropped.
+  // `session` is "everything the session holds": no turn limit, no token budget, so
+  // only a stated character cap can trim it — and that trim is reported.
   const wantedTurns =
     options.mode === 'session'
       ? Number.POSITIVE_INFINITY
@@ -355,7 +353,10 @@ export function resolveWindow(
   const rendered = tail
     .map((message) => render(message, includeTools))
     .filter((message): message is WindowMessage => message !== null);
-  const trimmed = trimToBudget(rendered, budget, options.charBudget);
+  const trimmed =
+    options.charBudget === undefined
+      ? { messages: rendered, dropped: 0 }
+      : trimToChars(rendered, options.charBudget);
   return {
     messages: trimmed.messages,
     messageIds: trimmed.messages.map((message) => message.id),

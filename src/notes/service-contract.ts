@@ -209,8 +209,6 @@ export interface NotesService {
 /** Runtime knobs the service reads per call (hot-reloadable, unlike construction). */
 export interface NotesRuntimeConfig {
   maxNotesPerCapture: number;
-  windowTurns: number;
-  tokenBudget: number;
   includeTools: 'off' | 'args';
   redact: boolean;
   /** Body cap per note, in characters. */
