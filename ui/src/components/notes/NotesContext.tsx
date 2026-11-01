@@ -42,7 +42,14 @@ import type { Note, NoteChannel, NoteListResult, NoteRejectionCode, NoteStatus }
  * something to save. `NotesContext` maps each onto the REST request, so the
  * mapping lives in exactly one place.
  */
-export type CaptureMode = 'turn' | 'instruction' | 'drop' | 'manual';
+/**
+ * What the *user* asked for, which is not the same axis as the server's `mode`.
+ *
+ * `conversation` is the plain entry: the whole conversation, as far as the token
+ * budget reaches. It sends `mode: 'session'` — the server used to receive `'turn'`
+ * here, so a menu item that said "based on this conversation" read one exchange.
+ */
+export type CaptureMode = 'conversation' | 'instruction' | 'drop' | 'manual';
 
 /** What to do with dropped text: keep the words, or let the agent tidy them. */
 export type CaptureTreatment = 'verbatim' | 'distill';
@@ -88,6 +95,9 @@ export interface CaptureOutcome {
   existingId?: string;
   /** Credential-shaped spans the redactor hid — the card warns when > 0. */
   redacted: number;
+  /** Messages the window held, and how many the budget dropped from the old end. */
+  readMessages?: number;
+  droppedMessages?: number;
 }
 
 /** Ball size: the full 56px target, or a dot that does not cover the transcript. */
@@ -339,8 +349,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         intent.mode === 'drop'
           ? { sessionId, mode: 'text', treatment, text: intent.text ?? '' }
           : intent.mode === 'instruction'
-            ? { sessionId, mode: 'recent', instruction: intent.instruction ?? '' }
-            : { sessionId, mode: 'turn' };
+            ? { sessionId, mode: 'session', instruction: intent.instruction ?? '' }
+            : { sessionId, mode: 'session' };
 
       if (treatment === 'distill') setCapturing(true);
       try {
@@ -349,6 +359,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           notes: Note[];
           duplicates: DuplicateRef[];
           redacted: number;
+          readMessages?: number;
+          droppedMessages?: number;
         }>('/api/notes/capture', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -366,6 +378,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           notes: response.notes,
           duplicates: response.duplicates ?? [],
           redacted: response.redacted,
+          readMessages: response.readMessages,
+          droppedMessages: response.droppedMessages,
         };
       } catch (err) {
         // A client-side timeout does not cancel the server's capture: the draft may

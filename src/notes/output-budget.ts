@@ -38,6 +38,40 @@ const MAX_OUTPUT_TOKENS = 8000;
 export const MAX_NOTES_DEFAULT = 3;
 
 /**
+ * How much conversation a capture reads, when the config does not say otherwise.
+ *
+ * These live here, next to the output numbers, because the two budgets are read by
+ * the same schema and the same comments: an input budget too small silently loses the
+ * *beginning* of a conversation, an output budget too small cuts the JSON.
+ */
+
+/** `recent` default: the exchange the user just finished, plus context. */
+export const WINDOW_TURNS_DEFAULT = 5;
+
+/**
+ * Request-boundary clamp on `turns`. The value arrives over HTTP, and a caller asking
+ * for a thousand turns would load the whole table into a prompt.
+ */
+export const WINDOW_TURNS_MAX = 20;
+
+/**
+ * Default input budget, in estimated tokens (~16k Chinese characters, ~64k Latin).
+ *
+ * It was 4000, which is fine for five turns and *below* a real session: a coding
+ * conversation's assistant prose runs 800–2000 tokens per message, so 4000 silently
+ * reduced "this conversation" to its last two or three exchanges. The budget is the
+ * constraint that actually binds (`turns` rarely does), so it is the one worth raising.
+ */
+export const WINDOW_TOKEN_DEFAULT = 16000;
+
+/**
+ * Hard cap on rows read for a `session` capture. Ten times the default token budget,
+ * so the budget trims before the loader does and the truncation is counted rather
+ * than silent.
+ */
+export const WINDOW_MESSAGES_MAX = 400;
+
+/**
  * Output budget for one call: every note may use the whole body cap, plus the
  * response envelope, clamped to a range models actually accept.
  */

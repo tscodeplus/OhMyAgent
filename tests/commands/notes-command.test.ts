@@ -37,7 +37,11 @@ function makeDeps(): CommandDeps {
   };
 }
 
-function okResult(titles: string[], duplicates: Array<[string, 'draft' | 'active']> = []) {
+function okResult(
+  titles: string[],
+  duplicates: Array<[string, 'draft' | 'active']> = [],
+  scope: { read: number; dropped: number } = { read: 0, dropped: 0 },
+) {
   return {
     ok: true,
     captureId: 'cap_1',
@@ -49,6 +53,8 @@ function okResult(titles: string[], duplicates: Array<[string, 'draft' | 'active
     })),
     redacted: 0,
     droppedRecaps: 0,
+    readMessages: scope.read,
+    droppedMessages: scope.dropped,
   } as unknown as CaptureResult;
 }
 
@@ -125,11 +131,29 @@ describe('/note and /notes', () => {
     const capture = vi.fn(async () => okResult(['a']));
     await handleCommand('/note', 'chat-42', depsWith(capture));
 
-    // `recent` is the whole point: `/note` in a chat means "this conversation".
-    // `turn` would silently answer a narrower question than the one asked.
+    // `session` is the whole point: `/note` in a chat means "this conversation", and
+    // only `session` reads past a fixed suffix. `recent` was the old answer — five
+    // turns from the newest end, which is a suffix wearing the same word.
     expect(capture).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: 'chat-42', mode: 'recent' }),
+      expect.objectContaining({ sessionId: 'chat-42', mode: 'session' }),
     );
+  });
+
+  it('says so when the window budget cut the conversation short', async () => {
+    // A note from the tail of a conversation must not read as a note about the whole
+    // conversation: the reply is the only place an IM user can learn the difference.
+    const capture = vi.fn(async () => okResult(['半条笔记'], [], { read: 24, dropped: 31 }));
+    const result = await handleCommand('/note', 'chat-42', depsWith(capture));
+
+    expect(result?.reply).toContain('24');
+    expect(result?.reply).toContain('31');
+  });
+
+  it('stays quiet when nothing was dropped', async () => {
+    const capture = vi.fn(async () => okResult(['a'], [], { read: 12, dropped: 0 }));
+    const result = await handleCommand('/note', 'chat-42', depsWith(capture));
+
+    expect(result?.reply).not.toContain('0');
   });
 
   it('passes the trailing text as the instruction', async () => {

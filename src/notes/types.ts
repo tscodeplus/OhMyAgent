@@ -178,8 +178,14 @@ export const CAPTURE_STATUSES = ['ok', 'empty', 'invalid', 'failed'] as const;
 
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 
-/** How the capture window was chosen (plan §5.1). */
-export const CAPTURE_MODES = ['turn', 'recent', 'selection', 'text'] as const;
+/**
+ * How the capture window was chosen (plan §5.1).
+ *
+ * `turn` is one exchange, `recent` is the last `windowTurns` exchanges, `session` is
+ * everything the token budget allows — the difference matters because "summarise this
+ * conversation" cannot be served by a suffix and then described as the whole.
+ */
+export const CAPTURE_MODES = ['turn', 'recent', 'session', 'selection', 'text'] as const;
 
 export type CaptureMode = (typeof CAPTURE_MODES)[number];
 
@@ -366,6 +372,12 @@ export interface CaptureRunInput {
   status: CaptureStatus;
   error?: string | null;
   noteCount?: number;
+  /**
+   * Messages the window's budget removed from the old end (v34). Stored, not just
+   * reported: "how much of the conversation did this note see" is the first question
+   * asked of a note that turned out thin, and a toast cannot answer it a day later.
+   */
+  droppedMessages?: number;
 }
 
 export interface NoteListQuery {

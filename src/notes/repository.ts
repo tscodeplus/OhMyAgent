@@ -871,8 +871,8 @@ export class NotesRepository {
       .prepare(
         `INSERT INTO capture_runs (
            id, session_id, scope, mode, message_ids, token_est, model_ref, status, error,
-           note_count, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           note_count, created_at, dropped_messages
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -886,13 +886,16 @@ export class NotesRepository {
         input.error ?? null,
         input.noteCount ?? 0,
         now,
+        input.droppedMessages ?? 0,
       );
     return id;
   }
 
   updateCaptureRun(
     id: string,
-    patch: Partial<Pick<CaptureRunInput, 'status' | 'error' | 'noteCount' | 'modelRef'>>,
+    patch: Partial<
+      Pick<CaptureRunInput, 'status' | 'error' | 'noteCount' | 'modelRef' | 'droppedMessages'>
+    >,
   ): void {
     const fields: string[] = [];
     const params: unknown[] = [];
@@ -911,6 +914,10 @@ export class NotesRepository {
     if (patch.modelRef !== undefined) {
       fields.push('model_ref = ?');
       params.push(patch.modelRef);
+    }
+    if (patch.droppedMessages !== undefined) {
+      fields.push('dropped_messages = ?');
+      params.push(patch.droppedMessages);
     }
     if (fields.length === 0) return;
     this.db.prepare(`UPDATE capture_runs SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);

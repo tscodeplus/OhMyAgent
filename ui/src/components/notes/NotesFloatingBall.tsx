@@ -223,6 +223,15 @@ export default function NotesFloatingBall() {
    * written. Reset on every new capture, so a stale number cannot outlive its group.
    */
   const [cardGroup, setCardGroup] = useState(0);
+  /**
+   * What the window actually held for the card on screen.
+   *
+   * A note distilled from the tail of a long conversation and one distilled from all
+   * of it are different claims, and the card is the only place the reviewer sees
+   * either of them. `dropped > 0` is rendered as a line under the card; silence would
+   * let the first pass for the second.
+   */
+  const [cardScope, setCardScope] = useState<{ read: number; dropped: number } | null>(null);
   // A capture outcome that is not a draft still has to be *said*, or the button
   // looks broken: "nothing worth keeping here" is an answer, not a failure.
   useEffect(() => {
@@ -233,6 +242,20 @@ export default function NotesFloatingBall() {
   const draft = drafts.find((item) => item.id === draftCardId) ?? null;
 
   /** One place that turns a capture outcome into what the user sees. */
+  /**
+   * The truncation line's payload, or `null` when the window read everything it
+   * wanted. Absent fields mean "the server did not say", which is not the same as
+   * zero — a verbatim drop has no window at all.
+   */
+  const scopeOf = (outcome: {
+    readMessages?: number;
+    droppedMessages?: number;
+  }): { read: number; dropped: number } | null => {
+    const dropped = outcome.droppedMessages ?? 0;
+    if (dropped <= 0) return null;
+    return { read: outcome.readMessages ?? 0, dropped };
+  };
+
   const report = (outcome: {
     ok: boolean;
     notes: unknown[];
@@ -251,7 +274,7 @@ export default function NotesFloatingBall() {
     });
   };
 
-  const startCapture = (mode: 'turn' | 'instruction' | 'manual') => {
+  const startCapture = (mode: 'conversation' | 'instruction' | 'manual') => {
     closeMenu();
     setNotice(null);
     if (mode !== 'manual' && !sessionId) {
@@ -270,6 +293,7 @@ export default function NotesFloatingBall() {
     }
     void capture({ mode, sessionId }).then((outcome) => {
       setCardGroup(outcome.notes.length);
+      setCardScope(scopeOf(outcome));
       // A capture that produced nothing is not an error: "this turn had nothing
       // worth keeping" is a normal answer, and 422 is how the server says it.
       report(outcome);
@@ -285,6 +309,8 @@ export default function NotesFloatingBall() {
     void capture({ mode: 'instruction', sessionId, instruction: text }).then((outcome) => {
       if (outcome.ok) {
         setCardGroup(outcome.notes.length);
+        setCardScope(scopeOf(outcome));
+        setCardScope(scopeOf(outcome));
         setInstruction(null);
         setInstructionError(null);
         return;
@@ -316,6 +342,7 @@ export default function NotesFloatingBall() {
       treatment: tidy ? 'distill' : 'verbatim',
     }).then((outcome) => {
       setCardGroup(outcome.notes.length);
+      setCardScope(scopeOf(outcome));
       report(outcome);
     });
   };
@@ -450,6 +477,7 @@ export default function NotesFloatingBall() {
           <DraftCard
             draft={draft}
             groupSize={cardGroup}
+            scope={cardScope}
             onSave={() => void saveDraft(draft.id)}
             onEdit={() => {
               // Editing must not approve: an open editor on a draft stays a draft,
@@ -473,10 +501,13 @@ export default function NotesFloatingBall() {
                     text: draft.body,
                     treatment: 'distill' as const,
                   }
-                : { mode: 'turn' as const, sessionId };
+                : { mode: 'conversation' as const, sessionId };
               void capture(intent).then((outcome) => {
                 if (outcome.ok) {
                   setCardGroup(outcome.notes.length);
+                  setCardScope(scopeOf(outcome));
+                  setCardScope(scopeOf(outcome));
+                  setCardScope(scopeOf(outcome));
                   void discardDraft(draft.id);
                 } else {
                   report(outcome);
@@ -498,8 +529,8 @@ export default function NotesFloatingBall() {
             </div>
             <MenuItem
               icon={Sparkles}
-              label={t('notes.capture.turn')}
-              onClick={() => startCapture('turn')}
+              label={t('notes.capture.conversation')}
+              onClick={() => startCapture('conversation')}
             />
             <MenuItem
               icon={Wand2}
@@ -760,6 +791,7 @@ function MenuItem({
 function DraftCard({
   draft,
   groupSize,
+  scope,
   onSave,
   onEdit,
   onRegenerate,
@@ -769,6 +801,12 @@ function DraftCard({
   draft: NonNullable<ReturnType<typeof useNotes>['drafts'][number]>;
   /** How many drafts this capture produced; `> 1` gets a line saying where the rest are. */
   groupSize: number;
+  /**
+   * The window the draft came from, when it was not the whole conversation. Rendering
+   * it on the card (not in a toast) is deliberate: the toast disappears in five
+   * seconds, and this is information for the decision the card is asking for.
+   */
+  scope: { read: number; dropped: number } | null;
   onSave: () => void;
   onEdit: () => void;
   onRegenerate: () => void;
@@ -827,6 +865,15 @@ function DraftCard({
         )}
         <FacetRow note={draft} className="mt-2" />
       </button>
+
+      {/* Not on the review card's face but directly under it: the note above may be
+          about the tail of the conversation, and the reviewer decides with that in
+          mind — or opens the note page to write the missing half themselves. */}
+      {scope && (
+        <p className="border-t border-amber-100 bg-amber-50/60 px-3 py-1.5 text-[10.5px] leading-snug text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+          {t('notes.capture.windowTruncated', { read: scope.read, dropped: scope.dropped })}
+        </p>
+      )}
 
       <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
         <Button

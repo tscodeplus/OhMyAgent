@@ -821,10 +821,11 @@ async function handleNote(
   try {
     result = await deps.notes.capture({
       sessionId: sessionKey,
-      // `/note` means "this conversation", not "the last exchange" — `recent`
-      // reads the configured number of turns from the newest end, and `turn`
-      // would quietly answer a narrower question than the one that was asked.
-      mode: 'recent',
+      // `/note` means "this conversation", and `session` is the only mode that can
+      // deliver that: it reads everything the token budget holds and reports how many
+      // messages the budget dropped. `recent` read five turns from the newest end,
+      // which is a suffix — the same word, a different promise.
+      mode: 'session',
       instruction: instruction || undefined,
       // Group chats default to the `channel` scope instead of the person's own
       // library, so a shared room's notes cannot leak into a 1:1 context.
@@ -843,6 +844,26 @@ async function handleNote(
   }
 
   return { reply: renderCaptureReply(result) };
+}
+
+/**
+ * What the window actually contained.
+ *
+ * Printed only when the budget cut something, plus a one-liner when the read was
+ * narrow enough that "the whole conversation" would be a lie. Silence here would make
+ * a note from the tail of a conversation indistinguishable from a note about all of
+ * it — and the reviewer's job is to judge the note, not to guess its material.
+ */
+function readScopeLines(result: Extract<CaptureResult, { ok: true }>): string[] {
+  // `> 0` rather than `<= 0`: a fixture or an older server that omits the field must
+  // not print "read undefined messages".
+  if (!(result.droppedMessages > 0)) return [];
+  return [
+    i18n.t('commands:note.windowTruncated', {
+      read: result.readMessages,
+      dropped: result.droppedMessages,
+    }),
+  ];
 }
 
 /** Status label for a note the library already held, in the reply's language. */
@@ -875,6 +896,7 @@ function renderCaptureReply(result: CaptureResult): string {
     for (const note of result.notes) {
       lines.push(`· ${truncate(note.title, NOTE_REPLY_TITLE_CHARS)}`);
     }
+    lines.push(...readScopeLines(result));
     if (result.duplicates.length > 0) {
       lines.push(
         i18n.t('commands:note.skipped', {

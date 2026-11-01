@@ -41,6 +41,8 @@ import { isRecap } from './recap.js';
 import { redactSecrets, redactionMarker } from './redact.js';
 import { distillNotes, type DistillOutcome } from './distill.js';
 import { renderWindowPrompt, resolveWindow, type ResolvedWindow } from './window.js';
+import { parseWindowIntent } from './window-intent.js';
+import { WINDOW_MESSAGES_MAX } from './output-budget.js';
 import type {
   CaptureRequest,
   CaptureResult,
@@ -138,17 +140,27 @@ export class CapturePipeline {
     /**
      * An instruction is a request about the conversation, not about the last
      * exchange: "把刚才分享的命令存下来" and "把今天的聊天整理成笔记" are both
-     * wider than one turn. Widening only when the instruction says so keeps the
-     * default capture cheap — one exchange is what the button promises.
+     * wider than one turn. So an instructed `turn` capture escalates to `session` —
+     * everything the token budget allows — rather than to a fixed five turns, which
+     * was a suffix wearing the word "conversation".
+     *
+     * The one thing that narrows it again is the instruction saying so: 「只整理最近
+     * 3 轮」/「不超过 2000 字」 become `recent` + a turn count, or a character cap.
+     * Honouring that is not politeness: reading past a stated scope means distilling
+     * material the user just excluded.
      */
     const instructed = (request.instruction ?? '').trim().length > 0;
-    const mode = instructed && request.mode === 'turn' ? 'recent' : request.mode;
-    const turns =
-      request.turns ?? (instructed ? Math.max(config.windowTurns, 5) : config.windowTurns);
+    const intent = parseWindowIntent(request.instruction);
+    let mode = request.mode;
+    if (instructed && mode === 'turn') mode = 'session';
+    if (intent.turns !== undefined && mode !== 'selection' && mode !== 'text') mode = 'recent';
+    const turns = request.turns ?? intent.turns ?? config.windowTurns;
 
-    // How much history to load depends on the mode: `recent` needs turns × 2 plus
+    // How much history to load depends on the mode: `session` is bounded only by the
+    // loader cap (the token budget trims and reports), `recent` needs turns × 2 plus
     // tool rows, `turn` needs the tail, `selection` needs ids only.
-    const historyLimit = mode === 'recent' ? Math.min(turns * 8, 200) : 60;
+    const historyLimit =
+      mode === 'session' ? WINDOW_MESSAGES_MAX : mode === 'recent' ? Math.min(turns * 8, 200) : 60;
     const history = this.readMessages(session.id, historyLimit);
 
     const window: ResolvedWindow = resolveWindow(history, {
@@ -159,6 +171,7 @@ export class CapturePipeline {
       text: request.text,
       includeTools: config.includeTools,
       tokenBudget: config.tokenBudget,
+      charBudget: intent.charBudget,
     });
 
     const captureId = this.deps.repository.createCaptureRun({
@@ -168,6 +181,7 @@ export class CapturePipeline {
       messageIds: window.messageIds,
       tokenEst: window.tokenEst,
       status: 'ok',
+      droppedMessages: window.droppedMessages,
     });
 
     if (window.error || window.messages.length === 0) {
@@ -392,6 +406,8 @@ export class CapturePipeline {
       duplicates,
       redacted: redacted.count,
       droppedRecaps,
+      readMessages: window.messages.length,
+      droppedMessages: window.droppedMessages,
     };
   }
 
@@ -543,6 +559,9 @@ export class CapturePipeline {
       duplicates: [],
       redacted: 0,
       droppedRecaps: 0,
+      // Verbatim text is not a window: nothing was selected by a budget.
+      readMessages: 0,
+      droppedMessages: 0,
     };
   }
 

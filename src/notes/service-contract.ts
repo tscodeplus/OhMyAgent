@@ -104,6 +104,15 @@ export type CaptureResult =
       redacted: number;
       /** Drafts dropped as recaps, for the diagnostic log. */
       droppedRecaps: number;
+      /** Messages the window actually held, and the mode it was read in. */
+      readMessages: number;
+      /**
+       * Messages the token/character budget removed from the **old** end. Non-zero
+       * means the note was written from the tail of the conversation, and the reply
+       * says so — a reviewer cannot judge a note whose material silently stopped
+       * halfway.
+       */
+      droppedMessages: number;
     }
   | {
       ok: false;

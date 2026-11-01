@@ -15,6 +15,7 @@ import type Database from 'better-sqlite3';
 import {
   ASSISTANT_CONTENT,
   MESSAGE_ASSISTANT,
+  MESSAGE_USER,
   PROJECT_ID,
   SESSION_ID,
   USER_CONTENT,
@@ -533,6 +534,109 @@ describe('notes service', () => {
    * exist to second-guess a free-running model: the window opens wider than one
    * turn, and the recap gate stops dropping notes.
    */
+  describe('window scope', () => {
+    /** Appends `count` exchanges after the fixture's, so there is history to lose. */
+    function appendTurns(count: number, chars = 40): void {
+      const insert = db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      const after = 1_780_000_002_000;
+      for (let index = 0; index < count; index += 1) {
+        insert.run(
+          `msg-scope-u${index}`,
+          SESSION_ID,
+          'user',
+          `追问 ${index} `.padEnd(chars, '问'),
+          String(after + index * 2),
+        );
+        insert.run(
+          `msg-scope-a${index}`,
+          SESSION_ID,
+          'assistant',
+          `回答 ${index} `.padEnd(chars, '答'),
+          String(after + 1 + index * 2),
+        );
+      }
+    }
+
+    it('reads the whole conversation for `session`, not a suffix', async () => {
+      appendTurns(8);
+      const { service, distillationCalls } = createTestService(db);
+
+      const result = await service.capture({ sessionId: SESSION_ID, mode: 'session' });
+      if (!result.ok) throw new Error(result.message);
+
+      // 9 exchanges total: the fixture's plus eight. A five-turn `recent` window
+      // would have offered 10 of the 18 messages and the first exchange would be
+      // missing — which is exactly what "based on this conversation" used to mean.
+      expect(distillationCalls[0].windowIds).toContain(MESSAGE_USER);
+      expect(distillationCalls[0].windowIds.length).toBe(18);
+      expect(result.readMessages).toBe(18);
+      expect(result.droppedMessages).toBe(0);
+    });
+
+    it('escalates an instructed turn capture to the whole conversation', async () => {
+      appendTurns(8);
+      const { service, distillationCalls } = createTestService(db);
+
+      await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'turn',
+        instruction: '把刚才分享的命令存下来',
+      });
+
+      expect(distillationCalls[0].windowIds).toContain(MESSAGE_ASSISTANT);
+      expect(distillationCalls[0].windowIds.length).toBe(18);
+    });
+
+    it('narrows back when the instruction says how much to read', async () => {
+      appendTurns(8);
+      const { service, distillationCalls } = createTestService(db);
+
+      await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'session',
+        instruction: '只整理最近 2 轮',
+      });
+
+      // Two exchanges = four messages, all from the newest end.
+      expect(distillationCalls[0].windowIds.length).toBe(4);
+      expect(distillationCalls[0].windowIds).not.toContain(MESSAGE_USER);
+    });
+
+    it('applies a character cap from the instruction and reports the loss', async () => {
+      appendTurns(8, 400);
+      const { service, distillationCalls } = createTestService(db);
+
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'session',
+        instruction: '不超过 1000 字的摘要',
+      });
+      if (!result.ok) throw new Error(result.message);
+
+      const windowChars = distillationCalls[0].windowText.length;
+      expect(windowChars).toBeLessThanOrEqual(1000);
+      expect(result.droppedMessages).toBeGreaterThan(0);
+      expect(result.readMessages + result.droppedMessages).toBe(18);
+    });
+
+    it('records the truncation on the capture run, not only on the reply', async () => {
+      appendTurns(8, 400);
+      const { service } = createTestService(db, { config: { tokenBudget: 300 } });
+
+      const result = await service.capture({ sessionId: SESSION_ID, mode: 'session' });
+      if (!result.ok) throw new Error(result.message);
+
+      const row = db
+        .prepare('SELECT dropped_messages AS dropped, mode FROM capture_runs WHERE id = ?')
+        .get(result.captureId) as { dropped: number; mode: string };
+      expect(row.mode).toBe('session');
+      expect(row.dropped).toBe(result.droppedMessages);
+      expect(row.dropped).toBeGreaterThan(0);
+    });
+  });
+
   describe('instruction', () => {
     it('widens a turn capture so an earlier turn is in the window', async () => {
       // Three more exchanges after the fixture's: a `turn` window would keep only

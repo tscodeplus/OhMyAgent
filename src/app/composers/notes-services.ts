@@ -21,14 +21,28 @@ import type { AppConfig } from '../types.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CapturePipeline } from '../../notes/capture.js';
 import { NotesRepository } from '../../notes/repository.js';
-import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../notes/output-budget.js';
+import {
+  BODY_MAX_DEFAULT,
+  MAX_NOTES_DEFAULT,
+  WINDOW_TOKEN_DEFAULT,
+  WINDOW_TURNS_DEFAULT,
+} from '../../notes/output-budget.js';
 import { createNotesService } from '../../notes/service.js';
+import { configEventBus } from '../config-event-bus.js';
 import type { NotesRuntimeConfig, NotesService } from '../../notes/service-contract.js';
 
 export interface NotesServices {
   /** Absent when `notes.enabled` is false (or construction failed). */
   notesService?: NotesService;
   notesRepository?: NotesRepository;
+  /**
+   * The live capture numbers, as the pipeline sees them.
+   *
+   * Exists because "was this value actually applied" is otherwise a question you can
+   * only answer with a model call and a stopwatch — and the answer used to be "no"
+   * for every `notes.capture.*` field.
+   */
+  readRuntimeConfig?: () => NotesRuntimeConfig;
 }
 
 export interface NotesComposerInput {
@@ -52,8 +66,8 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
   const notes = config.notes;
   return {
     maxNotesPerCapture: notes?.capture?.maxNotesPerCapture ?? MAX_NOTES_DEFAULT,
-    windowTurns: notes?.capture?.windowTurns ?? 5,
-    tokenBudget: notes?.capture?.tokenBudget ?? 4000,
+    windowTurns: notes?.capture?.windowTurns ?? WINDOW_TURNS_DEFAULT,
+    tokenBudget: notes?.capture?.tokenBudget ?? WINDOW_TOKEN_DEFAULT,
     includeTools: notes?.capture?.includeTools ?? 'off',
     redact: notes?.capture?.redact ?? true,
     bodyMaxChars: notes?.capture?.bodyMaxChars ?? BODY_MAX_DEFAULT,
@@ -89,6 +103,17 @@ export function resolveNotesModelConfig(
 export function createNotesServices(input: NotesComposerInput): NotesServices {
   const { config, db, logger } = input;
   if (!config.notes?.enabled) return {};
+  /**
+   * The config the service reads on every capture, replaced on hot reload.
+   *
+   * It was the bootstrap `AppConfig` object, captured by the `getConfig` closures —
+   * so `notes.capture.token_budget`, `window_turns`, `body_max_chars` and
+   * `maxNotesPerCapture` were read once, at boot, and every later edit was invisible:
+   * a lowered budget still read the whole session, which looks exactly like the
+   * setting working. `modelRef` stays a restart (the aux chain is built from it), and
+   * `notes.enabled` stays a restart (routes are wired from it).
+   */
+  let runtimeConfig = config;
   const modelRef = config.notes.capture?.modelRef ?? '';
   if ((config.notes.capture?.maxNotesPerCapture ?? 3) === 0) {
     // Explicitly zero drafts per capture: the layer is on (pages remain readable)
@@ -103,18 +128,25 @@ export function createNotesServices(input: NotesComposerInput): NotesServices {
     const pipeline = new CapturePipeline({
       repository,
       db,
-      getConfig: () => readNotesRuntimeConfig(config),
+      getConfig: () => readNotesRuntimeConfig(runtimeConfig),
       auxConfig: modelConfig,
       logger,
     });
     const service = createNotesService({
       repository,
       capture: pipeline,
-      getConfig: () => readNotesRuntimeConfig(config),
+      getConfig: () => readNotesRuntimeConfig(runtimeConfig),
       logger,
     });
+    configEventBus.onReload((next) => {
+      runtimeConfig = next;
+    });
     logger.info('Notes service initialized (capture → draft → human review)');
-    return { notesService: service, notesRepository: repository };
+    return {
+      notesService: service,
+      notesRepository: repository,
+      readRuntimeConfig: () => readNotesRuntimeConfig(runtimeConfig),
+    };
   } catch (err) {
     logger.warn({ err }, 'Notes service init failed — routes and capture stay off');
     return {};

@@ -127,6 +127,7 @@
     "invalid": "模型返回的内容没法解析，这次没有写入笔记。",
     "noSession": "找不到这个会话的记录，先聊一句再试。",
     "disabled": "笔记功能没开启（config.yaml 的 notes.enabled）。",
-    "failed": "整理出错了，这次没有写入笔记：{{error}}"
+    "failed": "整理出错了，这次没有写入笔记：{{error}}",
+    "windowTruncated": "只读了最近的 {{read}} 条消息，更早的 {{dropped}} 条超出窗口预算未读"
   }
 }

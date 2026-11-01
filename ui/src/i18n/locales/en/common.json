@@ -1663,7 +1663,6 @@
     },
     "capture": {
       "title": "Distil notes",
-      "turn": "Distil notes from this conversation",
       "manual": "Write it myself",
       "drafts": "Drafts",
       "failed": "Nothing usable came out of that — write one by hand?",
@@ -1680,7 +1679,9 @@
       "dropSelection": "Keep the selected text",
       "dropSelectionHint": "{{count}} chars",
       "duplicate": "You already have this note",
-      "openExisting": "Open"
+      "openExisting": "Open",
+      "conversation": "Notes from this conversation",
+      "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the budget"
     },
     "editor": {
       "titlePlaceholder": "Title",

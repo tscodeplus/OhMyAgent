@@ -1,9 +1,14 @@
 /**
  * Which messages a capture reads (plan §5.1).
  *
- * Four modes, one shape: turn / recent / selection / text. The default is
+ * Five modes, one shape: turn / recent / session / selection / text. The default is
  * `turn` — the user just finished something and wants that thing, not the whole
- * afternoon.
+ * afternoon. `session` is the opposite end of that: everything the budget can hold,
+ * which is what "based on this conversation" has to mean to be true.
+ *
+ * Every mode reports what it *did not* read (`droppedMessages`). A suffix window that
+ * silently discards the beginning of a conversation is worse than a short window: the
+ * reviewer cannot tell a thin note from a thin material.
  *
  * **Tool calls are not read by default** (`includeTools: 'off'`). Tool output is
  * mostly logs, file contents and success echoes; feeding it to a distiller is how
@@ -17,12 +22,13 @@
  */
 
 import type { Message } from '../memory/repositories/message-repository.js';
+import { WINDOW_TOKEN_DEFAULT, WINDOW_TURNS_MAX } from './output-budget.js';
 import type { CaptureMode } from './types.js';
 
 export interface WindowOptions {
   sessionId: string;
   mode: CaptureMode;
-  /** `recent` window size (turns, not messages); 1..20. */
+  /** `recent` window size (turns, not messages); 1..`WINDOW_TURNS_MAX`. */
   turns?: number;
   /** `selection`: the exact messages, all of which must belong to the session. */
   messageIds?: string[];
@@ -31,6 +37,13 @@ export interface WindowOptions {
   /** `off` | `args` — see the module comment. */
   includeTools?: 'off' | 'args';
   tokenBudget?: number;
+  /**
+   * Character cap from an explicit instruction ("只看最近 2000 字"). Applies *with*
+   * the token budget — whichever binds first — because a user who says characters
+   * means characters, and converting them to tokens would silently disagree with the
+   * number they typed.
+   */
+  charBudget?: number;
 }
 
 export interface WindowMessage {
@@ -47,6 +60,11 @@ export interface ResolvedWindow {
   /** Last user message — the tail of a `turn` window. */
   lastUserMessage: WindowMessage | null;
   tokenEst: number;
+  /**
+   * Messages the token budget removed from the *old* end. Non-zero means the note was
+   * written from a suffix, which is a fact the reviewer is entitled to.
+   */
+  droppedMessages: number;
   /** Set when the window could not be built at all (`invalid` capture run). */
   error?: 'empty_session' | 'empty_selection' | 'selection_outside_session';
 }
@@ -144,16 +162,30 @@ function render(message: Message, includeTools: 'off' | 'args'): WindowMessage |
   return null;
 }
 
-/** Trim from the oldest end until the estimate fits, but never below one turn. */
-function trimToBudget(messages: WindowMessage[], budget: number): WindowMessage[] {
+/**
+ * Trim from the oldest end until the estimate fits, but never below one turn.
+ *
+ * The dropped count is returned rather than discarded: `capture.ts` puts it on the
+ * result and the reply says "read the last N (the earlier M did not fit)". A budget
+ * that trims without saying so is how a note about the end of a conversation gets
+ * mistaken for a note about the conversation.
+ */
+function trimToBudget(
+  messages: WindowMessage[],
+  budget: number,
+  charBudget?: number,
+): { messages: WindowMessage[]; dropped: number } {
   let total = messages.reduce((sum, message) => sum + estimateTokens(message.content), 0);
+  let chars = messages.reduce((sum, message) => sum + message.content.length, 0);
+  const overChars = (): boolean => charBudget !== undefined && chars > charBudget;
   let start = 0;
   // Keep at least the last two entries (the last user + assistant exchange).
-  while (total > budget && messages.length - start > 2) {
+  while ((total > budget || overChars()) && messages.length - start > 2) {
     total -= estimateTokens(messages[start].content);
+    chars -= messages[start].content.length;
     start += 1;
   }
-  return messages.slice(start);
+  return { messages: messages.slice(start), dropped: start };
 }
 
 /**
@@ -168,7 +200,7 @@ export function resolveWindow(
   options: WindowOptions,
 ): ResolvedWindow {
   const includeTools = options.includeTools ?? 'off';
-  const budget = options.tokenBudget ?? 4000;
+  const budget = options.tokenBudget ?? WINDOW_TOKEN_DEFAULT;
   const ordered = [...messages].sort((a, b) => Number(a.created_at) - Number(b.created_at));
 
   if (options.mode === 'text') {
@@ -189,6 +221,7 @@ export function resolveWindow(
         messageIds: [],
         lastUserMessage,
         tokenEst: 0,
+        droppedMessages: 0,
         error: 'empty_selection',
       };
     }
@@ -200,6 +233,7 @@ export function resolveWindow(
       messageIds: [],
       lastUserMessage,
       tokenEst: estimateTokens(text),
+      droppedMessages: 0,
     };
   }
 
@@ -211,6 +245,7 @@ export function resolveWindow(
         messageIds: [],
         lastUserMessage: null,
         tokenEst: 0,
+        droppedMessages: 0,
         error: 'empty_selection',
       };
     }
@@ -221,17 +256,21 @@ export function resolveWindow(
         messageIds: [],
         lastUserMessage: null,
         tokenEst: 0,
+        droppedMessages: 0,
         error: 'selection_outside_session',
       };
     }
     const rendered = picked
       .map((message) => render(message, includeTools))
       .filter((message): message is WindowMessage => message !== null);
+    // A selection is bounded by what the user picked, not by a budget: trimming it
+    // would quietly answer a question about a different piece of text.
     return {
       messages: rendered,
       messageIds: rendered.map((message) => message.id),
       lastUserMessage: lastUserOf(ordered),
       tokenEst: rendered.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+      droppedMessages: 0,
     };
   }
 
@@ -245,11 +284,19 @@ export function resolveWindow(
       messageIds: [],
       lastUserMessage: null,
       tokenEst: 0,
+      droppedMessages: 0,
       error: 'empty_session',
     };
   }
 
-  const wantedTurns = options.mode === 'turn' ? 1 : Math.max(1, Math.min(options.turns ?? 5, 20));
+  // `session` is "everything the budget allows": no turn limit, so the token budget is
+  // the only constraint and it reports what it dropped.
+  const wantedTurns =
+    options.mode === 'session'
+      ? Number.POSITIVE_INFINITY
+      : options.mode === 'turn'
+        ? 1
+        : Math.max(1, Math.min(options.turns ?? 5, WINDOW_TURNS_MAX));
   const tail: Message[] = [];
   let turns = 0;
   for (let index = prose.length - 1; index >= 0; index -= 1) {
@@ -266,12 +313,13 @@ export function resolveWindow(
   const rendered = tail
     .map((message) => render(message, includeTools))
     .filter((message): message is WindowMessage => message !== null);
-  const trimmed = trimToBudget(rendered, budget);
+  const trimmed = trimToBudget(rendered, budget, options.charBudget);
   return {
-    messages: trimmed,
-    messageIds: trimmed.map((message) => message.id),
+    messages: trimmed.messages,
+    messageIds: trimmed.messages.map((message) => message.id),
     lastUserMessage: lastUserOf(ordered),
-    tokenEst: trimmed.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+    tokenEst: trimmed.messages.reduce((sum, message) => sum + estimateTokens(message.content), 0),
+    droppedMessages: trimmed.dropped,
   };
 }
 
