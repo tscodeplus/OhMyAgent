@@ -31,7 +31,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../utils/api';
-import type { Note, NoteListResult, NoteRejectionCode, NoteStatus } from './types';
+import type { Note, NoteChannel, NoteListResult, NoteRejectionCode, NoteStatus } from './types';
 
 /**
  * What a caller can ask the ball for.
@@ -62,10 +62,11 @@ export interface CaptureIntent {
 /** Filters the page sends; the server owns the actual query. */
 export interface NotesQuery {
   status: NoteStatus;
-  origin?: 'all' | 'user' | 'agent';
-  channel?: string;
-  projectId?: string;
-  tag?: string | null;
+  /** Each facet is a set: OR inside it, AND across facets (see `NoteListQuery`). */
+  origins?: string[];
+  channels?: string[];
+  projectIds?: string[];
+  tags?: string[];
   q?: string;
 }
 
@@ -130,7 +131,10 @@ interface NotesContextValue {
    */
   drafts: Note[];
   counts: Record<NoteStatus, number>;
+  /** Facet options for the filter row: the library under the current status. */
   tags: Array<{ tag: string; count: number }>;
+  channels: Array<{ channel: NoteChannel; count: number }>;
+  projects: Array<{ id: string; name: string; count: number }>;
   loading: boolean;
   error: string | null;
   query: NotesQuery;
@@ -190,10 +194,12 @@ function describeError(err: unknown): string {
 function toSearchParams(query: NotesQuery, extra: Record<string, string | undefined>): string {
   const params = new URLSearchParams();
   params.set('status', query.status);
-  if (query.origin && query.origin !== 'all') params.set('origin', query.origin);
-  if (query.channel) params.set('channel', query.channel);
-  if (query.projectId) params.set('projectId', query.projectId);
-  if (query.tag) params.set('tag', query.tag);
+  // One param per facet, comma-joined: the server accepts that or the repeated
+  // form, so a filter stays one readable key in the URL instead of four.
+  if (query.origins?.length) params.set('origin', query.origins.join(','));
+  if (query.channels?.length) params.set('channel', query.channels.join(','));
+  if (query.projectIds?.length) params.set('projectId', query.projectIds.join(','));
+  if (query.tags?.length) params.set('tag', query.tags.join(','));
   if (query.q && query.q.trim()) params.set('q', query.q.trim());
   for (const [key, value] of Object.entries(extra)) {
     if (value) params.set(key, value);
@@ -208,6 +214,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     total: 0,
     counts: { active: 0, draft: 0, archived: 0 },
     tags: [],
+    channels: [],
+    projects: [],
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -536,6 +544,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       drafts,
       counts: result.counts,
       tags: result.tags,
+      channels: result.channels,
+      projects: result.projects,
       loading,
       error,
       query,
@@ -566,6 +576,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       drafts,
       result.counts,
       result.tags,
+      result.channels,
+      result.projects,
       loading,
       error,
       query,

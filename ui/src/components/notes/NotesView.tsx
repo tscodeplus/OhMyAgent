@@ -16,7 +16,10 @@ import {
   ArrowLeft,
   Archive,
   Check,
+  Clock,
+  Eye,
   Inbox,
+  Link2,
   Pencil,
   Pin,
   PinOff,
@@ -25,17 +28,21 @@ import {
   Search,
   Trash2,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
+import MultiSelect from '../ui/MultiSelect';
 import Select from '../ui/Select';
 import { useNotes } from './NotesContext';
 import {
   CHANNEL_LABEL,
   CopyableValue,
+  DraftBadge,
   FacetRow,
-  KIND_META,
+  KindChip,
+  KindDot,
   NoteBody,
   relativeTime,
   SourceChip,
@@ -69,6 +76,8 @@ export default function NotesView() {
     drafts,
     counts,
     tags: tagFacets,
+    channels: channelFacets,
+    projects: projectFacets,
     loading,
     error,
     query,
@@ -115,15 +124,21 @@ export default function NotesView() {
   );
   const searchText = query.q ?? '';
   const setSearchText = (value: string) => setQuery({ q: value });
-  const origin = query.origin ?? 'all';
-  const setOrigin = (value: 'all' | 'user' | 'agent') => setQuery({ origin: value });
-  const channel = query.channel ?? 'all';
-  const setChannel = (value: string) => setQuery({ channel: value === 'all' ? undefined : value });
-  const project = query.projectId ?? 'all';
-  const setProject = (value: string) =>
-    setQuery({ projectId: value === 'all' ? undefined : value });
-  const tag = query.tag ?? null;
-  const setTag = (value: string | null) => setQuery({ tag: value });
+  /**
+   * Trigger text for a facet with something in it.
+   *
+   * One value is spelled out; several collapse to "first +n", because the trigger is
+   * ~160px in the split view and a comma list would be a riddle at that width.
+   */
+  const summaryOf = useCallback(
+    (facet: 'origin' | 'channel' | 'project' | 'tag', labels: string[]) => {
+      const label = t(`notes.filter.prefix.${facet}`);
+      return labels.length === 1
+        ? t('notes.filter.summaryOne', { label, value: labels[0] })
+        : t('notes.filter.summaryMore', { label, value: labels[0], count: labels.length - 1 });
+    },
+    [t],
+  );
   /**
    * `/notes/new` is a note that does not exist yet.
    *
@@ -381,38 +396,54 @@ export default function NotesView() {
     setSearchParams(next, { replace: true });
   }, [noteId, searchParams, setSearchParams]);
 
+  /**
+   * Facet options come from the server with the list response — a `GROUP BY` over
+   * the library, not a scan of whatever page happens to be loaded. Deriving them
+   * from the loaded rows meant a filter could hide the very values needed to widen
+   * it back: filter to one channel and the channel list held that one channel.
+   */
   const channels = useMemo(
-    () => Array.from(new Set(rows.map((note) => note.channel).filter(Boolean))) as string[],
-    [rows],
+    () =>
+      channelFacets.map((facet) => ({
+        value: facet.channel,
+        label: `${t(`notes.channel.${facet.channel}`)} · ${facet.count}`,
+        shortLabel: t(`notes.channel.${facet.channel}`),
+      })),
+    [channelFacets, t],
   );
   /**
-   * Project filter options, as (id, name) pairs: the server filters on
-   * `scope_key` (the project id) while the row shows the resolved name, and a
-   * dropdown keyed by name would send a name the query cannot match.
+   * Projects as (id, name) pairs: the server filters on `scope_key` while the row
+   * shows the resolved name, and a dropdown keyed by name would send a name the
+   * query cannot match.
    */
-  const projects = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const note of rows) {
-      if (note.scope === 'project' && note.scopeKey && note.projectName) {
-        byId.set(note.scopeKey, note.projectName);
-      }
-    }
-    return [...byId.entries()].map(([value, label]) => ({ value, label }));
-  }, [rows]);
-  /**
-   * Tag counts come from the server with the list response: the row must show the
-   * tags the *filter* can act on, which is a SQL `GROUP BY`, not a scan of whatever
-   * page happens to be loaded.
-   */
+  const projects = useMemo(
+    () =>
+      projectFacets.map((facet) => ({
+        value: facet.id,
+        label: `${facet.name} · ${facet.count}`,
+        shortLabel: facet.name,
+      })),
+    [projectFacets],
+  );
   const tags = useMemo(() => tagFacets.map((facet) => facet.tag), [tagFacets]);
 
   const startNewNote = useCallback(() => navigate('/notes/new'), [navigate]);
 
   const hasFilters =
-    origin !== 'all' || channel !== 'all' || project !== 'all' || !!tag || !!searchText;
+    !!query.origins?.length ||
+    !!query.channels?.length ||
+    !!query.projectIds?.length ||
+    !!query.tags?.length ||
+    !!searchText;
 
   const clearFilters = useCallback(() => {
-    setQuery({ origin: 'all', channel: undefined, projectId: undefined, tag: null, q: '' });
+    setQuery({
+      origins: undefined,
+      channels: undefined,
+      projectIds: undefined,
+      tags: undefined,
+      q: '',
+    });
   }, [setQuery]);
   return (
     <div ref={pageRef} className="flex h-full min-h-0 bg-white dark:bg-neutral-950">
@@ -471,18 +502,26 @@ export default function NotesView() {
        */}
       <div
         className={cn(
-          'w-full min-w-0 flex-col md:flex',
+          // A tinted index, not a second page: the reading column keeps the white
+          // (or #0d1117) surface, so switching notes moves one plane instead of
+          // moving the whole screen. It also gives the open row something to lift
+          // off, which a white-on-white list cannot do.
+          // `@container` because these filters are sized by the *column*, not by the
+          // viewport: the same window shows a 364px column beside an open note and a
+          // full-width list when none is open, and a viewport breakpoint would call
+          // both "large" and cram four selects into 364px.
+          'w-full @container min-w-0 flex-col bg-neutral-50/70 md:flex dark:bg-neutral-900/40',
           selected
-            ? 'hidden border-r border-neutral-200 dark:border-neutral-800 md:w-[364px] md:shrink-0'
+            ? 'hidden border-r border-neutral-200 md:w-[364px] md:shrink-0 dark:border-neutral-800'
             : 'flex',
         )}
       >
         <div className="shrink-0 px-4 pb-2 pt-4">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h1 className="flex items-baseline gap-1.5 text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
+              <h1 className="flex items-baseline gap-1.5 text-[15px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-100">
                 {t('notes.title')}
-                <span className="text-[11px] font-normal text-neutral-400">
+                <span className="rounded-full bg-neutral-200/70 px-1.5 text-[10.5px] font-medium tabular-nums text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
                   {/* Server-side count for the status being shown: "笔记 7" over a
                       list of three drafts reads as a bug. */}
                   {counts[statusFilter] ?? allNotes.length}
@@ -557,7 +596,7 @@ export default function NotesView() {
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
               placeholder={t('notes.searchPlaceholder')}
-              className="h-8 w-full rounded-md border border-neutral-300 bg-white pl-8 pr-7 text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+              className="h-9 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-7 text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-200"
             />
             {searchText && (
               <button
@@ -571,58 +610,86 @@ export default function NotesView() {
             )}
           </label>
 
-          <div className="flex gap-1.5">
-            <Select
+          {/* Four facets, two by two: three selects in a 364px column were already at
+              the edge of legible, and the tag filter used to live below them as a
+              scrolling chip strip that silently stopped at the eighth tag. The same
+              control for all four also means one interaction to learn, not two. */}
+          {/* One row when the column can hold it, two when it cannot — the tag filter
+              is the fourth facet, not a separate strip, so all four behave alike. */}
+          <div
+            className={cn(
+              'grid gap-1.5',
+              tags.length > 0 ? 'grid-cols-2 @2xl:grid-cols-4' : 'grid-cols-3',
+            )}
+          >
+            <MultiSelect
               compact
-              className="flex-1"
-              value={origin}
-              onChange={(event) => setOrigin(event.target.value as typeof origin)}
+              label={t('notes.filter.prefix.origin')}
+              searchPlaceholder={t('notes.filter.searchOptions')}
+              clearLabel={t('notes.filter.clearOne')}
+              emptyLabel={t('notes.filter.noOption')}
+              allLabel={t('notes.filter.originAll')}
+              formatSummary={(labels) => summaryOf('origin', labels)}
+              values={query.origins ?? []}
+              onChange={(values) => setQuery({ origins: values.length ? values : undefined })}
+              // Plain labels inside the panel: "作者：我" is a trigger, "我" is an option.
               options={[
-                { value: 'all', label: t('notes.filter.originAll') },
-                { value: 'user', label: t('notes.filter.originUser') },
-                { value: 'agent', label: t('notes.filter.originAgent') },
+                { value: 'user', label: t('notes.facet.origin.user') },
+                { value: 'agent', label: t('notes.facet.origin.agent') },
               ]}
             />
-            <Select
+            <MultiSelect
               compact
-              className="flex-1"
-              value={channel}
-              onChange={(event) => setChannel(event.target.value)}
-              options={[
-                { value: 'all', label: t('notes.filter.channelAll') },
-                ...channels.map((value) => ({ value, label: t(`notes.channel.${value}`) })),
-              ]}
+              label={t('notes.filter.prefix.channel')}
+              searchPlaceholder={t('notes.filter.searchOptions')}
+              clearLabel={t('notes.filter.clearOne')}
+              emptyLabel={t('notes.filter.noOption')}
+              allLabel={t('notes.filter.channelAll')}
+              formatSummary={(labels) => summaryOf('channel', labels)}
+              values={query.channels ?? []}
+              onChange={(values) => setQuery({ channels: values.length ? values : undefined })}
+              options={channels}
             />
-            <Select
+            <MultiSelect
               compact
-              className="flex-1"
-              value={project}
-              onChange={(event) => setProject(event.target.value)}
-              options={[
-                { value: 'all', label: t('notes.filter.projectAll') },
-                ...projects.map((item) => ({ value: item.value, label: item.label })),
-              ]}
+              label={t('notes.filter.prefix.project')}
+              searchPlaceholder={t('notes.filter.searchOptions')}
+              clearLabel={t('notes.filter.clearOne')}
+              emptyLabel={t('notes.filter.noOption')}
+              allLabel={t('notes.filter.projectAll')}
+              formatSummary={(labels) => summaryOf('project', labels)}
+              values={query.projectIds ?? []}
+              onChange={(values) => setQuery({ projectIds: values.length ? values : undefined })}
+              options={projects}
             />
+            {tags.length > 0 && (
+              <MultiSelect
+                compact
+                label={t('notes.filter.prefix.tag')}
+                searchPlaceholder={t('notes.filter.searchOptions')}
+                clearLabel={t('notes.filter.clearOne')}
+                emptyLabel={t('notes.filter.noOption')}
+                allLabel={t('notes.filter.tagAll')}
+                formatSummary={(labels) => summaryOf('tag', labels)}
+                values={query.tags ?? []}
+                onChange={(values) => setQuery({ tags: values.length ? values : undefined })}
+                // The count is the reason this is a dropdown: `#tag · 7` says how much
+                // is behind the filter, which a chip never did, and it is the number
+                // that tells you whether a tag is worth clicking.
+                options={tagFacets.map((facet) => ({
+                  value: facet.tag,
+                  label: `#${facet.tag} · ${facet.count}`,
+                  shortLabel: `#${facet.tag}`,
+                }))}
+              />
+            )}
           </div>
 
-          {(tags.length > 0 || counts.archived > 0) && (
-            <FilterRow>
-              {tags.slice(0, 8).map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setTag(tag === item ? null : item)}
-                  className={cn(
-                    'shrink-0 rounded-md px-1.5 py-0.5 text-[11px] transition-colors',
-                    tag === item
-                      ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700',
-                  )}
-                >
-                  <span className="opacity-50">#</span>
-                  {item}
-                </button>
-              ))}
+          {(counts.archived > 0 || hasFilters) && (
+            <div className="flex items-center gap-2 text-[11px]">
+              {/* Still a toggle, not a fourth select: "archived" is a *place* in the
+                  library rather than a value of a field, and a select would offer
+                  "Archived: all" next to "Archived: 3", which says nothing. */}
               {counts.archived > 0 && (
                 <button
                   type="button"
@@ -630,7 +697,7 @@ export default function NotesView() {
                     setStatusFilter((current) => (current === 'archived' ? 'active' : 'archived'))
                   }
                   className={cn(
-                    'ml-auto shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors',
+                    'shrink-0 rounded-md border px-1.5 py-0.5 transition-colors',
                     statusFilter === 'archived'
                       ? 'border-neutral-300 bg-neutral-100 text-neutral-700 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200'
                       : 'border-transparent text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300',
@@ -639,17 +706,16 @@ export default function NotesView() {
                   {t('notes.archivedToggle', { count: counts.archived })}
                 </button>
               )}
-            </FilterRow>
-          )}
-
-          {hasFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="text-[11px] text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
-            >
-              {t('notes.clearFilters')}
-            </button>
+              {hasFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="ml-auto shrink-0 text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
+                >
+                  {t('notes.clearFilters')}
+                </button>
+              )}
+            </div>
           )}
 
           {/* The one reader of `stats()`: how urgent the queue is and whether the
@@ -665,22 +731,34 @@ export default function NotesView() {
           )}
         </div>
 
-        <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-28">
-          {loading && allNotes.length === 0 && (
-            <li className="px-3 py-8 text-center text-[12px] text-neutral-400 dark:text-neutral-500">
-              {t('notes.loading')}
-            </li>
-          )}
+        {/* Cards, not hairlines: rows carry a title, a one-or-two-line summary and a
+            meta strip, so their heights differ. A rule between two rows of different
+            heights reads as a table with a broken grid, while a rounded card per row
+            absorbs the difference — and the row you open is then a card *plus* an
+            accent, instead of the only thing on the page with an outline. */}
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-28">
+          {loading && allNotes.length === 0 && <ListSkeleton label={t('notes.loading')} />}
           {!loading && allNotes.length === 0 && (
-            <li className="px-3 py-8 text-center text-[12px] text-neutral-400 dark:text-neutral-500">
-              {searchText
-                ? t('notes.emptySearch')
-                : statusFilter === 'draft'
-                  ? t('notes.emptyDrafts')
-                  : statusFilter === 'archived'
-                    ? t('notes.emptyArchived')
-                    : t('notes.empty')}
-            </li>
+            <ListEmpty
+              icon={
+                searchText
+                  ? Search
+                  : statusFilter === 'draft'
+                    ? Inbox
+                    : statusFilter === 'archived'
+                      ? Archive
+                      : Inbox
+              }
+              text={
+                searchText
+                  ? t('notes.emptySearch')
+                  : statusFilter === 'draft'
+                    ? t('notes.emptyDrafts')
+                    : statusFilter === 'archived'
+                      ? t('notes.emptyArchived')
+                      : t('notes.empty')
+              }
+            />
           )}
           {allNotes.map((note) => (
             <li key={note.id}>
@@ -754,7 +832,7 @@ export default function NotesView() {
               } as SearchResult);
             }}
             onOpenNote={(id) => navigate(`/notes/${id}`)}
-            onOpenTag={(value) => setTag(value)}
+            onOpenTag={(value) => setQuery({ tags: [value] })}
           />
         </div>
       )}
@@ -867,14 +945,45 @@ function RejectMenu({
   );
 }
 
-function FilterRow({ children }: { children: React.ReactNode }) {
+/**
+ * The empty list, with the icon that says *why* it is empty.
+ *
+ * A bare sentence in a 364px column reads as a failed request; an icon plus one
+ * line reads as an answer to the filter the user just set.
+ */
+function ListEmpty({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
   return (
-    <div className="relative -mx-1">
-      <div className="flex items-center gap-1 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {children}
-      </div>
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent dark:from-neutral-950" />
-    </div>
+    <li className="px-4 py-14 text-center">
+      <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-neutral-200/60 text-neutral-400 dark:bg-neutral-800/70 dark:text-neutral-500">
+        <Icon className="h-4 w-4" strokeWidth={1.75} />
+      </span>
+      <p className="mt-2.5 text-[12px] leading-relaxed text-neutral-400 dark:text-neutral-500">
+        {text}
+      </p>
+    </li>
+  );
+}
+
+/**
+ * Placeholder rows instead of the word "loading": the list keeps its height, so the
+ * column does not jump when the first page lands.
+ */
+function ListSkeleton({ label }: { label: string }) {
+  return (
+    <li role="status" aria-label={label} aria-busy="true" className="px-2">
+      {[0, 1, 2, 3].map((index) => (
+        <div key={index} className="animate-pulse rounded-xl px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-neutral-300 dark:bg-neutral-700" />
+            <span
+              className="h-2.5 rounded bg-neutral-200 dark:bg-neutral-800"
+              style={{ width: `${56 - index * 7}%` }}
+            />
+          </div>
+          <div className="mt-2 h-2 w-4/5 rounded bg-neutral-100 dark:bg-neutral-800/60" />
+        </div>
+      ))}
+    </li>
   );
 }
 
@@ -890,7 +999,6 @@ function NoteRow({
   onSelect: () => void;
 }) {
   const { t } = useTranslation('common');
-  const meta = KIND_META[note.kind];
   return (
     <button
       type="button"
@@ -899,20 +1007,46 @@ function NoteRow({
       // to the list.
       title={active ? t('notes.closeHint') : undefined}
       className={cn(
-        'w-full rounded-xl px-2.5 py-2 text-left transition-colors',
-        active
-          ? 'bg-neutral-100 dark:bg-neutral-800/70'
-          : 'hover:bg-neutral-50 dark:hover:bg-neutral-900',
+        // One card style for every row, open or not: the height of a row varies with
+        // its summary, so an outline per row is what gives the column a grid. What
+        // marks the open note is the rail below, not a recoloured edge — a card whose
+        // border changes colour on click reads as a state of the *control*, while the
+        // rail reads as "this is the note in the pane on the right".
+        'group relative w-full rounded-xl border border-neutral-200/80 bg-white px-3 py-2.5 text-left transition-colors',
+        // `dark:border-neutral-700` is this app's dark-mode *border* tone (the inputs
+        // and cards use it); neutral-800 sat at the same value as the surface below,
+        // which made the card edges almost invisible on #0d1117.
+        'hover:border-neutral-300 dark:border-neutral-700/80 dark:bg-neutral-900/40 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/50',
       )}
     >
+      {/* Inset far enough (3px) to clear the card's own border, so it is an accent
+          inside the card rather than a second edge on top of the first. */}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute inset-y-2.5 left-[3px] w-[2px] rounded-full bg-indigo-500 dark:bg-indigo-400"
+        />
+      )}
       <div className="flex items-center gap-1.5">
-        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} />
-        <span className="truncate text-[13px] font-medium text-neutral-800 dark:text-neutral-100">
+        {/* Hollow for a draft — the kind's hue survives, the weight does not. */}
+        <KindDot
+          kind={note.kind}
+          hollow={note.status === 'draft'}
+          title={t(`notes.kind.${note.kind}`)}
+        />
+        <span
+          className={cn(
+            'truncate text-[13px] font-medium leading-snug',
+            active
+              ? 'text-neutral-900 dark:text-neutral-50'
+              : 'text-neutral-800 dark:text-neutral-100',
+          )}
+        >
           {note.title}
         </span>
         {note.pinned && (
           <Pin
-            className="h-3 w-3 shrink-0 text-amber-500"
+            className="h-3 w-3 shrink-0 text-amber-500/75"
             strokeWidth={2}
             aria-label={t('notes.pinned')}
           />
@@ -920,22 +1054,18 @@ function NoteRow({
         {note.status === 'archived' && (
           <Archive className="h-3 w-3 shrink-0 text-neutral-400" strokeWidth={2} />
         )}
-        {note.status === 'draft' && (
-          <span className="shrink-0 rounded border border-amber-300/70 bg-amber-50 px-1 text-[9.5px] font-medium text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-300">
-            {t('notes.status.draft')}
-          </span>
-        )}
-        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-neutral-400">
+        {note.status === 'draft' && <DraftBadge />}
+        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
           {relativeTime(note.updatedAt, language)}
         </span>
       </div>
       {note.summary && (
-        <p className="mt-0.5 truncate text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+        <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
           {note.summary}
         </p>
       )}
       <div className="mt-1 flex items-center gap-1 overflow-hidden">
-        <span className="shrink-0 rounded bg-neutral-100 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        <span className="shrink-0 rounded bg-neutral-200/60 px-1 py-0.5 text-[10px] text-neutral-500 dark:bg-neutral-800/70 dark:text-neutral-400">
           {t(`notes.facet.origin.${note.origin}`)}
         </span>
         {note.channel && (
@@ -1016,26 +1146,31 @@ function NoteDetail({
 
   return (
     <div className="flex min-h-0 w-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-neutral-200 px-3 dark:border-neutral-800">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-neutral-200/80 px-3 dark:border-neutral-800">
         <button
           type="button"
           onClick={onBack}
           aria-label={t('notes.back')}
           title={t('notes.back')}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
-        <span
-          className={cn(
-            'truncate text-[11px]',
-            editing && dirty
-              ? 'text-amber-600 dark:text-amber-400'
-              : 'text-neutral-400 dark:text-neutral-500',
-          )}
-        >
-          {statusLabel}
-        </span>
+        {/* The status is a badge only where it is a state worth naming: a draft is
+            unpublished and needs a decision, an unsaved edit is transient. Both keep
+            amber out of the draft signal — it belongs to "you have unsaved text". */}
+        {editing && dirty ? (
+          <span className="inline-flex items-center gap-1 truncate text-[11px] font-medium text-amber-600 dark:text-amber-400/90">
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-500/80" />
+            {statusLabel}
+          </span>
+        ) : note.status === 'draft' ? (
+          <DraftBadge className="px-1.5 py-0.5 text-[10px]" />
+        ) : (
+          <span className="truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+            {statusLabel}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           {note.status === 'draft' ? null : (
             <>
@@ -1065,7 +1200,15 @@ function NoteDetail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-5 pb-28 pt-4">
+        <div
+          className={cn(
+            'mx-auto w-full max-w-[46rem] px-5 pt-5 sm:px-7 sm:pt-7',
+            // The editor ends on a sticky action bar, so it must not also reserve
+            // the reading view's bottom breathing room: that would leave a dead gap
+            // under the bar at the end of the scroll.
+            editing ? 'pb-0' : 'pb-16',
+          )}
+        >
           {editing ? (
             <NoteEditor
               note={note}
@@ -1076,10 +1219,16 @@ function NoteDetail({
             />
           ) : (
             <>
-              <h2 className="text-[17px] font-semibold leading-snug text-neutral-900 dark:text-neutral-100">
+              <h2 className="text-[19px] font-semibold leading-[1.35] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50">
                 {note.title}
               </h2>
-              <FacetRow note={note} className="mt-2" />
+              {/* Kind first, then the facets: the chip is the legend for the list's
+                  coloured dot, and without it a note's kind was invisible in the one
+                  place you go to read the note. */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-1">
+                <KindChip kind={note.kind} />
+                <FacetRow note={note} />
+              </div>
 
               {/* A draft is a decision waiting to happen, so its three verbs are
                   spelled out instead of hidden behind icons: approve, edit,
@@ -1090,15 +1239,28 @@ function NoteDetail({
                 // buttons cannot share 320px, and `ml-auto` on a wrapped line
                 // pushed the buttons to the right while the text stayed left —
                 // which read as a broken layout rather than a wrapped one.
-                <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-amber-200/80 bg-amber-50/50 px-2.5 py-2 text-center sm:flex-row sm:text-left dark:border-amber-400/20 dark:bg-amber-500/5">
-                  <span className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                //
+                // A left rule on a barely-there surface, not a tinted box: a full
+                // amber frame made the commonest thing in this panel (an unpublished
+                // note) look like an error state, and in dark mode it was the
+                // loudest object on the page.
+                <div className="mt-3.5 flex flex-col items-center gap-2 rounded-r-lg border-l-2 border-neutral-300 bg-neutral-50/80 py-2 pl-3 pr-2.5 text-center sm:flex-row sm:text-left dark:border-neutral-600 dark:bg-neutral-900/60">
+                  <span className="text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
                     {t('notes.draftHint')}
                   </span>
                   <div className="flex flex-wrap items-center justify-center gap-1.5 sm:ml-auto sm:justify-end">
-                    <Button size="sm" className="h-7" onClick={onApprove}>
+                    {/* The one verb this panel exists for, so it is the one filled
+                        control in the app's vocabulary (`bg-neutral-900` text-white,
+                        inverting in dark) rather than another white outlined button
+                        that reads as a peer of 编辑 and 删除. */}
+                    <button
+                      type="button"
+                      onClick={onApprove}
+                      className="inline-flex h-7 items-center gap-1 rounded-md bg-neutral-900 px-2.5 text-[12px] font-medium text-white transition-colors hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white"
+                    >
                       <Check className="h-3.5 w-3.5" />
                       {t('notes.approve')}
-                    </Button>
+                    </button>
                     <Button size="sm" variant="secondary" className="h-7" onClick={onEdit}>
                       <Pencil className="h-3.5 w-3.5" />
                       {t('notes.edit')}
@@ -1122,28 +1284,39 @@ function NoteDetail({
                   </div>
                 </div>
               )}
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-                <span>{relativeTime(note.updatedAt, language)}</span>
-                <span>·</span>
-                <span>{t('notes.viewCount', { count: note.viewCount })}</span>
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                <span className="inline-flex items-center gap-1">
+                  <Clock className="h-3 w-3" strokeWidth={1.75} />
+                  {relativeTime(note.updatedAt, language)}
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Eye className="h-3 w-3" strokeWidth={1.75} />
+                  {t('notes.viewCount', { count: note.viewCount })}
+                </span>
                 {note.sources.length > 0 && (
-                  <>
-                    <span>·</span>
-                    <span>{t('notes.sourceCount', { count: note.sources.length })}</span>
-                  </>
+                  <span className="inline-flex items-center gap-1">
+                    <Link2 className="h-3 w-3" strokeWidth={1.75} />
+                    {t('notes.sourceCount', { count: note.sources.length })}
+                  </span>
                 )}
               </div>
 
               {note.summary && (
-                <p className="mt-3 border-l-2 border-neutral-200 pl-3 text-[13px] leading-relaxed text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
+                <p className="mt-4 border-l-2 border-neutral-300 pl-3.5 text-[13px] leading-[1.75] text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
                   {note.summary}
                 </p>
               )}
 
               {note.fields.length > 0 && (
-                <dl className="mt-4 space-y-2 rounded-xl border border-neutral-200/80 bg-neutral-50/60 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
+                // Rows in one card, not a stack of separate boxes: these slots
+                // belong to the same note, and a divider draws them as one block of
+                // facts, which is what they are.
+                <dl className="mt-4 divide-y divide-neutral-200/70 overflow-hidden rounded-xl border border-neutral-200/80 bg-neutral-50/50 dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900/40">
                   {note.fields.map((field) => (
-                    <div key={field.key} className="flex flex-col gap-1 sm:flex-row sm:gap-3">
+                    <div
+                      key={field.key}
+                      className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:gap-3"
+                    >
                       <dt className="w-16 shrink-0 pt-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                         {t(`notes.field.${field.key}`, { defaultValue: field.key })}
                       </dt>
@@ -1159,12 +1332,12 @@ function NoteDetail({
                 </dl>
               )}
 
-              <div className="mt-4">
+              <div className="mt-5">
                 <NoteBody body={note.body} />
               </div>
 
               {note.tags.length > 0 && (
-                <div className="mt-4 flex flex-wrap items-center gap-1">
+                <div className="mt-5 flex flex-wrap items-center gap-1">
                   {note.tags.map((item) => (
                     <TagChip key={item} tag={item} onClick={() => onOpenTag(item)} />
                   ))}
@@ -1172,11 +1345,11 @@ function NoteDetail({
               )}
 
               {/* ── trace back to the conversation (plan §4.7) ── */}
-              <section className="mt-6 border-t border-neutral-200 pt-3 dark:border-neutral-800">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+              <section className="mt-7 border-t border-neutral-200/80 pt-4 dark:border-neutral-800">
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-neutral-400 dark:text-neutral-500">
                   {t('notes.traceTitle')}
                 </h3>
-                <p className="mt-1 text-[12px] text-neutral-600 dark:text-neutral-300">
+                <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-300">
                   {t('notes.traceFrom', {
                     where: sessionLabel(note, t) || t('notes.traceUnknown'),
                   })}
@@ -1195,8 +1368,8 @@ function NoteDetail({
               </section>
 
               {note.related.length > 0 && (
-                <section className="mt-5">
-                  <h3 className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                <section className="mt-7">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-neutral-400 dark:text-neutral-500">
                     {t('notes.relatedTitle')}
                   </h3>
                   <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
@@ -1205,14 +1378,9 @@ function NoteDetail({
                         key={item.id}
                         type="button"
                         onClick={() => onOpenNote(item.id)}
-                        className="flex items-start gap-2 rounded-lg border border-neutral-200 px-2.5 py-2 text-left transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                        className="flex items-start gap-2 rounded-xl border border-neutral-200/80 px-3 py-2 text-left transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:border-neutral-700 dark:hover:bg-neutral-900"
                       >
-                        <span
-                          className={cn(
-                            'mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full',
-                            KIND_META[item.kind].dot,
-                          )}
-                        />
+                        <KindDot kind={item.kind} className="mt-1.5" />
                         <span className="min-w-0">
                           <span className="block truncate text-[12px] text-neutral-700 dark:text-neutral-200">
                             {item.title}
@@ -1344,7 +1512,7 @@ function NoteEditor({
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         placeholder={t('notes.editor.titlePlaceholder')}
-        className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 pb-1.5 text-[17px] font-semibold text-neutral-900 placeholder:text-neutral-300 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-600"
+        className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 pb-2 text-[19px] font-semibold leading-snug tracking-[-0.01em] text-neutral-900 placeholder:font-normal placeholder:text-neutral-300 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:text-neutral-50 dark:placeholder:text-neutral-600"
       />
       <div className="flex flex-wrap items-center gap-2">
         <Select
@@ -1363,14 +1531,14 @@ function NoteEditor({
           value={tags}
           onChange={(event) => setTags(event.target.value)}
           placeholder={t('notes.editor.tagsPlaceholder')}
-          className="h-8 min-w-[160px] flex-1 rounded-md border border-neutral-300 bg-white px-2 text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          className="h-8 min-w-[160px] flex-1 rounded-lg border border-neutral-300 bg-white px-2 text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
         />
       </div>
       <input
         value={summary}
         onChange={(event) => setSummary(event.target.value)}
         placeholder={t('notes.editor.summaryPlaceholder')}
-        className="w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+        className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-[12.5px] text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
       />
       <MarkdownEditor
         value={body}
@@ -1378,25 +1546,34 @@ function NoteEditor({
         placeholder={t('notes.editor.bodyPlaceholder')}
         ariaLabel={t('notes.editor.bodyPlaceholder')}
       />
-      <div className="flex items-center gap-2">
+      {/* Sticky, not trailing: a note body can be long, and 保存 scrolling out of
+          reach is how an edit gets abandoned half-written. The bar borrows the
+          content column's padding back with negative margins so it spans the full
+          width while the fields above stay inset. */}
+      <div className="sticky bottom-0 z-10 -mx-5 flex items-center gap-2 border-t border-neutral-200/80 bg-white/90 px-5 py-2.5 backdrop-blur sm:-mx-7 sm:px-7 dark:border-neutral-800 dark:bg-neutral-950/90">
         {/* Disabled rather than hidden: a grey button explains itself, a missing one
             makes the user wonder what they broke. */}
-        <Button size="sm" onClick={() => onSave(patch)} disabled={!patch.title && !body.trim()}>
+        <button
+          type="button"
+          onClick={() => onSave(patch)}
+          disabled={!patch.title && !body.trim()}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-neutral-900 px-3 text-[12px] font-medium text-white transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white"
+        >
           {t('notes.save')}
-        </Button>
+        </button>
         {onSaveAndApprove && (
           // Saving alone leaves a draft; this is the verb that finishes the job,
           // so it sits next to 保存 rather than behind the panel's 批准.
-          <Button
-            size="sm"
-            variant="secondary"
+          <button
+            type="button"
             onClick={() => onSaveAndApprove(patch)}
             disabled={!patch.title && !body.trim()}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 text-[12px] font-medium text-neutral-700 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
           >
             {t('notes.editor.saveAndApprove')}
-          </Button>
+          </button>
         )}
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        <Button size="sm" variant="ghost" className="h-8" onClick={onCancel}>
           {t('notes.cancel')}
         </Button>
       </div>

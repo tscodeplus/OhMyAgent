@@ -1564,7 +1564,19 @@
       "originUser": "作者：我",
       "originAgent": "作者：agent",
       "channelAll": "来源：全部",
-      "projectAll": "项目：全部"
+      "projectAll": "项目：全部",
+      "tagAll": "标签：全部",
+      "prefix": {
+        "origin": "作者",
+        "channel": "来源",
+        "project": "项目",
+        "tag": "标签"
+      },
+      "summaryOne": "{{label}}：{{value}}",
+      "summaryMore": "{{label}}：{{value}} +{{count}}",
+      "clearOne": "清除此项",
+      "noOption": "没有匹配的选项",
+      "searchOptions": "输入以过滤…"
     },
     "channel": {
       "feishu": "飞书",

@@ -1564,7 +1564,19 @@
       "originUser": "Author: me",
       "originAgent": "Author: agent",
       "channelAll": "Source: all",
-      "projectAll": "Project: all"
+      "projectAll": "Project: all",
+      "tagAll": "Tag: all",
+      "prefix": {
+        "origin": "Author",
+        "channel": "Source",
+        "project": "Project",
+        "tag": "Tag"
+      },
+      "summaryOne": "{{label}}: {{value}}",
+      "summaryMore": "{{label}}: {{value}} +{{count}}",
+      "clearOne": "Clear",
+      "noOption": "No matching option",
+      "searchOptions": "Type to filter…"
     },
     "channel": {
       "feishu": "Feishu",

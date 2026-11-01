@@ -33,6 +33,15 @@ interface KindMeta {
   chip: string;
   /** Left rail dot in the list. */
   dot: string;
+  /**
+   * The same hue as a border, for the hollow dot a *draft* row wears.
+   *
+   * A hollow ring instead of a filled dot is the whole draft signal in the list:
+   * it keeps the kind's colour (a draft is still, say, a pitfall) while saying
+   * "not filled in yet" — and on #161b22 a 1px ring is an order of magnitude
+   * quieter than a 6px saturated fill.
+   */
+  ring: string;
 }
 
 /**
@@ -44,43 +53,106 @@ export const KIND_META: Record<NoteKind, KindMeta> = {
     icon: Wrench,
     chip: 'bg-indigo-50 text-indigo-700 border-indigo-200/70 dark:bg-indigo-500/10 dark:text-indigo-300 dark:border-indigo-400/20',
     dot: 'bg-indigo-500',
+    ring: 'border-indigo-500/70 dark:border-indigo-400/60',
   },
   workflow: {
     icon: GitBranch,
     chip: 'bg-sky-50 text-sky-700 border-sky-200/70 dark:bg-sky-500/10 dark:text-sky-300 dark:border-sky-400/20',
     dot: 'bg-sky-500',
+    ring: 'border-sky-500/70 dark:border-sky-400/60',
   },
   pitfall: {
     icon: TriangleAlert,
     chip: 'bg-amber-50 text-amber-700 border-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-400/20',
     dot: 'bg-amber-500',
+    ring: 'border-amber-500/70 dark:border-amber-400/60',
   },
   insight: {
     icon: Lightbulb,
     chip: 'bg-violet-50 text-violet-700 border-violet-200/70 dark:bg-violet-500/10 dark:text-violet-300 dark:border-violet-400/20',
     dot: 'bg-violet-500',
+    ring: 'border-violet-500/70 dark:border-violet-400/60',
   },
   opinion: {
     icon: MessageSquareQuote,
     chip: 'bg-rose-50 text-rose-700 border-rose-200/70 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-400/20',
     dot: 'bg-rose-500',
+    ring: 'border-rose-500/70 dark:border-rose-400/60',
   },
   reference: {
     icon: BookOpen,
     chip: 'bg-emerald-50 text-emerald-700 border-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-400/20',
     dot: 'bg-emerald-500',
+    ring: 'border-emerald-500/70 dark:border-emerald-400/60',
   },
   decision: {
     icon: ClipboardList,
     chip: 'bg-teal-50 text-teal-700 border-teal-200/70 dark:bg-teal-500/10 dark:text-teal-300 dark:border-teal-400/20',
     dot: 'bg-teal-500',
+    ring: 'border-teal-500/70 dark:border-teal-400/60',
   },
   other: {
     icon: NotebookPen,
     chip: 'bg-neutral-100 text-neutral-600 border-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700',
     dot: 'bg-neutral-400',
+    ring: 'border-neutral-400 dark:border-neutral-500',
   },
 };
+
+/**
+ * The draft token, in one place: the badge in the list row, the badge in the
+ * detail header and the draft hint all read from here, so "not yet published"
+ * cannot drift into three different yellows.
+ *
+ * Deliberately hue-free. Amber was already the `pitfall` kind chip *and* the pin
+ * icon, and a third amber in the same 364px column made "this note is a pitfall"
+ * and "this note is unpublished" the same colour. A dashed edge over neutral ink
+ * says "provisional" on its own, and on #161b22 it is a whisper rather than a
+ * highlighter — the light mode reading was fine either way.
+ */
+export const DRAFT_BADGE =
+  'inline-flex shrink-0 items-center rounded border border-dashed border-neutral-300 bg-transparent px-1 py-0 font-medium text-neutral-500 dark:border-neutral-600 dark:text-neutral-400';
+
+export function DraftBadge({ className }: { className?: string }) {
+  const { t } = useTranslation('common');
+  return (
+    <span className={cn(DRAFT_BADGE, 'text-[9.5px]', className)}>{t('notes.status.draft')}</span>
+  );
+}
+
+/**
+ * The list's rail dot: filled for a published note, a hollow ring for a draft.
+ * `hollow` rather than a second component so a caller cannot pick a filled dot
+ * for something that has not been approved yet.
+ *
+ * The dot is the one thing in a row with no label beside it, so `title` carries the
+ * kind's name: eight hues are learnable but not guessable, and hovering is cheaper
+ * than opening the note to find out what the colour meant.
+ */
+export function KindDot({
+  kind,
+  hollow,
+  title,
+  className,
+}: {
+  kind: NoteKind;
+  hollow?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  const meta = KIND_META[kind];
+  return (
+    <span
+      aria-hidden
+      title={title}
+      className={cn(
+        'h-1.5 w-1.5 shrink-0 rounded-full',
+        hollow ? cn('border bg-transparent', meta.ring) : meta.dot,
+        className,
+      )}
+    />
+  );
+}
 
 export function KindChip({ kind, className }: { kind: NoteKind; className?: string }) {
   const { t } = useTranslation('common');
@@ -170,7 +242,7 @@ export function TagChip({ tag, onClick }: { tag: string; onClick?: () => void })
     </>
   );
   const className =
-    'inline-flex items-center rounded-md border border-transparent bg-neutral-100 px-1.5 py-0.5 text-[11px] text-neutral-600 transition-colors dark:bg-neutral-800 dark:text-neutral-300';
+    'inline-flex items-center rounded-full border border-transparent bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-600 transition-colors dark:bg-neutral-800 dark:text-neutral-300';
   if (!onClick) return <span className={className}>{content}</span>;
   return (
     <button
@@ -178,7 +250,7 @@ export function TagChip({ tag, onClick }: { tag: string; onClick?: () => void })
       onClick={onClick}
       className={cn(
         className,
-        'hover:border-neutral-300 hover:bg-neutral-200/70 dark:hover:bg-neutral-700',
+        'hover:border-neutral-300 hover:bg-neutral-200/70 dark:hover:border-neutral-600 dark:hover:bg-neutral-700',
       )}
     >
       {content}
@@ -361,7 +433,7 @@ export function SourceChip({
     return (
       <span
         title={t('notes.sourcesGone')}
-        className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-md border border-dashed border-neutral-300 px-2 py-1 text-[11px] text-neutral-400 line-through decoration-neutral-300 dark:border-neutral-700 dark:text-neutral-500"
+        className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-dashed border-neutral-300 px-2.5 py-1 text-[11px] text-neutral-400 line-through decoration-neutral-300 dark:border-neutral-700 dark:text-neutral-500"
       >
         {label}
       </span>
@@ -375,7 +447,7 @@ export function SourceChip({
       // reader into the middle of a long transcript.
       onClick={onOpen ? () => onOpen(source) : undefined}
       title={source.excerpt || t('notes.traceOpen')}
-      className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-md border border-neutral-200 bg-white px-2 py-1 text-left text-[11px] text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-left text-[11px] text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800"
     >
       {source.kind === 'message' ? (
         <>

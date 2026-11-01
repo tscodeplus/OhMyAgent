@@ -206,7 +206,16 @@ export default function NotesFloatingBall() {
    * `existingId` is set when the answer was "this already exists": that notice is a
    * door, not a complaint, so it offers to open the note that owns the title.
    */
-  const [notice, setNotice] = useState<{ text: string; existingId?: string } | null>(null);
+  const [notice, setNotice] = useState<{
+    text: string;
+    existingId?: string;
+    /**
+     * "This already exists" is information with a door; anything else is a failure.
+     * They used to share one amber card, which meant the app shouted at the common
+     * case (a duplicate title) as hard as at the rare one (a capture that broke).
+     */
+    tone: 'info' | 'error';
+  } | null>(null);
   /**
    * How many notes the last capture produced.
    *
@@ -238,6 +247,7 @@ export default function NotesFloatingBall() {
         ? t('notes.capture.duplicate')
         : (outcome.message ?? t('notes.capture.failed')),
       existingId: outcome.existingId,
+      tone: outcome.existingId ? 'info' : 'error',
     });
   };
 
@@ -246,7 +256,7 @@ export default function NotesFloatingBall() {
     setNotice(null);
     if (mode !== 'manual' && !sessionId) {
       // "Write it myself" needs no session; the others read a conversation.
-      setNotice({ text: t('notes.capture.noSession') });
+      setNotice({ text: t('notes.capture.noSession'), tone: 'info' });
       return;
     }
 
@@ -294,7 +304,7 @@ export default function NotesFloatingBall() {
 
   const submitDrop = (text: string, tidy: boolean) => {
     if (!sessionId) {
-      setNotice({ text: t('notes.capture.noSession') });
+      setNotice({ text: t('notes.capture.noSession'), tone: 'info' });
       return;
     }
     closeMenu();
@@ -340,7 +350,15 @@ export default function NotesFloatingBall() {
         {notice && !menuOpen && (
           <div
             role="status"
-            className="pointer-events-auto w-[min(320px,calc(100vw-2rem))] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800 shadow-lg shadow-neutral-900/10 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-200"
+            className={cn(
+              // The same popover surface as the instruction panel and the draft card
+              // beside it — a notice is one of this stack, not a warning banner that
+              // happened to land on it.
+              'pointer-events-auto w-[min(320px,calc(100vw-2rem))] rounded-xl border bg-white px-3 py-2 text-[12px] leading-relaxed shadow-lg shadow-neutral-900/10 dark:bg-neutral-900',
+              notice.tone === 'error'
+                ? 'border-red-200/90 text-red-700 dark:border-red-500/30 dark:text-red-300'
+                : 'border-neutral-200 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300',
+            )}
           >
             <div className="flex items-start gap-2">
               <span className="flex-1">{notice.text}</span>
@@ -352,7 +370,7 @@ export default function NotesFloatingBall() {
                     setNotice(null);
                     navigate(`/notes/${id}`);
                   }}
-                  className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                  className="shrink-0 rounded-md border border-neutral-300 px-1.5 py-0.5 text-[11px] font-medium text-neutral-700 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
                 >
                   {t('notes.capture.openExisting')}
                 </button>
@@ -361,7 +379,7 @@ export default function NotesFloatingBall() {
                 type="button"
                 onClick={() => setNotice(null)}
                 aria-label={t('notes.close')}
-                className="shrink-0 rounded p-0.5 text-amber-700/70 hover:text-amber-900 dark:text-amber-300/70 dark:hover:text-amber-100"
+                className="shrink-0 rounded p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -665,10 +683,14 @@ export default function NotesFloatingBall() {
             )}
             {counts.draft > 0 && (
               // The badge shrinks with the ball but never disappears: it is the only
-              // thing a compact ball still says.
+              // thing a compact ball still says. White rather than amber: draft
+              // stopped being a yellow state everywhere else in the layer, and an
+              // amber chip here would be the one place still shouting about it — on
+              // the ball's indigo it is also the only value that stays legible at
+              // 14px.
               <span
                 className={cn(
-                  'absolute inline-flex items-center justify-center rounded-full border-2 border-white bg-amber-500 px-1 font-semibold text-white dark:border-neutral-950',
+                  'absolute inline-flex items-center justify-center rounded-full border-2 border-white bg-white px-1 font-semibold text-indigo-700 dark:border-neutral-950',
                   ballSize === 'compact'
                     ? '-right-1 -top-1 h-3.5 min-w-3.5 text-[8px]'
                     : '-right-0.5 -top-0.5 h-5 min-w-5 text-[10px]',

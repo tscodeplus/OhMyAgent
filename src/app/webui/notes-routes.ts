@@ -42,6 +42,7 @@ import {
   isNoteRejectionCode,
   isNoteStatus,
   type NoteChannel,
+  type NoteOrigin,
   type NoteRejectionCode,
   type NoteField,
   type NoteListQuery,
@@ -79,6 +80,27 @@ function parseOffset(raw: unknown): number {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * A facet filter as a list.
+ *
+ * Accepts both `?tag=a&tag=b` (repeated) and `?tag=a,b` (comma), because a URL a
+ * human types and a URL `URLSearchParams` builds should not need to agree. Values
+ * are de-duplicated and capped: the filter row offers a handful of choices, so a
+ * thousand is not a filter, it is an attack on the SQL planner.
+ */
+function parseCsv(raw: unknown, max = 20): string[] {
+  const parts = Array.isArray(raw) ? raw : [raw];
+  const out: string[] = [];
+  for (const part of parts) {
+    if (typeof part !== 'string') continue;
+    for (const item of part.split(',')) {
+      const value = item.trim();
+      if (value && !out.includes(value)) out.push(value);
+    }
+  }
+  return out.slice(0, max);
 }
 
 /** Fields arrive as `[{ key, value, mono? }]`; anything else is dropped, not coerced. */
@@ -137,22 +159,28 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     if (kindRaw && !isNoteKind(kindRaw)) {
       return reply.status(400).send({ error: 'invalid kind', allowed: NOTE_KINDS });
     }
-    const originRaw = asString(query.origin);
-    if (originRaw && originRaw !== 'user' && originRaw !== 'agent') {
-      return reply.status(400).send({ error: 'invalid origin', allowed: ['user', 'agent'] });
+    const originRaw = parseCsv(query.origin);
+    const badOrigin = originRaw.find((value) => !isNoteOrigin(value));
+    if (badOrigin !== undefined) {
+      return reply
+        .status(400)
+        .send({ error: 'invalid origin', value: badOrigin, allowed: ['user', 'agent'] });
     }
-    const channelRaw = asString(query.channel);
-    if (channelRaw && !isNoteChannel(channelRaw)) {
-      return reply.status(400).send({ error: 'invalid channel', allowed: NOTE_CHANNELS });
+    const channelRaw = parseCsv(query.channel);
+    const badChannel = channelRaw.find((value) => !isNoteChannel(value));
+    if (badChannel !== undefined) {
+      return reply
+        .status(400)
+        .send({ error: 'invalid channel', value: badChannel, allowed: NOTE_CHANNELS });
     }
 
     const listQuery: NoteListQuery = {
       status: statusRaw,
       kind: kindRaw ? (kindRaw as NoteListQuery['kind']) : undefined,
-      origin: isNoteOrigin(originRaw) ? originRaw : undefined,
-      channel: channelRaw ? (channelRaw as NoteListQuery['channel']) : undefined,
-      projectId: asString(query.projectId),
-      tag: asString(query.tag),
+      origins: originRaw.length ? (originRaw as NoteOrigin[]) : undefined,
+      channels: channelRaw.length ? (channelRaw as NoteChannel[]) : undefined,
+      projectIds: parseCsv(query.projectId),
+      tags: parseCsv(query.tag),
       q: asString(query.q),
       context: parseScopeContext(query),
       limit: parseLimit(query.limit),

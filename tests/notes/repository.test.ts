@@ -223,6 +223,73 @@ describe('NotesRepository', () => {
     expect(tags[0]).toEqual({ tag: 'vitest', count: 2 });
   });
 
+  /**
+   * The filter row is a set of checkboxes: OR inside a facet, AND across facets.
+   * Both halves are asserted here because getting the second one wrong (OR across
+   * everything) returns notes that match neither filter, which looks like a bug in
+   * the list rather than in the query.
+   */
+  it('filters on a set per facet: OR inside, AND across', () => {
+    repository.create(
+      baseInput({ title: 'a', tags: ['vitest'], origin: 'user', channel: 'webui' }),
+    );
+    repository.create(
+      baseInput({
+        title: 'b',
+        tags: ['testing'],
+        origin: 'agent',
+        channel: 'feishu',
+        scope: 'project',
+        scopeKey: PROJECT_ID,
+      }),
+    );
+    repository.create(
+      baseInput({ title: 'c', tags: ['vitest'], origin: 'agent', channel: 'telegram' }),
+    );
+
+    const titles = (query: Parameters<typeof repository.list>[0]) =>
+      repository
+        .list(query)
+        .notes.map((note) => note.title)
+        .sort();
+
+    // Either tag.
+    expect(titles({ status: 'active', tags: ['vitest', 'testing'] })).toEqual(['a', 'b', 'c']);
+    // Either origin.
+    expect(titles({ status: 'active', origins: ['user', 'agent'] })).toEqual(['a', 'b', 'c']);
+    // Either channel, but only for that author: the AND between facets still holds.
+    expect(titles({ status: 'active', channels: ['feishu', 'telegram'] })).toEqual(['b', 'c']);
+    expect(
+      titles({ status: 'active', origins: ['agent'], channels: ['feishu', 'telegram'] }),
+    ).toEqual(['b', 'c']);
+    // A tag that does not exist excludes everything.
+    expect(titles({ status: 'active', tags: ['nope'] })).toEqual([]);
+    // An empty set is "not filtered", not "match nothing".
+    expect(titles({ status: 'active', tags: [] })).toEqual(['a', 'b', 'c']);
+  });
+
+  it('describes the library in its facets even when a filter is applied', () => {
+    repository.create(baseInput({ title: 'a', channel: 'webui' }));
+    repository.create(
+      baseInput({
+        title: 'b',
+        channel: 'feishu',
+        scope: 'project',
+        scopeKey: PROJECT_ID,
+      }),
+    );
+
+    const narrowed = repository.list({ status: 'active', channels: ['webui'] });
+    expect(narrowed.notes.map((note) => note.title)).toEqual(['a']);
+    // The control that would widen the view must still offer the value it hid.
+    // Ties on count break by name, so this order is stable across runs.
+    expect(narrowed.channels).toEqual([
+      { channel: 'feishu', count: 1 },
+      { channel: 'webui', count: 1 },
+    ]);
+    expect(narrowed.projects).toEqual([{ id: PROJECT_ID, name: 'OhMyAgent', count: 1 }]);
+  });
+
   it('expires stale drafts by archiving them', () => {
     const old = Date.now() - 30 * 24 * 3600_000;
     repository.create(baseInput({ status: 'draft', origin: 'agent', now: old }));

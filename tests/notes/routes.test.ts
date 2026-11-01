@@ -65,6 +65,60 @@ describe('notes routes', () => {
     expect(response.json().allowed).toEqual(['draft', 'active', 'archived']);
   });
 
+  /**
+   * A facet filter arrives as a set. Both spellings are accepted because
+   * `URLSearchParams` writes `tag=a,b` while a hand-written link usually repeats the
+   * key, and a filter that works in one and silently matches nothing in the other is
+   * the kind of difference nobody debugs twice.
+   */
+  it('reads a facet filter from comma params and from repeated params alike', async () => {
+    service.createManual({ title: 'a', body: 'b', tags: ['vitest'] });
+    service.createManual({ title: 'b', body: 'b', tags: ['testing'] });
+    service.createManual({ title: 'c', body: 'b', tags: ['unrelated'] });
+
+    const comma = await app.inject({ method: 'GET', url: '/api/notes?tag=vitest,testing' });
+    const repeated = await app.inject({
+      method: 'GET',
+      url: '/api/notes?tag=vitest&tag=testing',
+    });
+    const titles = (response: { json: () => { notes: Array<{ title: string }> } }) =>
+      response
+        .json()
+        .notes.map((note) => note.title)
+        .sort();
+
+    expect(titles(comma)).toEqual(['a', 'b']);
+    expect(titles(repeated)).toEqual(['a', 'b']);
+  });
+
+  it('names the offending value when a facet filter is invalid', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/notes?origin=user,bogus' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: 'invalid origin', value: 'bogus' });
+  });
+
+  it('ships the facet lists with the rows', async () => {
+    repository.create({
+      kind: 'other',
+      title: 'a',
+      summary: '',
+      body: 'b',
+      status: 'active',
+      origin: 'agent',
+      scope: 'user',
+      scopeKey: '',
+      channel: 'feishu',
+      tags: ['vitest'],
+    });
+    const response = await app.inject({ method: 'GET', url: '/api/notes?tag=nothing-matches' });
+
+    // The rows are empty, but the filter row still knows what it could offer.
+    expect(response.json().notes).toHaveLength(0);
+    expect(response.json().tags).toEqual([{ tag: 'vitest', count: 1 }]);
+    expect(response.json().channels).toEqual([{ channel: 'feishu', count: 1 }]);
+    expect(response.json().projects).toEqual([]);
+  });
+
   it('creates a manual note as active', async () => {
     const response = await app.inject({
       method: 'POST',

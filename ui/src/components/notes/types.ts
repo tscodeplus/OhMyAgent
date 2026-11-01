@@ -129,10 +129,13 @@ export interface Note {
   sessionTitle?: string | null;
 }
 
-/** What `GET /api/notes` answers: rows plus the counters and tags the page needs. */
+/** What `GET /api/notes` answers: rows plus the counters and facets the page needs. */
 export interface NoteListResult {
   notes: Note[];
   total: number;
   counts: Record<NoteStatus, number>;
+  /** Facets describe the library under the current status, not the filtered rows. */
   tags: Array<{ tag: string; count: number }>;
+  channels: Array<{ channel: NoteChannel; count: number }>;
+  projects: Array<{ id: string; name: string; count: number }>;
 }

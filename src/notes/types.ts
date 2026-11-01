@@ -371,11 +371,20 @@ export interface CaptureRunInput {
 export interface NoteListQuery {
   status: NoteStatus;
   kind?: NoteKind;
-  origin?: NoteOrigin;
-  channel?: NoteChannel;
-  /** Project id, matched against `scope='project'` notes; the name is resolved. */
-  projectId?: string;
-  tag?: string;
+  /**
+   * Facet filters, each a set: **OR inside a field, AND across fields** — "any of
+   * these authors, in any of these channels, carrying any of these tags". That is
+   * what a filter row of checkboxes means, and it is why these are arrays: a
+   * singular field would have forced the UI to offer one value per facet while
+   * looking like it offered many.
+   *
+   * Empty/absent = that facet is not filtered at all.
+   */
+  origins?: NoteOrigin[];
+  channels?: NoteChannel[];
+  /** Project ids, matched against `scope='project'` notes; the name is resolved. */
+  projectIds?: string[];
+  tags?: string[];
   /** FTS query. Empty = browse, ordered by pin then `updated_at`. */
   q?: string;
   /** Read rule context (plan §4.2-5). Omitted = unscoped (console browse). */
@@ -396,5 +405,11 @@ export interface NoteListResult {
   notes: Note[];
   total: number;
   counts: Record<NoteStatus, number>;
+  /**
+   * The filter row's options, computed from `status` + scope only — never from the
+   * current filters, or narrowing one facet would empty the control meant to widen it.
+   */
   tags: Array<{ tag: string; count: number }>;
+  channels: Array<{ channel: NoteChannel; count: number }>;
+  projects: Array<{ id: string; name: string; count: number }>;
 }

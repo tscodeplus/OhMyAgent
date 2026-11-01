@@ -40,6 +40,7 @@ import {
   isRelationBasis,
   type CaptureRunInput,
   type CreateNoteInput,
+  type NoteChannel,
   type Note,
   type NoteEventAction,
   type NoteEventActor,
@@ -70,6 +71,11 @@ export type UpdateNoteResult =
   | { ok: false; code: 'version_mismatch'; currentVersion: number; currentBody: string }
   | { ok: false; code: 'version_required'; currentVersion: number; currentBody: string }
   | { ok: false; code: 'title_conflict'; existingId: string };
+
+/** `?, ?, ?` for an `IN (...)` list — every value stays a bound parameter. */
+function placeholders(count: number): string {
+  return new Array(count).fill('?').join(', ');
+}
 
 function parseJsonArray<T>(raw: string | null): T[] {
   if (!raw) return [];
@@ -307,25 +313,30 @@ export class NotesRepository {
       where.push('n.kind = ?');
       params.push(query.kind);
     }
-    if (query.origin) {
-      where.push('n.origin = ?');
-      params.push(query.origin);
+    if (query.origins?.length) {
+      where.push(`n.origin IN (${placeholders(query.origins.length)})`);
+      params.push(...query.origins);
     }
-    if (query.channel) {
-      where.push('n.channel = ?');
-      params.push(query.channel);
+    if (query.channels?.length) {
+      where.push(`n.channel IN (${placeholders(query.channels.length)})`);
+      params.push(...query.channels);
     }
-    if (query.projectId) {
-      where.push(`(n.scope = 'project' AND n.scope_key = ?)`);
-      params.push(query.projectId);
-    }
-    if (query.tag) {
-      // Tags are a JSON array; `json_each` is the exact-match join that keeps the
-      // filter honest without splitting a string in SQL.
+    if (query.projectIds?.length) {
       where.push(
-        `EXISTS (SELECT 1 FROM json_each(COALESCE(n.tags, '[]')) WHERE json_each.value = ?)`,
+        `(n.scope = 'project' AND n.scope_key IN (${placeholders(query.projectIds.length)}))`,
       );
-      params.push(query.tag);
+      params.push(...query.projectIds);
+    }
+    if (query.tags?.length) {
+      // Tags are a JSON array; `json_each` is the exact-match join that keeps the
+      // filter honest without splitting a string in SQL. `IN` rather than one
+      // `EXISTS` per tag: selecting two tags asks for either, not for both — a
+      // note carries at most six tags, so "both" would answer empty almost always.
+      where.push(
+        `EXISTS (SELECT 1 FROM json_each(COALESCE(n.tags, '[]'))
+            WHERE json_each.value IN (${placeholders(query.tags.length)}))`,
+      );
+      params.push(...query.tags);
     }
     if (scope) {
       where.push(scope.sql);
@@ -351,10 +362,10 @@ export class NotesRepository {
           notes: [],
           total: 0,
           counts: this.counts(scope),
-          tags: this.tagFacets(query.status, scope),
+          ...this.facets(query.status, scope),
         };
       }
-      where.push(`n.id IN (${ids.map(() => '?').join(', ')})`);
+      where.push(`n.id IN (${placeholders(ids.length)})`);
       params.push(...ids);
     }
 
@@ -376,7 +387,7 @@ export class NotesRepository {
       notes: rows.map((row) => this.hydrate(row)),
       total,
       counts: this.counts(scope),
-      tags: this.tagFacets(query.status, scope),
+      ...this.facets(query.status, scope),
     };
   }
 
@@ -393,6 +404,67 @@ export class NotesRepository {
       if (isNoteStatus(row.status)) counts[row.status] = row.cnt;
     }
     return counts;
+  }
+
+  /**
+   * The filter row's options: the library under `status`, **not** the filtered page.
+   *
+   * Facets are computed from status and scope alone so that narrowing one facet does
+   * not empty the others. Deriving them from the loaded rows (the first version did)
+   * meant that filtering to 飞书 left 来源 = [飞书]: the control that was supposed to
+   * widen the view had nothing left to widen it with.
+   */
+  private facets(
+    status: NoteStatus,
+    scope: ReturnType<typeof readableScopeSql>,
+  ): Pick<NoteListResult, 'tags' | 'channels' | 'projects'> {
+    return {
+      tags: this.tagFacets(status, scope),
+      channels: this.channelFacets(status, scope),
+      projects: this.projectFacets(status, scope),
+    };
+  }
+
+  private channelFacets(
+    status: NoteStatus,
+    scope: ReturnType<typeof readableScopeSql>,
+  ): Array<{ channel: NoteChannel; count: number }> {
+    const where = ['n.status = ?', 'n.channel IS NOT NULL'];
+    const params: unknown[] = [status];
+    if (scope) {
+      where.push(scope.sql);
+      params.push(...scope.params);
+    }
+    return this.db
+      .prepare(
+        `SELECT n.channel AS channel, COUNT(*) AS count FROM notes n
+          WHERE ${where.join(' AND ')}
+          GROUP BY n.channel
+          ORDER BY count DESC, channel ASC`,
+      )
+      .all(...params) as Array<{ channel: NoteChannel; count: number }>;
+  }
+
+  /** Projects that actually hold notes, so the filter cannot offer an empty shelf. */
+  private projectFacets(
+    status: NoteStatus,
+    scope: ReturnType<typeof readableScopeSql>,
+  ): Array<{ id: string; name: string; count: number }> {
+    const where = ['n.status = ?', "n.scope = 'project'", 'n.scope_key IS NOT NULL'];
+    const params: unknown[] = [status];
+    if (scope) {
+      where.push(scope.sql);
+      params.push(...scope.params);
+    }
+    return this.db
+      .prepare(
+        `SELECT n.scope_key AS id, p.name AS name, COUNT(*) AS count
+           FROM notes n JOIN projects p ON p.id = n.scope_key
+          WHERE ${where.join(' AND ')}
+          GROUP BY n.scope_key, p.name
+          ORDER BY count DESC, name ASC`,
+      )
+      .all(...params) as Array<{ id: string; name: string; count: number }>;
   }
 
   /** Tag counts for the filter row, from the rows the caller can actually see. */
