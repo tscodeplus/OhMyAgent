@@ -8,6 +8,7 @@
 
 import { i18n } from '../i18n/index.js';
 import type { ConversationSessions } from '../memory/conversation-sessions.js';
+import type { CaptureResult, NotesService } from '../notes/service-contract.js';
 import { inferChannel } from '../memory/session-channel.js';
 import { truncate } from '../shared/truncation.js';
 import { teamModeStore } from '../agent/team-mode-store.js';
@@ -99,6 +100,14 @@ export interface CommandDeps {
    *  When present, the operator identity passed to handleCommand is required
    *  to satisfy it; a failing check rejects the command. */
   isAdmin?: (operator: { senderId?: string; chatType?: string }) => boolean;
+  /**
+   * Notes capture for `/note` (MyDocs/NOTES_LAYER_PLAN.md §11).
+   *
+   * Only `capture` is needed, and it is absent when `notes.enabled` is false —
+   * which `/note` reports instead of forwarding the text to the agent, because
+   * nobody types `/note` into a chat expecting the model to answer it.
+   */
+  notes?: Pick<NotesService, 'capture'>;
 }
 
 /** Operator context of the message that issued a slash command. */
@@ -178,6 +187,9 @@ export async function handleCommand(
       return handleAnswer(args, sessionKey, deps);
     case '/permission':
       return await handlePermission(args, deps, operator);
+    case '/note':
+    case '/notes':
+      return await handleNote(args, sessionKey, deps, operator);
     default:
       return null;
   }
@@ -758,4 +770,151 @@ async function handlePermission(
 
   const result = await setMode(sub as PolicyMode, deps);
   return { reply: result.message };
+}
+
+/** Same ceiling the HTTP route enforces (`MAX_INSTRUCTION_CHARS` in notes-routes). */
+const NOTE_INSTRUCTION_MAX_CHARS = 500;
+
+/** Title length in the reply: long enough to recognise, short enough for a card. */
+const NOTE_REPLY_TITLE_CHARS = 60;
+
+/**
+ * `/note` and `/notes` — distil this conversation into drafts (plan §11).
+ *
+ * One handler, two spellings: the user's word for the layer is "笔记", and
+ * typing the plural while meaning "make one" is not a mistake worth an error.
+ *
+ * The trailing text is an **instruction**, not material: `/note 把刚才那几条命令
+ * 整理出来` asks about the conversation, and capture reads it as a requirement it
+ * must satisfy. That is why it also widens the window and lets the recap gate
+ * pass — an explicit ask is the opposite of a model summarising on its own.
+ *
+ * There is no approval card in this milestone, so the reply carries the two
+ * things a card would have carried: which drafts exist (their titles) and where
+ * to review them. Everything still lands `draft`; the review gate is not
+ * negotiable from a chat message.
+ */
+async function handleNote(
+  args: string,
+  sessionKey: string,
+  deps: CommandDeps,
+  operator?: CommandOperator,
+): Promise<CommandResult> {
+  if (!deps.notes) {
+    return { reply: i18n.t('commands:note.disabled') };
+  }
+
+  const instruction = truncate(args.trim(), NOTE_INSTRUCTION_MAX_CHARS).trim();
+
+  let result: CaptureResult;
+  try {
+    result = await deps.notes.capture({
+      sessionId: sessionKey,
+      // `/note` means "this conversation", not "the last exchange" — `recent`
+      // reads the configured number of turns from the newest end, and `turn`
+      // would quietly answer a narrower question than the one that was asked.
+      mode: 'recent',
+      instruction: instruction || undefined,
+      // Group chats default to the `channel` scope instead of the person's own
+      // library, so a shared room's notes cannot leak into a 1:1 context.
+      chatType: operator?.chatType,
+      actor: 'user',
+    });
+  } catch (err) {
+    // `capture()` handles model errors itself; anything reaching here is
+    // infrastructure (a closed database, a full disk). The chat still gets an
+    // answer rather than silence.
+    return {
+      reply: i18n.t('commands:note.failed', {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    };
+  }
+
+  return { reply: renderCaptureReply(result) };
+}
+
+/** Status label for a note the library already held, in the reply's language. */
+function noteReplyStatusLabel(status: 'draft' | 'active' | 'archived'): string {
+  switch (status) {
+    case 'draft':
+      return i18n.t('commands:note.statusDraft');
+    case 'active':
+      return i18n.t('commands:note.statusActive');
+    case 'archived':
+      return i18n.t('commands:note.statusArchived');
+  }
+}
+
+/**
+ * The IM reply for a capture.
+ *
+ * Deliberately short and front-loaded: the first line says how many drafts
+ * exist, because on a phone the notification is often all that gets read. The
+ * titles are what make the message actionable — "存了 2 条" without titles is a
+ * claim the reader has to go and verify.
+ *
+ * Duplicates are reported with the status of the row that owns the title:
+ * "already a note" and "already waiting in the drafts" are different answers,
+ * and only one of them means the reviewer has nothing to do.
+ */
+function renderCaptureReply(result: CaptureResult): string {
+  if (result.ok) {
+    const lines: string[] = [i18n.t('commands:note.created', { count: result.notes.length })];
+    for (const note of result.notes) {
+      lines.push(`· ${truncate(note.title, NOTE_REPLY_TITLE_CHARS)}`);
+    }
+    if (result.duplicates.length > 0) {
+      lines.push(
+        i18n.t('commands:note.skipped', {
+          count: result.duplicates.length,
+          titles: result.duplicates
+            .map(
+              (duplicate) =>
+                `${truncate(duplicate.title, NOTE_REPLY_TITLE_CHARS)}（${noteReplyStatusLabel(
+                  duplicate.status,
+                )}）`,
+            )
+            .join('；'),
+        }),
+      );
+    }
+    lines.push(i18n.t('commands:note.reviewFooter'));
+    return lines.join('\n');
+  }
+
+  switch (result.code) {
+    case 'duplicate': {
+      const duplicates = result.duplicates ?? [];
+      const lines: string[] = [
+        i18n.t('commands:note.duplicatesOnly', { count: duplicates.length }),
+      ];
+      for (const duplicate of duplicates) {
+        lines.push(
+          `· ${truncate(duplicate.title, NOTE_REPLY_TITLE_CHARS)}（${noteReplyStatusLabel(
+            duplicate.status,
+          )}）`,
+        );
+      }
+      lines.push(i18n.t('commands:note.reviewFooterDuplicates'));
+      return lines.join('\n');
+    }
+    case 'no_notes':
+      // The hint is the useful half: capture without an instruction reads the
+      // last few turns and asks the model what *it* thinks is worth keeping,
+      // which is exactly the run that comes back empty on a working session.
+      return [i18n.t('commands:note.noNotes'), i18n.t('commands:note.noNotesHint')].join('\n');
+    case 'empty_window':
+      return i18n.t('commands:note.emptyWindow');
+    case 'model_failed':
+      return i18n.t('commands:note.modelFailed');
+    case 'invalid':
+      return i18n.t('commands:note.invalid');
+    case 'no_session':
+      return i18n.t('commands:note.noSession');
+    case 'disabled':
+      return i18n.t('commands:note.disabled');
+    default:
+      return i18n.t('commands:note.failed', { error: result.message });
+  }
 }

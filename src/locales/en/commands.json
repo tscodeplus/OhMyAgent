@@ -110,5 +110,23 @@
     "renamed": "Session renamed to \"{{title}}\"",
     "usage": "Usage: /rename <new title>",
     "unavailable": "This channel does not support renaming sessions"
+  },
+  "note": {
+    "created": "📝 Saved {{count}} draft(s), waiting for your approval:",
+    "duplicatesOnly": "These already exist, so nothing was saved twice:",
+    "skipped": "{{count}} more already existed: {{titles}}",
+    "statusDraft": "in drafts",
+    "statusActive": "already a note",
+    "statusArchived": "archived",
+    "reviewFooter": "Review them under Notes → Drafts in the WebUI — a draft becomes a note only once you approve it.",
+    "reviewFooterDuplicates": "You can find them under Notes → Drafts in the WebUI.",
+    "noNotes": "Nothing in this conversation was worth keeping on its own.",
+    "noNotesHint": "Say what you want and it gets sharper, e.g. /note turn those commands into a note",
+    "emptyWindow": "This conversation has nothing to distil yet — say a few things first.",
+    "modelFailed": "Distillation failed (the model call errored). Try again in a moment.",
+    "invalid": "The model's answer could not be parsed, so no note was written.",
+    "noSession": "This conversation has no stored messages yet — say something first.",
+    "disabled": "Notes are switched off (notes.enabled in config.yaml).",
+    "failed": "Distillation failed, so no note was written: {{error}}"
   }
 }

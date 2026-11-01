@@ -176,6 +176,8 @@ export async function registerWebUIRoutes(
         const newConfig = loadConfig();
         cfg.onConfigSaved?.(newConfig);
       },
+      // `/note` typed into the WebUI chat input behaves exactly like `/note` in IM.
+      notes: cfg.services.notesService,
     },
     commandRegistry: cfg.services.commandRegistry,
     wsManager: undefined,

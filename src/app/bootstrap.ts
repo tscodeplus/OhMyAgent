@@ -497,6 +497,7 @@ async function runBootstrap(): Promise<BootstrapResult> {
     extensionManager,
     chatQueue,
     servicesMap,
+    notesService: notesServices.notesService,
   });
   const { messageHandler } = feishuServices;
 

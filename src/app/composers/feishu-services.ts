@@ -22,6 +22,7 @@ import type { AgentManager } from '../../agent/agent-manager.js';
 import type { ExtensionManager } from '../../extensions/extension-manager.js';
 import type { ChatQueue } from '../../../extensions/channel-feishu/chat-queue.js';
 import type { ConversationSessions } from '../../memory/conversation-sessions.js';
+import type { NotesService } from '../../notes/service-contract.js';
 import type { Logger } from 'pino';
 
 export interface FeishuServicesResult {
@@ -90,6 +91,8 @@ export function createFeishuServices(options: {
   extensionManager: ExtensionManager;
   chatQueue: ChatQueue;
   servicesMap: Map<string, unknown>;
+  /** Absent when `notes.enabled` is false — `/note` then replies instead of distilling. */
+  notesService?: NotesService;
 }): FeishuServicesResult {
   const {
     config,
@@ -102,6 +105,7 @@ export function createFeishuServices(options: {
     extensionManager,
     chatQueue,
     servicesMap,
+    notesService,
   } = options;
 
   // STT transcriber — lazy init on first audio message
@@ -147,6 +151,9 @@ export function createFeishuServices(options: {
         .catch((err) => logger.error({ err }, 'Config reload via /permission failed'));
     },
     isAdmin: createChannelIsAdmin(config),
+    // `/note` is the same capture the WebUI's floating ball calls; only the trigger
+    // differs, and the review gate is identical (everything still lands `draft`).
+    notes: notesService,
   };
   servicesMap.set('commandDeps', commandDeps);
 

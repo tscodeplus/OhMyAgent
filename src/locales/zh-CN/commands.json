@@ -110,5 +110,23 @@
     "renamed": "会话已重命名为「{{title}}」",
     "usage": "用法：/rename 新标题",
     "unavailable": "当前渠道不支持重命名会话"
+  },
+  "note": {
+    "created": "📝 存了 {{count}} 条草稿，等你批准：",
+    "duplicatesOnly": "这几条已经有了，没有重复存：",
+    "skipped": "另外 {{count}} 条已经有了：{{titles}}",
+    "statusDraft": "草稿箱",
+    "statusActive": "已是笔记",
+    "statusArchived": "已归档",
+    "reviewFooter": "在 WebUI 的「笔记 → 草稿」里过一眼，批准之后才算笔记。",
+    "reviewFooterDuplicates": "在 WebUI 的「笔记 → 草稿」里找得到它们。",
+    "noNotes": "这段对话里没找到值得单独记下来的东西。",
+    "noNotesHint": "想更准就给句要求，比如：/note 把刚才那几条命令整理出来",
+    "emptyWindow": "这个会话还没有可以整理的内容，先聊几句再试。",
+    "modelFailed": "整理失败了（模型调用出错），稍后再试一次。",
+    "invalid": "模型返回的内容没法解析，这次没有写入笔记。",
+    "noSession": "找不到这个会话的记录，先聊一句再试。",
+    "disabled": "笔记功能没开启（config.yaml 的 notes.enabled）。",
+    "failed": "整理出错了，这次没有写入笔记：{{error}}"
   }
 }
