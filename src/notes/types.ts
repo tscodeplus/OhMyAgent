@@ -52,6 +52,16 @@ export const NOTE_FIELDS: Record<NoteKind, readonly string[]> = {
   other: [],
 };
 
+/**
+ * Outcome of a status change.
+ *
+ * `undefined` still means "no such row" (the convention `get()`/`update()` use);
+ * a promotion that collides with an active note returns the conflict instead of
+ * throwing, so the review route can answer 422 with the note that owns the title.
+ */
+export type SetStatusResult =
+  { ok: true; note: Note } | { ok: false; code: 'title_conflict'; existingId: string };
+
 /** Slot keys the HTTP layer accepts (`fields: [{ key, value, mono? }]`). */
 export function isNoteFieldKey(kind: NoteKind, key: string): boolean {
   return (NOTE_FIELDS[kind] as readonly string[]).includes(key);

@@ -141,8 +141,10 @@ describe('NotesRepository', () => {
     if (!created.ok) throw new Error('create failed');
 
     const archived = repository.setStatus(created.note.id, 'archived', { reason: 'rejected' });
-    expect(archived?.status).toBe('archived');
-    expect(archived?.statusReason).toBe('rejected');
+    expect(archived?.ok).toBe(true);
+    if (!archived?.ok) throw new Error('archive failed');
+    expect(archived.note.status).toBe('archived');
+    expect(archived.note.statusReason).toBe('rejected');
     // Still readable by id: rejecting a note is not deleting it.
     expect(repository.get(created.note.id)?.body).toContain('vitest');
   });

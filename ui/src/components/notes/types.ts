@@ -35,6 +35,26 @@ export type NoteStatus = 'draft' | 'active' | 'archived';
 /** Why a note left the library. The rejection *code* lives in the server's log. */
 export type NoteStatusReason = 'rejected' | 'expired' | 'superseded' | 'user';
 
+/**
+ * Why a reviewer rejected a draft (plan §6) — mirrors `NOTE_REJECTION_CODES`.
+ *
+ * Asked for on the review row and not on the floating card: the card's delete is a
+ * shortcut for "get this off my screen" mid-conversation, while the review row is a
+ * deliberate visit where a verdict is worth recording. A tally built from the second
+ * place means something; one built from both would be mostly `other`.
+ */
+export const NOTE_REJECTION_CODES = [
+  'recap',
+  'thin',
+  'inaccurate',
+  'not_reusable',
+  'duplicate',
+  'private',
+  'other',
+] as const;
+
+export type NoteRejectionCode = (typeof NOTE_REJECTION_CODES)[number];
+
 /** One citation. `available: false` is the soft-reference case (plan §4.7). */
 export interface NoteSource {
   kind: 'message' | 'memory' | 'session';

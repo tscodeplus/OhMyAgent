@@ -263,6 +263,9 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
         return reply.status(400).send(result);
       case 'no_notes':
       case 'invalid':
+      // A duplicate is "this already exists", which the card turns into a link to
+      // the row that owns the title rather than into an error.
+      case 'duplicate':
         return reply.status(422).send(result);
       case 'model_failed':
         return reply.status(503).send(result);
@@ -380,6 +383,12 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
       actor: 'user',
     });
     if (result.ok) return reply.send({ note: result.note });
+    // Approving a draft whose title an active note already owns is 422 with the
+    // owner's id: the reviewer can open it, retitle, or discard. 409 would say the
+    // request was fine but the state was not, and the state is exactly the point.
+    if (result.code === 'title_conflict') {
+      return reply.status(422).send({ error: 'title_conflict', existingId: result.existingId });
+    }
     return reply.status(404).send({ error: 'not found' });
   });
 
@@ -408,6 +417,11 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     const { id } = request.params as { id: string };
     const result = service.restore(id);
     if (result.ok) return reply.send({ note: result.note });
+    // Restoring into a title that was reused while it was archived hits the same
+    // unique index as approval, so it answers the same way.
+    if (result.code === 'title_conflict') {
+      return reply.status(422).send({ error: 'title_conflict', existingId: result.existingId });
+    }
     return reply.status(404).send({ error: 'not found' });
   });
 }

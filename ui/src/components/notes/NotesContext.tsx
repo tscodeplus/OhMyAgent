@@ -31,7 +31,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../utils/api';
-import type { Note, NoteListResult, NoteStatus } from './types';
+import type { Note, NoteListResult, NoteRejectionCode, NoteStatus } from './types';
 
 /**
  * What a caller can ask the ball for.
@@ -69,14 +69,52 @@ export interface NotesQuery {
   q?: string;
 }
 
+export interface DuplicateRef {
+  title: string;
+  existingId: string;
+  status: NoteStatus;
+}
+
 export interface CaptureOutcome {
   ok: boolean;
   /** Server sentence, already localized server-side; shown as-is. */
   message?: string;
   /** Drafts produced (never active). */
   notes: Note[];
+  /** Candidates skipped because the library already holds that title (§5.5). */
+  duplicates: DuplicateRef[];
+  /** Where to send the reader when the answer was "already have it". */
+  existingId?: string;
   /** Credential-shaped spans the redactor hid — the card warns when > 0. */
   redacted: number;
+}
+
+/** Ball size: the full 56px target, or a dot that does not cover the transcript. */
+export type BallSize = 'normal' | 'compact';
+
+const BALL_HIDDEN_KEY = 'oma-notes-ball-hidden';
+const BALL_SIZE_KEY = 'oma-notes-ball-size';
+
+function readBallHidden(): boolean {
+  try {
+    return window.localStorage.getItem(BALL_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function readBallSize(): BallSize {
+  try {
+    return window.localStorage.getItem(BALL_SIZE_KEY) === 'compact' ? 'compact' : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+
+/** The two numbers the review UI shows; `stats()` has no other reader. */
+export interface NotesStatsView {
+  draftsDue: number;
+  approvalRate: number;
 }
 
 interface NotesContextValue {
@@ -110,8 +148,11 @@ interface NotesContextValue {
    * row the list does not have, which renders as "the link did nothing".
    */
   fetchNote: (id: string) => Promise<Note | null>;
-  saveDraft: (id: string) => Promise<void>;
-  discardDraft: (id: string) => Promise<void>;
+  /** Approve a draft. Resolves `false` when the title is already taken (422). */
+  saveDraft: (id: string) => Promise<boolean>;
+  discardDraft: (id: string, reason?: NoteRejectionCode) => Promise<void>;
+  /** Drafts near expiry and the approval rate, for the drafts header. */
+  stats: NotesStatsView | null;
   dismissDraftCard: () => void;
   /** User-authored note: lands `active` immediately (plan §4.2-2). */
   createNote: (seed?: Partial<Note>) => Promise<Note | null>;
@@ -121,6 +162,17 @@ interface NotesContextValue {
   restoreNote: (id: string) => Promise<void>;
   /** Detail-page visit, counted server-side (`view_count`). */
   markViewed: (id: string) => void;
+  /**
+   * Ball preferences, persisted per browser.
+   *
+   * They live here and not in the ball because hiding the ball removes the only
+   * place that could unhide it: the notes page carries the switch that brings it
+   * back, so both need to read the same state.
+   */
+  ballHidden: boolean;
+  setBallHidden: (hidden: boolean) => void;
+  ballSize: BallSize;
+  setBallSize: (size: BallSize) => void;
 }
 
 const NotesContext = createContext<NotesContextValue | null>(null);
@@ -159,6 +211,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<NotesStatsView | null>(null);
+  const [ballHidden, setBallHiddenState] = useState(readBallHidden);
+  const [ballSize, setBallSizeState] = useState<BallSize>(readBallSize);
   const [query, setQueryState] = useState<NotesQuery>({ status: 'active' });
   const [capturing, setCapturing] = useState(false);
   const [draftCardId, setDraftCardId] = useState<string | null>(null);
@@ -196,6 +251,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     } finally {
       if (ticket === seq.current) setLoading(false);
     }
+    // Separate request, separate failure: the list is what the page is for, and a
+    // stats endpoint that is down must not blank it.
+    try {
+      const data = await apiRequest<{ draftsDue: number; approvalRate: number }>(
+        '/api/notes/stats',
+      );
+      setStats({ draftsDue: data.draftsDue, approvalRate: data.approvalRate });
+    } catch {
+      setStats(null);
+    }
   }, [query]);
 
   useEffect(() => {
@@ -225,12 +290,18 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // that the user closes would otherwise sit in the library forever asking
         // to be deleted (§7.3).
         navigate('/notes/new');
-        return { ok: true, notes: [], redacted: 0 };
+        return { ok: true, notes: [], duplicates: [], redacted: 0 };
       }
 
       const sessionId = intent.sessionId ?? null;
       if (!sessionId) {
-        return { ok: false, notes: [], redacted: 0, message: 'no session open' };
+        return {
+          ok: false,
+          notes: [],
+          duplicates: [],
+          redacted: 0,
+          message: 'no session open',
+        };
       }
 
       // `drop` is verbatim unless asked otherwise; everything else reads a window
@@ -249,6 +320,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const response = await apiRequest<{
           captureId: string;
           notes: Note[];
+          duplicates: DuplicateRef[];
           redacted: number;
         }>('/api/notes/capture', {
           method: 'POST',
@@ -262,13 +334,32 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // card is where a draft is judged, and a verbatim drop needs the same
         // decision (approve it, edit it, or let the agent tidy it up).
         if (response.notes[0]) setDraftCardId(response.notes[0].id);
-        return { ok: true, notes: response.notes, redacted: response.redacted };
+        return {
+          ok: true,
+          notes: response.notes,
+          duplicates: response.duplicates ?? [],
+          redacted: response.redacted,
+        };
       } catch (err) {
         // A client-side timeout does not cancel the server's capture: the draft may
         // land a moment later, so refetch before reporting the failure — otherwise
         // the badge stays at 0 while a review is waiting.
         void refresh();
-        return { ok: false, notes: [], redacted: 0, message: describeError(err) };
+        // "This already exists" is an answer with somewhere to go, so it is lifted out
+        // of the error string: the caller links to the row that owns the title instead
+        // of telling the user off for pressing a button twice.
+        const body = (err as { body?: Record<string, unknown> }).body;
+        const duplicates = Array.isArray(body?.duplicates)
+          ? (body?.duplicates as DuplicateRef[])
+          : [];
+        return {
+          ok: false,
+          notes: [],
+          duplicates,
+          existingId: duplicates[0]?.existingId,
+          redacted: 0,
+          message: describeError(err),
+        };
       } finally {
         if (treatment === 'distill') setCapturing(false);
       }
@@ -296,23 +387,32 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const approve = useCallback(
-    async (id: string) => {
-      const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
-        method: 'POST',
-        body: JSON.stringify({ decision: 'approve' }),
-      });
-      applyNote(response.note);
-      setDraftCardId((current) => (current === id ? null : current));
-      await refresh();
+    async (id: string): Promise<boolean> => {
+      try {
+        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ decision: 'approve' }),
+        });
+        applyNote(response.note);
+        setDraftCardId((current) => (current === id ? null : current));
+        await refresh();
+        return true;
+      } catch (err) {
+        // Refused, not lost: the draft stays a draft and the sentence says which note
+        // holds the title. Throwing here would leave the caller's `.then()` unhandled
+        // and the card frozen on a draft that can never be approved.
+        setError(describeError(err));
+        return false;
+      }
     },
     [applyNote, refresh],
   );
 
   const discardDraft = useCallback(
-    async (id: string) => {
+    async (id: string, reason: NoteRejectionCode = 'other') => {
       const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ decision: 'reject', reason: 'other' }),
+        body: JSON.stringify({ decision: 'reject', reason }),
       });
       applyNote(response.note);
       setDraftCardId((current) => (current === id ? null : current));
@@ -406,6 +506,25 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [applyNote, refresh],
   );
 
+  const setBallHidden = useCallback((hidden: boolean) => {
+    setBallHiddenState(hidden);
+    try {
+      window.localStorage.setItem(BALL_HIDDEN_KEY, hidden ? '1' : '0');
+    } catch {
+      // A browser with storage disabled still gets the state for this session; the
+      // preference simply does not survive a reload, which beats a thrown exception.
+    }
+  }, []);
+
+  const setBallSize = useCallback((size: BallSize) => {
+    setBallSizeState(size);
+    try {
+      window.localStorage.setItem(BALL_SIZE_KEY, size);
+    } catch {
+      /* see above */
+    }
+  }, []);
+
   const markViewed = useCallback((id: string) => {
     // Fire-and-forget: a view counter must never delay or fail opening a note.
     void apiRequest(`/api/notes/${id}/view`, { method: 'POST' }).catch(() => undefined);
@@ -428,6 +547,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       fetchNote,
       saveDraft: approve,
       discardDraft,
+      stats,
+      ballHidden,
+      setBallHidden,
+      ballSize,
+      setBallSize,
       dismissDraftCard,
       createNote: createNoteInternal,
       updateNote,
@@ -453,6 +577,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       fetchNote,
       approve,
       discardDraft,
+      stats,
       dismissDraftCard,
       createNoteInternal,
       fetchNote,
@@ -461,6 +586,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       archiveNote,
       restoreNote,
       markViewed,
+      ballHidden,
+      setBallHidden,
+      ballSize,
+      setBallSize,
     ],
   );
 

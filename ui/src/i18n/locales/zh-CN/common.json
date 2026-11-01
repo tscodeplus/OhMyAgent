@@ -1612,7 +1612,8 @@
       "edit": "编辑",
       "regenerate": "换一版",
       "discard": "删除",
-      "tidy": "让 AI 整理"
+      "tidy": "让 AI 整理",
+      "group": "共 {{count}} 条"
     },
     "capture": {
       "title": "记一条笔记",
@@ -1631,7 +1632,9 @@
       "dropHintAlt": "按住 Alt：让 AI 整理成笔记",
       "dropHintTidy": "松手，AI 会把这段整理成笔记",
       "dropSelection": "存下选中的文字",
-      "dropSelectionHint": "{{count}} 字"
+      "dropSelectionHint": "{{count}} 字",
+      "duplicate": "这条笔记已经记过了",
+      "openExisting": "打开"
     },
     "editor": {
       "titlePlaceholder": "标题",
@@ -1681,7 +1684,25 @@
     "traceUnknown": "未记录的来源",
     "closeHint": "再次点击返回列表",
     "traceOpen": "在对话中查看",
-    "traceCited": "笔记引用"
+    "traceCited": "笔记引用",
+    "ball": {
+      "compact": "收小笔记球",
+      "expand": "展开笔记球",
+      "hide": "隐藏笔记球",
+      "show": "显示笔记球",
+      "showHint": "笔记球已隐藏，点这里让它回到聊天页"
+    },
+    "rejectHint": "删除并记录原因",
+    "reject": {
+      "recap": "只是复述对话",
+      "thin": "信息太少",
+      "inaccurate": "有错",
+      "not_reusable": "用不上第二次",
+      "duplicate": "重复",
+      "private": "不该留（隐私）",
+      "other": "其他"
+    },
+    "draftsStats": "{{due}} 条明天到期 · 批准率 {{rate}}%"
   },
   "search": {
     "contextTitle": "对话上下文",

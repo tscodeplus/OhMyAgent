@@ -47,9 +47,11 @@ import SearchContextPanel from '../search/SearchContextPanel';
 import type { SearchResult } from '../../types/search';
 import {
   NOTE_KINDS,
+  NOTE_REJECTION_CODES,
   NOTE_SCOPES,
   type Note,
   type NoteKind,
+  type NoteRejectionCode,
   type NoteSource,
   type NoteStatus,
 } from './types';
@@ -81,6 +83,9 @@ export default function NotesView() {
     restoreNote,
     markViewed,
     fetchNote,
+    stats,
+    ballHidden,
+    setBallHidden,
   } = useNotes();
 
   /**
@@ -501,6 +506,20 @@ export default function NotesView() {
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {/* Hiding the ball takes away the only control that could unhide it, so
+                  the way back lives here — where someone who wants it back looks. It
+                  is rendered only while hidden: a permanent toggle would be a setting
+                  nobody visits twice. */}
+              {ballHidden && (
+                <button
+                  type="button"
+                  onClick={() => setBallHidden(false)}
+                  title={t('notes.ball.showHint')}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 text-[11px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  {t('notes.ball.show')}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -633,6 +652,18 @@ export default function NotesView() {
               {t('notes.clearFilters')}
             </button>
           )}
+
+          {/* The one reader of `stats()`: how urgent the queue is and whether the
+              review gate is actually being used. Shown only in the drafts view —
+              "3 due" over a list of approved notes would be nagging about nothing. */}
+          {statusFilter === 'draft' && stats && (
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
+              {t('notes.draftsStats', {
+                due: stats.draftsDue,
+                rate: Math.round(stats.approvalRate * 100),
+              })}
+            </p>
+          )}
         </div>
 
         <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-28">
@@ -692,8 +723,8 @@ export default function NotesView() {
                 setQuery({ status: 'active' });
               });
             }}
-            onDiscard={() => {
-              void discardDraft(selected.id).then(() => {
+            onDiscard={(reason) => {
+              void discardDraft(selected.id, reason).then(() => {
                 setEditingId(null);
                 navigate('/notes');
               });
@@ -760,6 +791,83 @@ function differsFromNote(note: Note, draft: Partial<Note>): boolean {
  * filter change. The fade is the affordance: a clipped chip with no hint reads
  * as a rendering bug.
  */
+/**
+ * Delete, with the rejection code it will be recorded under.
+ *
+ * A menu rather than a dialog: the codes are one glance each and the action is not
+ * destructive enough to deserve a confirm step — the note is archived, never
+ * dropped. The chosen code is the note's *verdict*; `note_events.detail` keeps it.
+ */
+function RejectMenu({
+  reason,
+  onReason,
+  children,
+}: {
+  reason: NoteRejectionCode;
+  onReason: (reason: NoteRejectionCode) => void;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation('common');
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      >
+        {children}
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-full right-0 z-20 mb-1 w-[168px] rounded-lg border border-neutral-200 bg-white p-1 shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <div className="px-2 py-1 text-[10px] text-neutral-400 dark:text-neutral-500">
+            {t('notes.rejectHint')}
+          </div>
+          {NOTE_REJECTION_CODES.map((code) => (
+            <button
+              key={code}
+              type="button"
+              role="menuitemradio"
+              aria-checked={code === reason}
+              onClick={() => {
+                onReason(code);
+                setOpen(false);
+              }}
+              className={cn(
+                'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-[12px] transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800',
+                code === reason
+                  ? 'font-medium text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-600 dark:text-neutral-300',
+              )}
+            >
+              <span className="w-3 shrink-0 text-indigo-600 dark:text-indigo-400">
+                {code === reason ? '·' : ''}
+              </span>
+              {t(`notes.reject.${code}`)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FilterRow({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative -mx-1">
@@ -882,7 +990,8 @@ function NoteDetail({
   /** Present only for a draft: "save this text and publish it in one step". */
   onSaveAndApprove?: (patch: Partial<Note>) => void;
   onApprove: () => void;
-  onDiscard: () => void;
+  /** `reason` is the reviewer's verdict; the floating card always sends `other`. */
+  onDiscard: (reason: NoteRejectionCode) => void;
   /** Asks the page to leave, which is where the unsaved-changes prompt lives. */
   onBack: () => void;
   onPin: () => void;
@@ -893,6 +1002,9 @@ function NoteDetail({
   onOpenTag: (tag: string) => void;
 }) {
   const { t } = useTranslation('common');
+  // Which code the delete menu will record. One `other` by default, because most
+  // deletions are "not worth keeping" and asking is a nudge, not a gate.
+  const [rejectReason, setRejectReason] = useState<NoteRejectionCode>('other');
 
   const statusLabel =
     editing && dirty
@@ -992,10 +1104,22 @@ function NoteDetail({
                       <Pencil className="h-3.5 w-3.5" />
                       {t('notes.edit')}
                     </Button>
-                    <Button size="sm" variant="ghost" className="h-7" onClick={onDiscard}>
+                    {/* Deleting asks why, and only here. The floating card's delete is
+                        one click (`other`): mid-conversation the user's intent is to get
+                        the card off the screen, and a dialog there would cost more than
+                        the tally is worth. This row is a deliberate visit to review, so
+                        the code recorded here is a verdict — which is what makes
+                        "nine of fifty were duplicates" mean something. */}
+                    <RejectMenu
+                      reason={rejectReason}
+                      onReason={(code) => {
+                        setRejectReason(code);
+                        onDiscard(code);
+                      }}
+                    >
                       <Trash2 className="h-3.5 w-3.5" />
                       {t('notes.discard')}
-                    </Button>
+                    </RejectMenu>
                   </div>
                 </div>
               )}

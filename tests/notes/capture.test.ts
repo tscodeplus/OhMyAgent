@@ -15,6 +15,7 @@ import type Database from 'better-sqlite3';
 import {
   ASSISTANT_CONTENT,
   MESSAGE_ASSISTANT,
+  PROJECT_ID,
   SESSION_ID,
   USER_CONTENT,
   createTestService,
@@ -222,14 +223,138 @@ describe('notes service', () => {
     expect(service.get(created.note.id)?.viewCount).toBe(1);
   });
 
-  it('reports status and kind counts', () => {
+  it('reports the counts the review UI shows', () => {
     const { service } = createTestService(db);
     service.createManual({ title: 'a', body: 'b', kind: 'command' });
     service.createManual({ title: 'c', body: 'd', kind: 'pitfall' });
     const stats = service.stats();
     expect(stats.byStatus.active).toBe(2);
-    expect(stats.byKind.command).toBe(1);
-    expect(stats.byKind.pitfall).toBe(1);
+    // The kind histogram was removed with its last reader: `/api/notes` stopped
+    // offering a kind filter, so nobody draws it, and a metric nobody reads is a
+    // promise the code cannot keep.
+    expect('byKind' in stats).toBe(false);
+  });
+
+  // ── dedupe (§5.5) ────────────────────────────────────────────────────
+  //
+  // The one bug this closes is not "a stray duplicate": the unique index only
+  // covers `active`, so two drafts could hold one title and the *approval* of the
+  // second threw `UNIQUE constraint failed`, leaving a draft nobody could resolve.
+
+  it('refuses a second draft with a title this scope already holds', async () => {
+    const { service } = createTestService(db);
+    const first = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const second = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('duplicate');
+    expect(second.duplicates?.[0]).toMatchObject({
+      existingId: first.notes[0].id,
+      status: 'draft',
+    });
+    // One row, not two: nothing new was created for the reviewer to puzzle over.
+    expect(service.list({ status: 'draft' }).total).toBe(1);
+  });
+
+  it('names the active note that already owns a title', async () => {
+    const { service } = createTestService(db);
+    // The fixture session is a project session, so this is the scope the capture
+    // resolves to; a different scope would be a different library.
+    const created = service.createManual({
+      title: 'vitest 单文件迭代',
+      body: 'b',
+      scope: 'project',
+      scopeKey: PROJECT_ID,
+    });
+    if (!created.ok) throw new Error('create failed');
+
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('duplicate');
+    expect(result.duplicates?.[0]).toMatchObject({
+      existingId: created.note.id,
+      status: 'active',
+    });
+  });
+
+  it('refuses a repeated verbatim drop of the same text', async () => {
+    const { service } = createTestService(db);
+    const text = '排查端口占用：lsof -i :9191 找到 PID，再 kill。';
+    const first = await service.capture({
+      sessionId: SESSION_ID,
+      mode: 'text',
+      treatment: 'verbatim',
+      text,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const second = await service.capture({
+      sessionId: SESSION_ID,
+      mode: 'text',
+      treatment: 'verbatim',
+      text,
+    });
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('duplicate');
+    expect(second.duplicates?.[0].existingId).toBe(first.notes[0].id);
+  });
+
+  it('keeps the notes that are new when only some candidates duplicate', async () => {
+    const { service, repository } = createTestService(db, {
+      distillNotes: [
+        { ...defaultDistilled(), title: 'already here' },
+        { ...defaultDistilled(), title: 'brand new' },
+      ],
+    });
+    repository.create({
+      kind: 'command',
+      title: 'already here',
+      summary: '',
+      body: 'b',
+      status: 'draft',
+      origin: 'agent',
+      scope: 'project',
+      scopeKey: PROJECT_ID,
+    });
+
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.notes.map((note) => note.title)).toEqual(['brand new']);
+    expect(result.duplicates.map((item) => item.title)).toEqual(['already here']);
+  });
+
+  it('approves only one of two same-titled drafts instead of throwing', () => {
+    // The state a pre-dedupe library is in: two drafts, one title. Approving the
+    // second must answer with the conflict, because the alternative was a 500 that
+    // left the draft unapprovable forever.
+    const { service, repository } = createTestService(db);
+    const base = {
+      kind: 'command' as const,
+      summary: '',
+      body: 'b',
+      status: 'draft' as const,
+      origin: 'agent' as const,
+      scope: 'user' as const,
+      scopeKey: '',
+    };
+    const first = repository.create({ ...base, title: 'same title' });
+    const second = repository.create({ ...base, title: 'same title' });
+    if (!first.ok || !second.ok) throw new Error('fixture create failed');
+
+    expect(service.review(first.note.id, { decision: 'approve' }).ok).toBe(true);
+    const conflicted = service.review(second.note.id, { decision: 'approve' });
+    expect(conflicted.ok).toBe(false);
+    expect(conflicted.code).toBe('title_conflict');
+    expect(conflicted.existingId).toBe(first.note.id);
+    // Still a draft: refused, not lost.
+    expect(service.get(second.note.id)?.status).toBe('draft');
   });
 
   it('expires stale drafts through the repository, as hygiene will', () => {

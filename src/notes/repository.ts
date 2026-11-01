@@ -47,6 +47,7 @@ import {
   type NoteSource,
   type NoteStatus,
   type NoteStatusReason,
+  type SetStatusResult,
   type NoteField,
   type UpdateNoteInput,
 } from './types.js';
@@ -209,6 +210,16 @@ export class NotesRepository {
       });
   }
 
+  /**
+   * Related notes — **read path only, and there is no writer.**
+   *
+   * `note_relations` is created by v31 and nothing inserts into it, so this always
+   * returns `[]` and the detail page's 「相关 N 条」 block never renders. That is a
+   * known, deliberate state rather than a bug: the plan defers auto-relations to M4
+   * (§4.4), and the table plus this reader are what that work will plug into.
+   * If it is still empty when someone next touches this file, delete both — a sink
+   * with no producer is worse than no sink, because it reads as a working feature.
+   */
   private relatedFor(noteId: string): Note['related'] {
     const rows = this.db
       .prepare(
@@ -238,6 +249,32 @@ export class NotesRepository {
   get(id: string): Note | undefined {
     const row = this.rawRow(id);
     return row ? this.hydrate(row) : undefined;
+  }
+
+  /**
+   * The note that already owns a title in a scope, whatever its status.
+   *
+   * `create()` only guards `active` (the unique partial index is `WHERE
+   * status='active'`), which left the capture pipeline free to build several drafts
+   * with one title — and the *approval* of the second one then hit the index and
+   * threw. Duplicate detection therefore has to see drafts too, so this returns
+   * whichever row holds the title first, active before draft.
+   */
+  findByTitle(
+    title: string,
+    scope: Note['scope'],
+    scopeKey: string,
+  ): { id: string; status: NoteStatus } | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, status FROM notes
+          WHERE normalized_title = ? AND scope = ? AND scope_key = ?
+            AND status IN ('active', 'draft')
+          ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
+          LIMIT 1`,
+      )
+      .get(normalizeTitle(title), scope, scopeKey) as
+      { id: string; status: NoteStatus } | undefined;
   }
 
   /**
@@ -605,10 +642,25 @@ export class NotesRepository {
       reviewedBy?: string | null;
       now?: number;
     } = {},
-  ): Note | undefined {
+  ): SetStatusResult | undefined {
     const row = this.rawRow(id);
     if (!row) return undefined;
     const now = options.now ?? Date.now();
+
+    // Promotion is where titles actually collide: the unique partial index only
+    // covers `active` rows, so two drafts may share a title until one of them is
+    // approved. Letting the index throw would surface as a 500 and leave the second
+    // draft unapprovable forever; the caller gets the owner instead.
+    if (status === 'active' && row.status !== 'active') {
+      const owner = this.db
+        .prepare(
+          `SELECT id FROM notes
+            WHERE normalized_title = ? AND scope = ? AND scope_key = ?
+              AND status = 'active' AND id <> ?`,
+        )
+        .get(row.normalized_title, row.scope, row.scope_key, id) as { id: string } | undefined;
+      if (owner) return { ok: false, code: 'title_conflict', existingId: owner.id };
+    }
     const action: NoteEventAction =
       status === 'active' ? 'approve' : options.reason === 'rejected' ? 'reject' : 'archive';
 
@@ -664,7 +716,7 @@ export class NotesRepository {
     })();
 
     const updated = this.rawRow(id);
-    return updated ? this.hydrate(updated) : undefined;
+    return updated ? { ok: true, note: this.hydrate(updated) } : undefined;
   }
 
   setPinned(id: string, pinned: boolean, actor: NoteEventActor = 'user'): Note | undefined {
@@ -767,13 +819,6 @@ export class NotesRepository {
     }
     if (fields.length === 0) return;
     this.db.prepare(`UPDATE capture_runs SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);
-  }
-
-  /** Kind histogram for `/api/notes/stats` (drafts excluded: they are not knowledge yet). */
-  summarizeKinds(status: NoteStatus = 'active'): Array<{ kind: string; count: number }> {
-    return this.db
-      .prepare(`SELECT kind, COUNT(*) AS count FROM notes WHERE status = ? GROUP BY kind`)
-      .all(status) as Array<{ kind: string; count: number }>;
   }
 
   countDraftsOlderThan(cutoff: number): number {

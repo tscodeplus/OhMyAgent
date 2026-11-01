@@ -1612,7 +1612,8 @@
       "edit": "Edit",
       "regenerate": "Another take",
       "discard": "Delete",
-      "tidy": "Let the agent tidy it"
+      "tidy": "Let the agent tidy it",
+      "group": "{{count}} in total"
     },
     "capture": {
       "title": "Capture a note",
@@ -1631,7 +1632,9 @@
       "dropHintAlt": "Hold Alt: let the agent tidy it into a note",
       "dropHintTidy": "Release and the agent will tidy this into a note",
       "dropSelection": "Keep the selected text",
-      "dropSelectionHint": "{{count}} chars"
+      "dropSelectionHint": "{{count}} chars",
+      "duplicate": "You already have this note",
+      "openExisting": "Open"
     },
     "editor": {
       "titlePlaceholder": "Title",
@@ -1681,7 +1684,25 @@
     "traceUnknown": "Unknown source",
     "closeHint": "Click again to close",
     "traceOpen": "View in conversation",
-    "traceCited": "cited by this note"
+    "traceCited": "cited by this note",
+    "ball": {
+      "compact": "Shrink the ball",
+      "expand": "Expand the ball",
+      "hide": "Hide the ball",
+      "show": "Show notes ball",
+      "showHint": "The ball is hidden — bring it back to conversation pages"
+    },
+    "rejectHint": "Delete and record why",
+    "reject": {
+      "recap": "Just a recap",
+      "thin": "Too thin",
+      "inaccurate": "Wrong",
+      "not_reusable": "Never needed again",
+      "duplicate": "Duplicate",
+      "private": "Should not be kept",
+      "other": "Other"
+    },
+    "draftsStats": "{{due}} expiring tomorrow · {{rate}}% approved"
   },
   "search": {
     "contextTitle": "Conversation context",

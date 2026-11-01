@@ -38,6 +38,17 @@
  * (`/p/*`, `/inbox/*`, which is also what the archive opens). On the notes page
  * itself the page *is* the tool, and on settings/dashboard a capture button would
  * be noise.
+ *
+ * Two display preferences exist because a floating ball is the one control you
+ * cannot get out of the way of: on a phone it covers the transcript, and whether it
+ * does depends on the user, not on us. 「收小」 renders it as a dot (same badge, same
+ * menu) and 「隐藏」 removes it; both are menu items, i.e. discoverable, and both
+ * persist. Hiding is reversible from the notes page, which is where someone who
+ * wants it back would go looking.
+ *
+ * A capture that produces several notes shows **one** card, so the card says how
+ * many there were: the rest are already in the drafts view, and a single card with
+ * no count reads as "one note was kept".
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -45,13 +56,16 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Check,
+  EyeOff,
   Inbox,
   Loader2,
+  Minus,
   NotebookPen,
   Plus,
   Quote,
   RefreshCw,
   Sparkles,
+  Square,
   Wand2,
   X,
 } from 'lucide-react';
@@ -79,6 +93,10 @@ export default function NotesFloatingBall() {
     saveDraft,
     discardDraft,
     dismissDraftCard,
+    ballHidden,
+    setBallHidden,
+    ballSize,
+    setBallSize,
   } = useNotes();
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -182,22 +200,53 @@ export default function NotesFloatingBall() {
     return () => window.clearTimeout(timer);
   }, [draftCardId, dismissDraftCard]);
 
-  const [captureError, setCaptureError] = useState<string | null>(null);
+  /**
+   * What to say when a capture produced no card.
+   *
+   * `existingId` is set when the answer was "this already exists": that notice is a
+   * door, not a complaint, so it offers to open the note that owns the title.
+   */
+  const [notice, setNotice] = useState<{ text: string; existingId?: string } | null>(null);
+  /**
+   * How many notes the last capture produced.
+   *
+   * The card shows one of them; without this the other two look like they were never
+   * written. Reset on every new capture, so a stale number cannot outlive its group.
+   */
+  const [cardGroup, setCardGroup] = useState(0);
   // A capture outcome that is not a draft still has to be *said*, or the button
   // looks broken: "nothing worth keeping here" is an answer, not a failure.
   useEffect(() => {
-    if (!captureError) return;
-    const timer = window.setTimeout(() => setCaptureError(null), NOTICE_AUTO_HIDE_MS);
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), NOTICE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
-  }, [captureError]);
+  }, [notice]);
   const draft = drafts.find((item) => item.id === draftCardId) ?? null;
+
+  /** One place that turns a capture outcome into what the user sees. */
+  const report = (outcome: {
+    ok: boolean;
+    notes: unknown[];
+    existingId?: string;
+    message?: string;
+  }) => {
+    if (outcome.ok) return;
+    // "Already have it" is the one refusal with somewhere to go, so it is offered as
+    // a door: open the note the library already holds under that title.
+    setNotice({
+      text: outcome.existingId
+        ? t('notes.capture.duplicate')
+        : (outcome.message ?? t('notes.capture.failed')),
+      existingId: outcome.existingId,
+    });
+  };
 
   const startCapture = (mode: 'turn' | 'instruction' | 'manual') => {
     closeMenu();
-    setCaptureError(null);
+    setNotice(null);
     if (mode !== 'manual' && !sessionId) {
       // "Write it myself" needs no session; the others read a conversation.
-      setCaptureError(t('notes.capture.noSession'));
+      setNotice({ text: t('notes.capture.noSession') });
       return;
     }
 
@@ -210,10 +259,10 @@ export default function NotesFloatingBall() {
       return;
     }
     void capture({ mode, sessionId }).then((outcome) => {
-      if (outcome.ok) return;
+      setCardGroup(outcome.notes.length);
       // A capture that produced nothing is not an error: "this turn had nothing
       // worth keeping" is a normal answer, and 422 is how the server says it.
-      setCaptureError(outcome.message ?? t('notes.capture.failed'));
+      report(outcome);
     });
   };
 
@@ -225,6 +274,7 @@ export default function NotesFloatingBall() {
     }
     void capture({ mode: 'instruction', sessionId, instruction: text }).then((outcome) => {
       if (outcome.ok) {
+        setCardGroup(outcome.notes.length);
         setInstruction(null);
         setInstructionError(null);
         return;
@@ -244,19 +294,19 @@ export default function NotesFloatingBall() {
 
   const submitDrop = (text: string, tidy: boolean) => {
     if (!sessionId) {
-      setCaptureError(t('notes.capture.noSession'));
+      setNotice({ text: t('notes.capture.noSession') });
       return;
     }
     closeMenu();
-    setCaptureError(null);
+    setNotice(null);
     void capture({
       mode: 'drop',
       sessionId,
       text,
       treatment: tidy ? 'distill' : 'verbatim',
     }).then((outcome) => {
-      if (outcome.ok) return;
-      setCaptureError(outcome.message ?? t('notes.capture.failed'));
+      setCardGroup(outcome.notes.length);
+      report(outcome);
     });
   };
 
@@ -273,7 +323,10 @@ export default function NotesFloatingBall() {
     submitDrop(text, event.altKey);
   };
 
-  if (!onConversationPage) return null;
+  // `ballHidden` is a user preference and the only way out of it is the notes page
+  // switch, which is deliberate: a floating ball that keeps coming back after being
+  // dismissed is worse than one that needs one visit to restore.
+  if (!onConversationPage || ballHidden) return null;
 
   return (
     <>
@@ -284,16 +337,29 @@ export default function NotesFloatingBall() {
         // and lifted clear of the composer; see `useBallPlacement.ts`.
         style={{ right: placement.style.right, bottom: placement.style.bottom }}
       >
-        {captureError && !menuOpen && (
+        {notice && !menuOpen && (
           <div
             role="status"
             className="pointer-events-auto w-[min(320px,calc(100vw-2rem))] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-800 shadow-lg shadow-neutral-900/10 dark:border-amber-400/25 dark:bg-amber-500/10 dark:text-amber-200"
           >
             <div className="flex items-start gap-2">
-              <span className="flex-1">{captureError}</span>
+              <span className="flex-1">{notice.text}</span>
+              {notice.existingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = notice.existingId;
+                    setNotice(null);
+                    navigate(`/notes/${id}`);
+                  }}
+                  className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-400/40 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                >
+                  {t('notes.capture.openExisting')}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setCaptureError(null)}
+                onClick={() => setNotice(null)}
                 aria-label={t('notes.close')}
                 className="shrink-0 rounded p-0.5 text-amber-700/70 hover:text-amber-900 dark:text-amber-300/70 dark:hover:text-amber-100"
               >
@@ -365,6 +431,7 @@ export default function NotesFloatingBall() {
         {draft && !menuOpen && (
           <DraftCard
             draft={draft}
+            groupSize={cardGroup}
             onSave={() => void saveDraft(draft.id)}
             onEdit={() => {
               // Editing must not approve: an open editor on a draft stays a draft,
@@ -390,8 +457,12 @@ export default function NotesFloatingBall() {
                   }
                 : { mode: 'turn' as const, sessionId };
               void capture(intent).then((outcome) => {
-                if (outcome.ok) void discardDraft(draft.id);
-                else setCaptureError(outcome.message ?? t('notes.capture.failed'));
+                if (outcome.ok) {
+                  setCardGroup(outcome.notes.length);
+                  void discardDraft(draft.id);
+                } else {
+                  report(outcome);
+                }
               });
             }}
             onDiscard={() => void discardDraft(draft.id)}
@@ -463,6 +534,26 @@ export default function NotesFloatingBall() {
               <NotebookPen className="h-3.5 w-3.5" strokeWidth={1.75} />
               {t('notes.open')}
             </button>
+            {/* The ball is the one control you cannot get out of the way of, so it
+                offers two ways out. Both are menu items rather than gestures: an
+                invisible "drag it to the edge to shrink" would be exactly the
+                discoverability problem the rest of this file keeps avoiding. */}
+            <MenuItem
+              icon={ballSize === 'compact' ? Square : Minus}
+              label={t(ballSize === 'compact' ? 'notes.ball.expand' : 'notes.ball.compact')}
+              onClick={() => {
+                closeMenu();
+                setBallSize(ballSize === 'compact' ? 'normal' : 'compact');
+              }}
+            />
+            <MenuItem
+              icon={EyeOff}
+              label={t('notes.ball.hide')}
+              onClick={() => {
+                closeMenu();
+                setBallHidden(true);
+              }}
+            />
           </div>
         )}
 
@@ -534,7 +625,11 @@ export default function NotesFloatingBall() {
             title={t('notes.ballLabel')}
             aria-busy={capturing}
             className={cn(
-              'relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-lg shadow-indigo-900/25 transition-colors',
+              'relative flex items-center justify-center rounded-full text-white shadow-lg shadow-indigo-900/25 transition-colors',
+              // A dot is a 28px target instead of 56: on a phone the ball can sit on
+              // top of the last line of the transcript, and shrinking it keeps the
+              // entry point while giving back the line.
+              ballSize === 'compact' ? 'h-7 w-7' : 'h-14 w-14',
               // Only a capture animates; at rest the ball is still (see the header).
               capturing ? 'cursor-wait' : 'hover:opacity-90',
               capturing ? '' : placement.dragging ? 'cursor-grabbing' : 'cursor-grab',
@@ -563,10 +658,22 @@ export default function NotesFloatingBall() {
                 <Loader2 className="relative h-6 w-6 animate-spin" strokeWidth={2} />
               </>
             ) : (
-              <NotebookPen className="h-6 w-6" strokeWidth={1.75} />
+              <NotebookPen
+                className={ballSize === 'compact' ? 'h-3.5 w-3.5' : 'h-6 w-6'}
+                strokeWidth={1.75}
+              />
             )}
             {counts.draft > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-amber-500 px-1 text-[10px] font-semibold text-white dark:border-neutral-950">
+              // The badge shrinks with the ball but never disappears: it is the only
+              // thing a compact ball still says.
+              <span
+                className={cn(
+                  'absolute inline-flex items-center justify-center rounded-full border-2 border-white bg-amber-500 px-1 font-semibold text-white dark:border-neutral-950',
+                  ballSize === 'compact'
+                    ? '-right-1 -top-1 h-3.5 min-w-3.5 text-[8px]'
+                    : '-right-0.5 -top-0.5 h-5 min-w-5 text-[10px]',
+                )}
+              >
                 {counts.draft}
               </span>
             )}
@@ -623,6 +730,7 @@ function MenuItem({
  */
 function DraftCard({
   draft,
+  groupSize,
   onSave,
   onEdit,
   onRegenerate,
@@ -630,6 +738,8 @@ function DraftCard({
   onClose,
 }: {
   draft: NonNullable<ReturnType<typeof useNotes>['drafts'][number]>;
+  /** How many drafts this capture produced; `> 1` gets a line saying where the rest are. */
+  groupSize: number;
   onSave: () => void;
   onEdit: () => void;
   onRegenerate: () => void;
@@ -647,6 +757,11 @@ function DraftCard({
         </span>
         <KindChip kind={draft.kind} />
         <span className="ml-auto text-[10px] text-neutral-400">
+          {/* The card can only show one draft, and a capture routinely produces two or
+              three. One card with no count reads as "one note was kept". */}
+          {groupSize > 1 && (
+            <span className="mr-1.5">{t('notes.draftCard.group', { count: groupSize })}</span>
+          )}
           {relativeTime(draft.updatedAt, i18n.language)}
         </span>
         <button

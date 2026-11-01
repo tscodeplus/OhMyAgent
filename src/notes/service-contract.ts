@@ -76,14 +76,30 @@ export interface CaptureRequest {
 }
 
 export type CaptureFailureCode =
-  'disabled' | 'no_session' | 'empty_window' | 'model_failed' | 'invalid' | 'no_notes';
+  | 'disabled'
+  | 'no_session'
+  | 'empty_window'
+  | 'model_failed'
+  | 'invalid'
+  | 'no_notes'
+  | 'duplicate';
+
+/** A candidate the library already holds, so no second row was created (§5.5). */
+export interface DuplicateNote {
+  title: string;
+  existingId: string;
+  /** `active` means "already a note"; `draft` means "already waiting for review". */
+  status: NoteStatus;
+}
 
 export type CaptureResult =
   | {
       ok: true;
       captureId: string;
-      /** Drafts, newest first. Empty only for `text` (which lands active). */
+      /** Drafts, newest first. Every one of them still needs approval. */
       notes: Note[];
+      /** Candidates skipped because their title is already taken in this scope. */
+      duplicates: DuplicateNote[];
       /** How many credential-shaped spans the redactor hid (§5.2). */
       redacted: number;
       /** Drafts dropped as recaps, for the diagnostic log. */
@@ -95,6 +111,8 @@ export type CaptureResult =
       captureId?: string;
       /** Operator-facing sentence; the route maps it to a status code. */
       message: string;
+      /** Present for `duplicate`: the rows that already own these titles. */
+      duplicates?: DuplicateNote[];
     };
 
 /** A user writing a note by hand (WebUI editor, `/note --text`). Lands `active`. */
@@ -133,7 +151,6 @@ export interface ReviewDecision {
 
 export interface NotesStats {
   byStatus: Record<NoteStatus, number>;
-  byKind: Record<string, number>;
   /** Drafts that will expire within a day — what the badge should nag about. */
   draftsDue: number;
   /** Approvals per active note, the crude "is review working" number. */

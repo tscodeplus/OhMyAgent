@@ -23,6 +23,14 @@ export function clearToken(): void {
 export interface ApiError {
   status: number;
   message: string;
+  /**
+   * The parsed response body, when there was one.
+   *
+   * `message` is the one sentence a toast shows; some routes answer with structure a
+   * caller has to act on (notes: `{ code: 'duplicate', duplicates: [...] }`), and
+   * flattening that into a string loses the only useful part of the answer.
+   */
+  body?: Record<string, unknown>;
 }
 
 export async function apiRequest<T>(
@@ -61,6 +69,7 @@ export async function apiRequest<T>(
       throw {
         status: response.status,
         message: body.message || body.error || response.statusText,
+        body,
       } as ApiError;
     }
 

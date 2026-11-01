@@ -24,7 +24,8 @@
  *   redact  → BEFORE the model sees it: a secret must never travel to a provider
  *   distill → one call, validated per note
  *   recap   → free filter for the "model summarised the conversation" failure
- *   persist → one transaction per note; a duplicate title becomes an update hint
+ *   persist → one transaction per note; a title this scope already holds is
+ *             reported as a duplicate instead of a second row (dedupe, §5.5)
  *
  * `notes.worth` (the judge, §5.6) is not wired in M1: it is optional and
  * fail-open, and there is no verdict to record yet.
@@ -40,7 +41,12 @@ import { isRecap } from './recap.js';
 import { redactSecrets, redactionMarker } from './redact.js';
 import { distillNotes, type DistillOutcome } from './distill.js';
 import { renderWindowPrompt, resolveWindow, type ResolvedWindow } from './window.js';
-import type { CaptureRequest, CaptureResult, NotesRuntimeConfig } from './service-contract.js';
+import type {
+  CaptureRequest,
+  CaptureResult,
+  DuplicateNote,
+  NotesRuntimeConfig,
+} from './service-contract.js';
 import type { NotesRepository } from './repository.js';
 import type { Note } from './types.js';
 
@@ -246,6 +252,7 @@ export class CapturePipeline {
     const finalScope = this.resolveScope(request, session);
 
     const drafts: Note[] = [];
+    const duplicates: DuplicateNote[] = [];
     let droppedRecaps = 0;
     for (const candidate of outcome.notes.slice(0, config.maxNotesPerCapture)) {
       const verdict = isRecap({
@@ -272,6 +279,20 @@ export class CapturePipeline {
         }
       }
 
+      // Dedupe, and it is not cosmetic: the unique index only covers `active`, so
+      // two drafts could hold one title and the second could then never be approved
+      // (the index threw). One title, one row, per scope — the reviewer is told
+      // which row already has it instead of being handed a near-copy.
+      const owner = this.deps.repository.findByTitle(
+        candidate.title,
+        finalScope.scope,
+        finalScope.scopeKey,
+      );
+      if (owner) {
+        duplicates.push({ title: candidate.title, existingId: owner.id, status: owner.status });
+        continue;
+      }
+
       const created = this.deps.repository.create({
         kind: candidate.kind,
         title: candidate.title,
@@ -294,45 +315,37 @@ export class CapturePipeline {
       });
 
       if (!created.ok) {
-        // Same subject already active in this scope: not a new note, an update
-        // suggestion. M1 records it as a draft anyway (the reviewer decides),
-        // which is why the conflict is not an error here.
-        this.deps.logger.debug(
-          { existingId: created.existingId, title: candidate.title },
-          'Note title already active in scope — draft still recorded',
-        );
-        const fallback = this.deps.repository.create({
-          kind: candidate.kind,
-          title: `${candidate.title}（补充）`.slice(0, 60),
-          summary: candidate.summary,
-          body: candidate.body,
-          fields: candidate.fields,
-          tags: candidate.tags,
-          status: 'draft',
-          origin: 'agent',
-          scope: finalScope.scope,
-          scopeKey: finalScope.scopeKey,
-          sessionId: session.id,
-          channel:
-            session.channel && session.channel !== 'unknown' ? asChannel(session.channel) : null,
-          confidence: candidate.confidence,
-          captureId,
-          sources: this.sourcesFor(request, candidate.evidence, session),
-          actor: request.actor ?? 'agent',
+        // Racing captures aside, `findByTitle` above should have caught this; if the
+        // index still refuses, the honest answer is the same duplicate, not a
+        // retitled copy nobody asked for.
+        duplicates.push({
+          title: candidate.title,
+          existingId: created.existingId,
+          status: 'active',
         });
-        if (fallback.ok) drafts.push(fallback.note);
         continue;
       }
       drafts.push(created.note);
     }
 
     this.deps.repository.updateCaptureRun(captureId, {
-      status: 'ok',
+      status: drafts.length > 0 ? 'ok' : 'empty',
       noteCount: drafts.length,
       error: redactionMarker(redacted.count),
     });
 
     if (drafts.length === 0) {
+      // "Already have it" and "nothing worth keeping" are different answers, and the
+      // card says so: the first one has somewhere to go, the second does not.
+      if (duplicates.length > 0) {
+        return {
+          ok: false,
+          code: 'duplicate',
+          captureId,
+          duplicates,
+          message: 'that note already exists',
+        };
+      }
       return {
         ok: false,
         code: 'no_notes',
@@ -342,7 +355,14 @@ export class CapturePipeline {
       };
     }
 
-    return { ok: true, captureId, notes: drafts, redacted: redacted.count, droppedRecaps };
+    return {
+      ok: true,
+      captureId,
+      notes: drafts,
+      duplicates,
+      redacted: redacted.count,
+      droppedRecaps,
+    };
   }
 
   /**
@@ -437,6 +457,19 @@ export class CapturePipeline {
     const scope = this.resolveScope(request, session);
     const body = text.slice(0, TEXT_NOTE_MAX_CHARS);
     const title = titleFromText(body);
+    // The same dedupe as the distilled path. Dropping the same selection twice is the
+    // cheapest way to make a duplicate, so this is the path that needed it most.
+    const owner = this.deps.repository.findByTitle(title, scope.scope, scope.scopeKey);
+    if (owner) {
+      this.deps.repository.updateCaptureRun(captureId, { status: 'empty', error: 'duplicate' });
+      return {
+        ok: false,
+        code: 'duplicate',
+        captureId,
+        duplicates: [{ title, existingId: owner.id, status: owner.status }],
+        message: 'that note already exists',
+      };
+    }
     const created = this.deps.repository.create({
       kind: request.kind ?? 'other',
       title,
@@ -473,7 +506,14 @@ export class CapturePipeline {
     }
 
     this.deps.repository.updateCaptureRun(captureId, { status: 'ok', noteCount: 1 });
-    return { ok: true, captureId, notes: [created.note], redacted: 0, droppedRecaps: 0 };
+    return {
+      ok: true,
+      captureId,
+      notes: [created.note],
+      duplicates: [],
+      redacted: 0,
+      droppedRecaps: 0,
+    };
   }
 
   private runDistill(input: {

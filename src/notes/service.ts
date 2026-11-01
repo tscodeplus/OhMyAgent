@@ -119,7 +119,14 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
           actor: decision.actor ?? 'user',
           reviewedBy: decision.actor ?? 'user',
         });
-        return updated ? { ok: true, note: updated } : { ok: false, code: 'not_found' };
+        if (!updated) return { ok: false, code: 'not_found' };
+        // Promotion can collide: an active note already owns this title in this
+        // scope. Answering with the owner (422 at the route) lets the reader decide
+        // — merge by hand, retitle, or discard — where a thrown constraint error
+        // just left the draft unapprovable.
+        if (!updated.ok)
+          return { ok: false, code: 'title_conflict', existingId: updated.existingId };
+        return { ok: true, note: updated.note };
       }
       // Two different facts: the row leaves the library as `rejected`, and the
       // code (duplicate / recap / thin …) goes into the log so the tally is
@@ -130,7 +137,10 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
         detail: decision.reason ?? 'other',
         actor: decision.actor ?? 'user',
       });
-      return updated ? { ok: true, note: updated } : { ok: false, code: 'not_found' };
+      if (!updated) return { ok: false, code: 'not_found' };
+      return updated.ok
+        ? { ok: true, note: updated.note }
+        : { ok: false, code: 'title_conflict', existingId: updated.existingId };
     },
 
     pin(id: string, pinned: boolean): UpdateResult {
@@ -140,14 +150,22 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
 
     archive(id: string, reason = 'user'): UpdateResult {
       const updated = repository.setStatus(id, 'archived', { reason, actor: 'user' });
-      return updated ? { ok: true, note: updated } : { ok: false, code: 'not_found' };
+      if (!updated) return { ok: false, code: 'not_found' };
+      return updated.ok
+        ? { ok: true, note: updated.note }
+        : { ok: false, code: 'title_conflict', existingId: updated.existingId };
     },
 
     restore(id: string): UpdateResult {
       const note = repository.get(id);
       if (!note) return { ok: false, code: 'not_found' };
       const updated = repository.setStatus(id, 'active', { actor: 'user' });
-      return updated ? { ok: true, note: updated } : { ok: false, code: 'not_found' };
+      if (!updated) return { ok: false, code: 'not_found' };
+      // Restoring a note whose title was taken while it was archived is the other
+      // way to reach the unique index; same answer as approval.
+      return updated.ok
+        ? { ok: true, note: updated.note }
+        : { ok: false, code: 'title_conflict', existingId: updated.existingId };
     },
 
     recordView(id: string): void {
@@ -159,9 +177,6 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
 
     stats(): NotesStats {
       const counts = repository.list({ status: 'active', limit: 1 }).counts;
-      const byKind: Record<string, number> = {};
-      const rows = repository.summarizeKinds();
-      for (const row of rows) byKind[row.kind] = row.count;
       const config = deps.getConfig();
       const due =
         config.ttlDays > 0
@@ -170,7 +185,6 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       const archived = counts.archived ?? 0;
       return {
         byStatus: counts,
-        byKind,
         draftsDue: due,
         // Approved drafts / everything that ever entered review is the honest
         // denominator; the repository does not keep that, so this is a proxy.
