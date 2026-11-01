@@ -290,6 +290,25 @@ export const notesSectionSchema = z
         tokenBudget: z.coerce.number().int().positive().default(WINDOW_TOKEN_DEFAULT),
         /** `args` adds one line per tool call (no results). Off = conclusions only. */
         includeTools: z.enum(['off', 'args']).default('off'),
+        /**
+         * Whether the distillation call may think. `inherit` follows
+         * `memory_aux_models.thinking` (the notes chain is built on the aux chain, so
+         * the deployment already has an opinion); `auto`/`off` override it for this
+         * call only.
+         *
+         * Heat-read per capture, unlike `modelRef`: it changes the request body, not
+         * the client, so it does not need a restart.
+         */
+        thinking: z.enum(['inherit', 'auto', 'off']).default('inherit'),
+        /**
+         * Sampling temperature for the distillation call (the repair retry halves it).
+         *
+         * Low on purpose: extraction wants a consistent answer, not variety. Exposed
+         * because a model that pads fields may need nudging, and because a deployment
+         * on a model that rejects `temperature` can rely on the capability check that
+         * drops the field instead of guessing why every capture fails.
+         */
+        temperature: z.coerce.number().min(0).max(2).default(0.2),
         /** Redact credential-shaped spans before the model sees them. */
         redact: z.boolean().default(true),
         /**
@@ -787,6 +806,15 @@ const configSchema = z.object({
     .object({
       primary: z.string().optional(),
       fallback_models: z.array(z.string()).default([]),
+      /**
+       * `off` sends `thinking: { type: "disabled" }`; `auto` keeps the model default.
+       * Optional rather than defaulted so an upgrade cannot start rewriting the
+       * request shape of an existing deployment.
+       */
+      thinking: z.enum(['auto', 'off']).optional(),
+      /** Default aux temperature; a call site may override it. */
+      temperature: z.coerce.number().min(0).max(2).optional(),
+      /** @deprecated alias of `thinking: 'off'`. */
       disableThinking: z.boolean().optional(),
     })
     .optional(),

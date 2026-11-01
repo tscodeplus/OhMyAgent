@@ -1,6 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect, useMemo } from 'react';
-import { apiRequest } from '../../../utils/api';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
 import AccordionItem from '../../ui/AccordionItem';
 import Input from '../../ui/Input';
@@ -8,6 +6,7 @@ import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
 import ModelRefInput from '../ModelRefInput';
+import { useConfiguredProviders } from '../useConfiguredProviders';
 
 interface MultimodalSettingsProps {
   tabId?: string;
@@ -38,35 +37,10 @@ export default function MultimodalSettings({
 
   // Only offer providers that actually have an API key configured (same as the
   // Model/Routing and Agent editor pickers), and let the model dropdown support
-  // search + custom model ids via ModelPicker.
-  const [configuredProviders, setConfiguredProviders] = useState<string[] | undefined>(undefined);
-  useEffect(() => {
-    apiRequest<{ providers: Array<{ id: string }> }>('/api/providers/configured')
-      .then((data) => setConfiguredProviders(data.providers.map((p) => p.id)))
-      .catch(() => setConfiguredProviders(undefined));
-  }, []);
-
-  // Surface custom providers (e.g. "agnes") in the provider dropdown, exactly like
-  // the Model/Routing and Agent editor pickers do via the extraProviders prop.
-  const [builtinProviders, setBuiltinProviders] = useState<Record<string, string>>({});
-  useEffect(() => {
-    apiRequest<{ providers: Array<{ id: string; name: string; baseUrl?: string }> }>(
-      '/api/providers',
-    )
-      .then((data) => {
-        const map: Record<string, string> = {};
-        for (const p of data.providers) if (p.baseUrl) map[p.id] = p.baseUrl;
-        setBuiltinProviders(map);
-      })
-      .catch(() => setBuiltinProviders({}));
-  }, []);
-  const customProviders = (config?.customProviders as Array<{ provider: string }>) || [];
-  const extraProviderOptions = useMemo(
-    () =>
-      customProviders
-        .filter((cp) => cp.provider && !builtinProviders[cp.provider])
-        .map((cp) => ({ value: cp.provider, label: `custom/${cp.provider}` })),
-    [customProviders, builtinProviders],
+  // search + custom model ids via ModelPicker. Custom providers (e.g. "agnes") come
+  // back as `extraProviders`, exactly like the other pickers.
+  const { configuredProviders, extraProviders: extraProviderOptions } = useConfiguredProviders(
+    config?.customProviders as Array<{ provider?: string }> | undefined,
   );
 
   if (loading)

@@ -57,6 +57,12 @@ provider:
 #   primary: deepseek/deepseek-chat
 #   fallback_models:
 #     - mimo/mimo-v2.5
+#   # Aux work is "material in, fixed-format answer out", so reasoning only spends
+#   # the same max_tokens before the answer. `off` sends thinking={type:disabled}
+#   # (DeepSeek/GLM/Qwen/MiniMax style); `auto` keeps the model default.
+#   thinking: off
+#   # Default aux temperature (call sites may override; notes distillation uses its own).
+#   temperature: 0.3
 
 # --- Vision Bridge (optional) ---
 # When enabled, images sent to text-only models are first analyzed
@@ -332,6 +338,8 @@ channels:
 #     token_budget: 4000            # window budget; oldest messages are trimmed first
 #     include_tools: off            # off = conclusions only | args = one line per tool call, no results
 #     redact: true                  # hide credential-shaped spans before the model sees them
+#     thinking: inherit             # inherit = memory_aux_models.thinking | auto | off
+#     temperature: 0.2              # first attempt; the repair retry uses half of it
 #   draft:
 #     ttl_days: 14                  # unapproved drafts archive after N days; 0 = never
 #   log_retention_days: 90          # note_events horizon; 0 = keep forever

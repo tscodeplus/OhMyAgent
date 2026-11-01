@@ -8,6 +8,7 @@ import Spinner from '../../ui/Spinner';
 import Button from '../../ui/Button';
 import { useToast } from '../../ui/Toast';
 import ModelRefInput from '../ModelRefInput';
+import { useConfiguredProviders } from '../useConfiguredProviders';
 
 interface HarnessSettingsProps {
   tabId?: string;
@@ -32,6 +33,11 @@ export default function HarnessSettings({
     tabId,
     registerHandle,
     onDirtyChange,
+  );
+
+  // Same restriction as the Model/Routing picker: only providers that hold a key.
+  const { configuredProviders, extraProviders } = useConfiguredProviders(
+    config?.customProviders as Array<{ provider?: string }> | undefined,
   );
 
   // Proposal model mode — use a flag to remember user's explicit dropdown choice,
@@ -255,6 +261,8 @@ export default function HarnessSettings({
               value={getField('harness.proposal.model', (proposal.model || '') as string) as string}
               onChange={(v) => setField('harness.proposal.model', v)}
               placeholder={t('settings.harness.interactive.proposal.modelPlaceholder')}
+              configuredProviders={configuredProviders}
+              extraProviders={extraProviders}
             />
           )}
         </div>

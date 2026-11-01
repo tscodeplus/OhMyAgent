@@ -87,6 +87,10 @@ function buildSummaryLLMConfig(
     apiKeys: auxConfig.apiKeys,
     baseUrls: auxConfig.baseUrls,
     baseUrl: auxConfig.baseUrl,
+    // The summary is the same extraction work as everything else on the aux chain,
+    // so it inherits the same request shape (thinking off, same temperature).
+    thinking: auxConfig.thinking,
+    temperature: auxConfig.temperature,
     outputLanguage,
     // Plan §3.5 rollback switch: false restores the pre-plan capture behavior.
     durableOnly,
@@ -148,7 +152,12 @@ export function buildAuxModelConfig(config: AppConfig): AuxModelConfig {
     apiKeys: auxApiKeys,
     baseUrls: auxBaseUrls,
     baseUrl: config.piAi.baseUrl,
-    disableThinking: memAux?.disableThinking,
+    // `thinking` is the real key; the legacy boolean is resolved by
+    // `resolveThinkingMode`, so both spellings keep working and nothing else has to
+    // know the alias exists.
+    ...(memAux?.thinking ? { thinking: memAux.thinking } : {}),
+    ...(memAux?.temperature !== undefined ? { temperature: memAux.temperature } : {}),
+    ...(memAux?.disableThinking !== undefined ? { disableThinking: memAux.disableThinking } : {}),
   };
 }
 

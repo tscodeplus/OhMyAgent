@@ -440,6 +440,12 @@ export interface DistillOptions {
   /** Narrow hint from the caller (e.g. "the user asked for a pitfall"). */
   hint?: string;
   /**
+   * Sampling temperature for the first attempt (`notes.capture.temperature`). The
+   * repair retry halves it: a second attempt at the same temperature tends to
+   * reproduce the same malformed shape.
+   */
+  temperature?: number;
+  /**
    * Turns a model-reported scope into the ids it permits (see `parseDistillResponse`).
    * Absent = the scope is reported but not enforced, which is only right when there is
    * no window to check against.
@@ -484,10 +490,12 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     .filter(Boolean)
     .join('\n');
 
+  const temperature = options.temperature ?? 0.2;
+
   const first = await auxLLMCall(options.modelConfig, {
     systemPrompt,
     userPrompt,
-    temperature: 0.2,
+    temperature,
     maxTokens,
     logger: options.logger,
   });
@@ -503,7 +511,7 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
   const repaired = await auxLLMCall(options.modelConfig, {
     systemPrompt,
     userPrompt: `${userPrompt}\n\nThe previous output was not valid JSON. Output the JSON object only - no explanation, no code fence.`,
-    temperature: 0.1,
+    temperature: temperature / 2,
     maxTokens,
     logger: options.logger,
   });

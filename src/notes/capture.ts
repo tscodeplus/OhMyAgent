@@ -40,6 +40,7 @@ import { defaultScope } from './scope.js';
 import { isRecap } from './recap.js';
 import { redactSecrets, redactionMarker } from './redact.js';
 import { distillNotes, type DistillOutcome } from './distill.js';
+import { resolveThinkingMode } from '../memory/aux-call-options.js';
 import {
   renderWindowPrompt,
   resolveWindow,
@@ -609,9 +610,28 @@ export class CapturePipeline {
     hint?: string;
   }): Promise<DistillOutcome> {
     if (this.deps.distill) return this.deps.distill(input);
+    /**
+     * The aux chain is shared by every memory task, so `thinking` is resolved once
+     * here instead of being read off it inside the distiller: `inherit` means "what
+     * the aux chain says", which is a value, not a pass-through — spreading
+     * `thinking: undefined` over the chain would read as `auto` and silently undo a
+     * deployment-wide `off`.
+     */
+    const runtime = this.deps.getConfig();
+    const modelConfig: AuxModelConfig = {
+      ...this.deps.auxConfig,
+      thinking:
+        runtime.thinking === 'inherit'
+          ? resolveThinkingMode(this.deps.auxConfig)
+          : runtime.thinking,
+      temperature: runtime.temperature,
+    };
     return distillNotes({
       ...input,
-      modelConfig: this.deps.auxConfig,
+      modelConfig,
+      // Explicit, so the repair retry's half-temperature is derived from the same
+      // number the first attempt used.
+      temperature: runtime.temperature,
       logger: this.deps.logger,
     });
   }

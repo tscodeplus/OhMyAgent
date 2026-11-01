@@ -35,6 +35,7 @@ import Select from '../../ui/Select';
 import Toggle from '../../ui/Toggle';
 import Spinner from '../../ui/Spinner';
 import ModelRefInput from '../ModelRefInput';
+import { useConfiguredProviders } from '../useConfiguredProviders';
 
 interface NotesSettingsProps {
   tabId?: string;
@@ -59,6 +60,13 @@ export default function NotesSettings({
     registerHandle,
     onDirtyChange,
     BOOT_FIELD_PREFIXES,
+  );
+
+  // Only providers that hold a key, same as the Model/Routing picker: a modelRef
+  // pointing at an unconfigured provider looks saved and then fails on the first
+  // capture with "No API key resolved".
+  const { configuredProviders, extraProviders } = useConfiguredProviders(
+    config?.customProviders as Array<{ provider?: string }> | undefined,
   );
 
   if (loading) {
@@ -125,6 +133,8 @@ export default function NotesSettings({
             label={t('settings.notes.modelRef')}
             value={getField('notes.capture.modelRef', String(capture.modelRef ?? '')) as string}
             onChange={(value) => setField('notes.capture.modelRef', value)}
+            configuredProviders={configuredProviders}
+            extraProviders={extraProviders}
           />
           <Input
             label={t('settings.notes.maxNotes')}
@@ -133,6 +143,40 @@ export default function NotesSettings({
             value={num('notes.capture.maxNotesPerCapture', capture, 'maxNotesPerCapture', 3)}
             onChange={(event) => setField('notes.capture.maxNotesPerCapture', event.target.value)}
           />
+          {/* Read per capture, unlike `modelRef`: these change the request body, not
+              the client, so they apply on the next capture instead of needing a
+              restart. */}
+          <div>
+            <Select
+              label={t('settings.notes.thinking')}
+              value={
+                getField('notes.capture.thinking', String(capture.thinking ?? 'inherit')) as string
+              }
+              onChange={(event) => setField('notes.capture.thinking', event.target.value)}
+              options={[
+                { value: 'inherit', label: t('settings.notes.thinkingInherit') },
+                { value: 'auto', label: t('settings.notes.thinkingAuto') },
+                { value: 'off', label: t('settings.notes.thinkingOff') },
+              ]}
+            />
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.notes.thinkingHint')}
+            </p>
+          </div>
+          <div>
+            <Input
+              label={t('settings.notes.temperature')}
+              type="number"
+              step="0.1"
+              min={0}
+              max={2}
+              value={num('notes.capture.temperature', capture, 'temperature', 0.2)}
+              onChange={(event) => setField('notes.capture.temperature', event.target.value)}
+            />
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.notes.temperatureHint')}
+            </p>
+          </div>
           <Input
             label={t('settings.notes.windowTurns')}
             type="number"

@@ -13,6 +13,14 @@
 
 import type { Logger } from 'pino';
 import { resolveSummaryModelConnection } from './memory-summarizer.js';
+import {
+  buildAuxChatParams,
+  createWithFieldFallback,
+  lookupAuxCapabilities,
+  observeAuxUsage,
+  resolveThinkingMode,
+  type AuxThinkingMode,
+} from './aux-call-options.js';
 
 export interface AuxModelConfig {
   modelRef?: string;
@@ -21,11 +29,23 @@ export interface AuxModelConfig {
   baseUrls?: Record<string, string>;
   baseUrl?: string;
   /**
-   * Suppress reasoning/thinking for these cheap extraction tasks. Sends a
-   * provider-agnostic `thinking: { type: "disabled" }` body (DeepSeek, Zhipu,
-   * MiniMax style). Reasoning models burn tokens on thinking even when the
-   * extraction output is a few lines of JSON — this keeps that cost near zero.
-   * Default: off (no extra body sent).
+   * Whether these cheap extraction calls may think.
+   *
+   * `off` sends a top-level `thinking: { type: "disabled" }` (DeepSeek/Zhipu/
+   * MiniMax/Qwen style). Reasoning models burn completion tokens deliberating even
+   * when the answer is a few lines of JSON, and those tokens come out of
+   * `max_tokens` — at a small budget the JSON is truncated mid-object, which the
+   * consumer reports as an invalid model response. `auto` leaves the provider
+   * default alone.
+   *
+   * Default: `auto`.
+   */
+  thinking?: AuxThinkingMode;
+  /** Default sampling temperature for aux calls; a call-site value wins. */
+  temperature?: number;
+  /**
+   * @deprecated Use `thinking: 'off'`. Kept because existing `config.yaml` files
+   * carry it; `resolveThinkingMode` is its only reader.
    */
   disableThinking?: boolean;
 }
@@ -127,6 +147,7 @@ export async function auxLLMCall(
   }
 
   let lastError: string | null = null;
+  const thinking = resolveThinkingMode(config);
 
   for (const modelRef of modelRefs) {
     const resolved = await resolveSummaryModelConnection(
@@ -145,24 +166,62 @@ export async function auxLLMCall(
 
     try {
       const client = await getClient(apiKey, baseUrl, resolved.provider);
+      const capabilities = await lookupAuxCapabilities(resolved.provider, modelId);
+      if (thinking === 'off' && capabilities.known && !capabilities.canDisableThinking) {
+        // Not fatal: the catalog may be conservative, and the field is tolerated by
+        // most gateways. Worth one line, because the alternative is a silent reason
+        // to wonder why the token bill did not move.
+        options.logger.warn(
+          { modelRef },
+          'Aux model cannot switch thinking off according to the catalog; tokens may still be spent on reasoning',
+        );
+      }
 
-      const completion = await client.chat.completions.create({
+      const params = buildAuxChatParams({
         model: modelId,
-        messages: [
-          { role: 'system', content: options.systemPrompt },
-          { role: 'user', content: options.userPrompt },
-        ],
-        temperature: options.temperature ?? 0.3,
-        max_tokens: options.maxTokens ?? 2000,
-        ...(config.disableThinking ? { extraBody: { thinking: { type: 'disabled' } } } : {}),
+        systemPrompt: options.systemPrompt,
+        userPrompt: options.userPrompt,
+        temperature: options.temperature ?? config.temperature ?? 0.3,
+        maxTokens: options.maxTokens ?? 2000,
+        thinking,
+        capabilities,
       });
 
+      const completion = await createWithFieldFallback(
+        params,
+        (body) => client.chat.completions.create(body),
+        { logger: options.logger, label: 'Aux LLM', modelRef },
+      );
+
+      const usage = observeAuxUsage(completion);
+      // The only way to answer "is the thinking switch doing anything?" without
+      // reading the provider's invoice: completion tokens plus whether hidden
+      // reasoning came back at all.
+      options.logger.debug(
+        { modelRef, thinking, ...usage },
+        'aux LLM call completed (completion tokens / reasoning chars)',
+      );
+      if (thinking === 'off' && usage.reasoningChars > 0) {
+        options.logger.warn(
+          { modelRef, reasoningChars: usage.reasoningChars },
+          'Aux model ignored thinking=disabled; output budget is still paying for reasoning',
+        );
+      }
+
       const msg = completion.choices[0]?.message;
-      // Reasoning models (minimax, o1, etc.) put output in reasoning_content
-      const content = (msg?.content || (msg as any)?.reasoning_content)?.trim();
+      const content = (msg?.content ?? '').trim();
       if (content) return content;
 
-      options.logger.debug({ modelRef }, 'Model %s returned empty response', modelRef);
+      // Reasoning-only answers are only tolerated when we *asked* for thinking: with
+      // `thinking: 'off'` this text is the failure itself, and handing a paragraph of
+      // deliberation to a JSON parser turns a budget problem into a fake schema bug.
+      const reasoning =
+        thinking === 'auto'
+          ? ((msg as { reasoning_content?: string } | undefined)?.reasoning_content ?? '').trim()
+          : '';
+      if (reasoning) return reasoning;
+
+      options.logger.debug({ modelRef }, 'Model returned no usable content');
       lastError = `Model ${modelRef} returned empty response`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

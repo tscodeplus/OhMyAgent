@@ -37,6 +37,8 @@ export const RUNTIME_CONFIG: NotesRuntimeConfig = {
   includeTools: 'off',
   redact: true,
   bodyMaxChars: 1200,
+  thinking: 'inherit',
+  temperature: 0.2,
   ttlDays: 14,
   logRetentionDays: 90,
   modelRef: '',

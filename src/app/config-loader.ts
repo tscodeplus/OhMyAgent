@@ -635,6 +635,46 @@ function buildJudgeSection(jgCfg: YamlNode): Record<string, unknown> | undefined
 }
 
 /**
+ * Map the `memory_aux_models:` section.
+ *
+ * `thinking` is the real key; `disable_thinking` is the legacy boolean and resolves
+ * to the same `'off'`. The legacy spelling used to be the *only* key, and the old
+ * mapping dropped it entirely, so a hand-written `disable_thinking: true` validated
+ * and then did nothing. Both stay in the loaded shape because a downgrade reads the
+ * old one, but `buildAuxModelConfig` prefers `thinking`.
+ *
+ * An absent key stays absent (rather than defaulting to `'auto'`) so a hot reload of
+ * a file that never mentioned thinking cannot rewrite the request shape.
+ */
+function buildMemoryAuxModels(memAuxCfg: YamlNode): Record<string, unknown> | undefined {
+  if (!memAuxCfg) return undefined;
+  const legacy =
+    memAuxCfg.disable_thinking !== undefined || memAuxCfg.disableThinking !== undefined;
+  const legacyOff = legacy
+    ? yamlBool(
+        memAuxCfg.disable_thinking ?? memAuxCfg.disableThinking,
+        false,
+        'memAuxCfg.disable_thinking',
+      )
+    : undefined;
+  const legacyThinking: 'auto' | 'off' | undefined =
+    legacyOff === undefined ? undefined : legacyOff ? 'off' : 'auto';
+  return {
+    primary: memAuxCfg.primary ? str(memAuxCfg.primary, '', 'memAuxCfg.primary') : undefined,
+    fallback_models: strList(memAuxCfg.fallback_models, '', 'memAuxCfg.fallback_models'),
+    thinking:
+      memAuxCfg.thinking !== undefined
+        ? str(memAuxCfg.thinking, 'auto', 'memAuxCfg.thinking')
+        : legacyThinking,
+    temperature:
+      memAuxCfg.temperature === undefined
+        ? undefined
+        : num(memAuxCfg.temperature, 0.3, 'memAuxCfg.temperature'),
+    disableThinking: legacyOff,
+  };
+}
+
+/**
  * Map the `notes:` YAML section (MyDocs/NOTES_LAYER_PLAN.md §9).
  *
  * Same rule as `notes:`: a *missing* section means the layer stays off
@@ -675,6 +715,10 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
         'off',
         'notesCfg.capture.include_tools',
       ),
+      // Both knobs are hot (read per capture), so they are plain scalars here rather
+      // than part of the construction-time model ref.
+      thinking: str(captureCfg?.thinking, 'inherit', 'notesCfg.capture.thinking'),
+      temperature: num(captureCfg?.temperature, 0.2, 'notesCfg.capture.temperature'),
       redact: yamlBool(captureCfg?.redact, true, 'notesCfg.capture.redact'),
       bodyMaxChars: num(
         captureCfg?.body_max_chars ?? captureCfg?.bodyMaxChars,
@@ -831,27 +875,7 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       'root.default_reasoning_level',
     ),
 
-    memoryAuxModels: memAuxCfg
-      ? {
-          primary: memAuxCfg.primary ? str(memAuxCfg.primary, '', 'memAuxCfg.primary') : undefined,
-          fallback_models: strList(memAuxCfg.fallback_models, '', 'memAuxCfg.fallback_models'),
-          // Declared by `configSchema.memoryAuxModels` and read by
-          // `auxLLMCall`, but this mapping used to drop it — so `disable_thinking:
-          // true` in config.yaml validated and then did nothing. A reasoning aux
-          // model spends its whole completion on deliberation (measured on
-          // `opencode-go/deepseek-v4.1-flash`: 12.7k characters of reasoning and no
-          // answer for one grouping call), which makes the switch load-bearing
-          // rather than cosmetic.
-          disableThinking:
-            memAuxCfg.disable_thinking === undefined && memAuxCfg.disableThinking === undefined
-              ? undefined
-              : yamlBool(
-                  memAuxCfg.disable_thinking ?? memAuxCfg.disableThinking,
-                  false,
-                  'memAuxCfg.disable_thinking',
-                ),
-        }
-      : undefined,
+    memoryAuxModels: buildMemoryAuxModels(memAuxCfg),
 
     // v5: Pass multimodal config through (keys match zod schema directly)
     multimodal: root.multimodal,
@@ -1521,6 +1545,8 @@ export function jsConfigToYaml(
         const m = yaml.memory_aux_models as Record<string, unknown>;
         if (mam.primary !== undefined) m.primary = mam.primary;
         if (mam.fallback_models !== undefined) m.fallback_models = mam.fallback_models;
+        if (mam.thinking !== undefined) m.thinking = mam.thinking;
+        if (mam.temperature !== undefined) m.temperature = mam.temperature;
         break;
       }
 
@@ -1810,6 +1836,8 @@ export function jsConfigToYaml(
           if (cap.windowTurns !== undefined) ycap.window_turns = cap.windowTurns;
           if (cap.tokenBudget !== undefined) ycap.token_budget = cap.tokenBudget;
           if (cap.includeTools !== undefined) ycap.include_tools = cap.includeTools;
+          if (cap.thinking !== undefined) ycap.thinking = cap.thinking;
+          if (cap.temperature !== undefined) ycap.temperature = cap.temperature;
           if (cap.redact !== undefined) ycap.redact = cap.redact;
           if (cap.bodyMaxChars !== undefined) ycap.body_max_chars = cap.bodyMaxChars;
           if (cap.maxOutputTokens !== undefined) ycap.max_output_tokens = cap.maxOutputTokens;

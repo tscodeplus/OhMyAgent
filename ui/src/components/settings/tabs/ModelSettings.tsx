@@ -1207,6 +1207,51 @@ export default function ModelSettings({
               configuredProviders={configuredProviders}
               extraProviders={extraProviderOptions}
             />
+            {/* Request shape for every aux task (query expansion, merge, summary,
+                notes distillation). Kept next to the model because the right value
+                depends on what that model does by default: a thinking model spends
+                the extraction budget on deliberation, and `max_tokens` is shared
+                between the two. */}
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Select
+                  label={t('settings.models.auxThinking')}
+                  value={
+                    getField(
+                      'memoryAuxModels.thinking',
+                      (memoryAux.thinking as string) || 'auto',
+                    ) as string
+                  }
+                  onChange={(e) => setField('memoryAuxModels.thinking', e.target.value)}
+                  options={[
+                    { value: 'auto', label: t('settings.models.auxThinkingAuto') },
+                    { value: 'off', label: t('settings.models.auxThinkingOff') },
+                  ]}
+                />
+                <p className="mt-1 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+                  {t('settings.models.auxThinkingHint')}
+                </p>
+              </div>
+              <div>
+                <Input
+                  label={t('settings.models.auxTemperature')}
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  max={2}
+                  value={
+                    getField(
+                      'memoryAuxModels.temperature',
+                      String(memoryAux.temperature ?? 0.3),
+                    ) as string
+                  }
+                  onChange={(e) => setField('memoryAuxModels.temperature', e.target.value)}
+                />
+                <p className="mt-1 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+                  {t('settings.models.auxTemperatureHint')}
+                </p>
+              </div>
+            </div>
             <div className="pt-2">
               <label className="block text-[13px] font-medium text-neutral-700 dark:text-neutral-300 mb-2">
                 {t('settings.models.fallbackModels')}

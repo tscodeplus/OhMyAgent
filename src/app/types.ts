@@ -72,9 +72,20 @@ export interface MemoryAuxModels {
   /** Fallback models tried in order. */
   fallback_models?: string[];
   /**
-   * Suppress reasoning/thinking for memory aux tasks (query expansion, memory
-   * merge, notes capture). Sends `thinking: { type: "disabled" }`
-   * to DeepSeek/Zhipu/MiniMax-style reasoning models to cut token cost.
+   * Whether aux calls may think. `off` sends a top-level
+   * `thinking: { type: "disabled" }`; `auto` leaves the model's default.
+   *
+   * Load-bearing rather than cosmetic: reasoning tokens come out of `max_tokens`,
+   * and the aux tasks run on budgets sized for the answer alone (query expansion
+   * answers in ≤200 tokens), so a thinking model spends the budget deliberating and
+   * returns nothing, or returns JSON cut mid-object.
+   */
+  thinking?: 'auto' | 'off';
+  /** Default sampling temperature for aux calls (call sites may override). */
+  temperature?: number;
+  /**
+   * @deprecated Use `thinking: 'off'`. Read as an alias so older `config.yaml`
+   * files keep working; nothing writes it any more.
    */
   disableThinking?: boolean;
 }

@@ -108,6 +108,31 @@ describe('notes config mapping', () => {
     expect(notes.ball).toEqual({ show: false });
   });
 
+  it('reads the request-shape keys out of YAML', () => {
+    const raw = yamlToAppConfigRaw({
+      provider: { primary: 'openai/gpt-4o', api_key: 'sk-test' },
+      notes: {
+        enabled: true,
+        capture: { thinking: 'off', temperature: 0.1 },
+      },
+    });
+    const notes = raw.notes as Record<string, any>;
+    expect(notes.capture.thinking).toBe('off');
+    expect(notes.capture.temperature).toBe(0.1);
+  });
+
+  it('defaults the capture request shape to inherit / 0.2', () => {
+    const parsed = notesSectionSchema.parse({});
+    expect(parsed.capture.thinking).toBe('inherit');
+    expect(parsed.capture.temperature).toBe(0.2);
+  });
+
+  it('writes thinking and temperature back as plain keys', () => {
+    const yaml = jsConfigToYaml({ notes: { capture: { thinking: 'off', temperature: 0.4 } } }, {});
+    const notes = yaml.notes as Record<string, any>;
+    expect(notes.capture).toMatchObject({ thinking: 'off', temperature: 0.4 });
+  });
+
   it('keeps unrelated keys of the section when writing the ball switch', () => {
     const yaml = jsConfigToYaml(
       { notes: { ball: { show: true } } },

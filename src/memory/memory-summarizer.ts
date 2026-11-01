@@ -19,6 +19,14 @@ import type { EpisodeRepository } from './repositories/episode-repository.js';
 import type { MemoryRepository } from './repositories/memory-repository.js';
 import type { MemoryWriter } from './memory-writer.js';
 import { openCodeClientOptions } from '../utils/opencode-session.js';
+import {
+  buildAuxChatParams,
+  createWithFieldFallback,
+  lookupAuxCapabilities,
+  observeAuxUsage,
+  resolveThinkingMode,
+  type AuxThinkingMode,
+} from './aux-call-options.js';
 import type { PersonaDistiller } from './persona-distiller.js';
 import { detectTopic } from './write/preference-conflict-resolver.js';
 import { isDurableShape } from './write/durable-shape.js';
@@ -39,6 +47,10 @@ export interface SummaryLLMConfig {
   baseUrls?: Record<string, string>;
   /** Optional base URL override. */
   baseUrl?: string;
+  /** `off` = send `thinking: { type: "disabled" }`; see `AuxModelConfig['thinking']`. */
+  thinking?: AuxThinkingMode;
+  /** Sampling temperature for the summary call. Default 0.3. */
+  temperature?: number;
   /** Output language for summaries and preferences. "Auto" follows the conversation language. */
   outputLanguage?: string;
   /**
@@ -339,21 +351,45 @@ Output ONLY valid JSON with this shape:
           ...openCodeClientOptions(provider, baseUrl),
         });
 
-        const completion = await client.chat.completions.create({
+        // Same request shaping as `auxLLMCall`: the summary is extraction work too,
+        // so it wants thinking off (when the deployment says so) and no temperature
+        // at all on models whose catalog forbids it.
+        const thinking = resolveThinkingMode(cfg);
+        const params = buildAuxChatParams({
           model: modelId,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are a precise conversation analyst. Always respond in the requested format.',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.3,
-          max_tokens: 2000,
+          systemPrompt:
+            'You are a precise conversation analyst. Always respond in the requested format.',
+          userPrompt: prompt,
+          temperature: cfg.temperature ?? 0.3,
+          maxTokens: 2000,
+          thinking,
+          capabilities: await lookupAuxCapabilities(provider, modelId),
         });
 
-        return completion.choices[0]?.message?.content ?? '';
+        const completion = await createWithFieldFallback(
+          params,
+          (body) => client.chat.completions.create(body),
+          { logger: this.logger, label: 'Summary LLM', modelRef },
+        );
+
+        const usage = observeAuxUsage(completion);
+        this.logger.debug(
+          { modelRef, thinking, ...usage },
+          'summary LLM call completed (completion tokens / reasoning chars)',
+        );
+
+        const msg = completion.choices[0]?.message;
+        const content = (msg?.content ?? '').trim();
+        if (content) return content;
+
+        // See `auxLLMCall`: reasoning text is only an answer when thinking was allowed.
+        const reasoning =
+          thinking === 'auto'
+            ? ((msg as { reasoning_content?: string } | undefined)?.reasoning_content ?? '').trim()
+            : '';
+        if (reasoning) return reasoning;
+
+        return '';
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.debug({ modelRef, err: msg.slice(0, 100) }, 'Summary LLM attempt failed');

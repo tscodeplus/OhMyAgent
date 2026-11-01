@@ -59,15 +59,37 @@ describe('yamlToAppConfigRaw', () => {
     expect(raw.memoryAuxModels).toEqual({
       primary: 'opencode-go/deepseek-v4.1-flash',
       fallback_models: ['agnes/agnes-3.0-flash'],
+      thinking: 'off',
+      temperature: undefined,
       disableThinking: true,
     });
   });
 
-  it('leaves disableThinking unset when the key is absent', () => {
+  it('maps the thinking switch and aux temperature', () => {
+    const raw = yamlToAppConfigRaw({
+      ...minimalYaml,
+      memory_aux_models: {
+        primary: 'opencode-go/glm-5.3-flash',
+        fallback_models: [],
+        thinking: 'off',
+        temperature: 0.2,
+      },
+    });
+
+    expect(raw.memoryAuxModels).toMatchObject({ thinking: 'off', temperature: 0.2 });
+    // The legacy key is not invented from `thinking`; only an explicit YAML key sets it.
+    expect(raw.memoryAuxModels.disableThinking).toBeUndefined();
+  });
+
+  it('leaves the aux request shape unset when the keys are absent', () => {
+    // Absent must stay absent: defaulting to 'auto' here would let a hot reload of a
+    // file that never mentioned thinking rewrite the request shape.
     const raw = yamlToAppConfigRaw({
       ...minimalYaml,
       memory_aux_models: { primary: 'agnes/agnes-3.0-flash', fallback_models: [] },
     });
+    expect(raw.memoryAuxModels.thinking).toBeUndefined();
+    expect(raw.memoryAuxModels.temperature).toBeUndefined();
     expect(raw.memoryAuxModels.disableThinking).toBeUndefined();
   });
 

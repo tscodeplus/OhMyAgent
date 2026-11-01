@@ -18,6 +18,7 @@ import type {
   NoteStatus,
   NoteStatusReason,
 } from './types.js';
+import type { NotesThinkingMode } from '../memory/aux-call-options.js';
 
 /**
  * What to do with the material, which is a different question from where it came
@@ -216,6 +217,14 @@ export interface NotesRuntimeConfig {
   bodyMaxChars: number;
   /** Output budget; undefined = derive from bodyMaxChars x maxNotesPerCapture. */
   maxOutputTokens?: number;
+  /**
+   * Whether the distillation call may think. `inherit` = whatever
+   * `memory_aux_models.thinking` says, since the notes chain is built on the aux
+   * chain and the deployment already has an opinion.
+   */
+  thinking: NotesThinkingMode;
+  /** Sampling temperature for the distillation call; the repair retry halves it. */
+  temperature: number;
   ttlDays: number;
   logRetentionDays: number;
   /** Empty = reuse `memory_aux_models`. */
