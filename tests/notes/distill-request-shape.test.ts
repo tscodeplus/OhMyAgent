@@ -105,9 +105,9 @@ function buildPipeline(
 
 const AUX: AuxModelConfig = {
   // Deliberately a model the catalog has never heard of: the thinking-off switch goes
-  // out because the operator asked for it, in the template shape such gateways read
-  // (a `thinking: {type:"disabled"}` object is read as "think" by at least one of
-  // them). This proves it end to end through the real distiller.
+  // out because the operator asked for it (in the template shape such gateways read),
+  // and this fixture proves that end to end through the real distiller rather than
+  // through the request builder alone.
   modelRef: 'aux-test/test-model',
   apiKeys: { 'aux-test': 'sk-test' },
   baseUrls: { 'aux-test': 'https://aux.test/v1' },
@@ -150,6 +150,27 @@ describe('notes distillation request shape', () => {
     await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
 
     expect(bodies[0].chat_template_kwargs).toEqual({ enable_thinking: false });
+  });
+
+  it('sends no max_tokens unless the operator sets one', async () => {
+    // A budget we compute is a guess about the model, and a wrong guess cuts the JSON
+    // mid-object, which the parser reports as `invalid_json`. Omitted means the
+    // gateway applies its own limit — the only number that knows the model.
+    const bodies = stubFetch();
+    const { service } = buildPipeline(db, { aux: AUX });
+
+    await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+
+    expect(bodies[0]).not.toHaveProperty('max_tokens');
+  });
+
+  it('still sends a budget when the operator sets one', async () => {
+    const bodies = stubFetch();
+    const { service } = buildPipeline(db, { aux: AUX, capture: { maxOutputTokens: 3000 } });
+
+    await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
+
+    expect(bodies[0].max_tokens).toBe(3000);
   });
 
   it('sends the capture temperature, and halves it for the repair retry', async () => {

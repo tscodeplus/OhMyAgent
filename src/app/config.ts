@@ -8,7 +8,6 @@ import {
   BODY_MAX_MAX,
   BODY_MAX_MIN,
   MAX_NOTES_DEFAULT,
-  deriveMaxOutputTokens,
 } from '../notes/output-budget.js';
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../mcp/config.js';
 import { envBool } from '../shared/env.js';
@@ -307,27 +306,19 @@ export const notesSectionSchema = z
           .max(BODY_MAX_MAX)
           .default(BODY_MAX_DEFAULT),
         /**
-         * Output budget for one distillation call. Omitted = derived from
-         * `bodyMaxChars` x `maxNotesPerCapture` (`deriveMaxOutputTokens`), which is
-         * the value that cannot silently disagree with the body cap.
+         * A hard output cap for one distillation call. Unset by default, and unset
+         * means the request carries no `max_tokens` at all — the gateway applies its
+         * own limit, which is the only number that knows the model.
          *
-         * Set it only for a model that pads fields and tags; a value below the
-         * derived one is a startup error, because its only effect is truncating the
-         * JSON mid-object and reporting that as an unparseable model response.
+         * It used to be derived from `bodyMaxChars` x `maxNotesPerCapture`, and that
+         * arithmetic was wrong in a direction nobody could predict: the response is
+         * not only bodies, and a reasoning model spends from the same pool before it
+         * writes a character. A too-small value does not shorten the notes — it cuts
+         * the JSON mid-object, which comes back as `invalid_json`.
          */
         maxOutputTokens: z.coerce.number().int().positive().optional(),
       })
-      .default({})
-      .superRefine((capture, ctx) => {
-        if (capture.maxOutputTokens === undefined) return;
-        const required = deriveMaxOutputTokens(capture.bodyMaxChars, capture.maxNotesPerCapture);
-        if (capture.maxOutputTokens >= required) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['maxOutputTokens'],
-          message: `must be at least ${required} (bodyMaxChars ${capture.bodyMaxChars} x maxNotesPerCapture ${capture.maxNotesPerCapture}); a smaller budget cuts the JSON mid-object and is reported as invalid_json`,
-        });
-      }),
+      .default({}),
     /**
      * The floating ball on conversation pages.
      *

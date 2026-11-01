@@ -10,11 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { notesSectionSchema } from '../../src/app/config.js';
 import { jsConfigToYaml, yamlToAppConfigRaw } from '../../src/app/config-loader.js';
-import {
-  BODY_MAX_DEFAULT,
-  MAX_NOTES_DEFAULT,
-  deriveMaxOutputTokens,
-} from '../../src/notes/output-budget.js';
+import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../src/notes/output-budget.js';
 
 describe('notes config schema', () => {
   it('defaults to a body cap that can hold two aspects of one subject', () => {
@@ -34,36 +30,18 @@ describe('notes config schema', () => {
     expect(notesSectionSchema.safeParse({ capture: { bodyMaxChars: 4000 } }).success).toBe(true);
   });
 
-  it('rejects an output budget below what the body cap needs', () => {
+  it('leaves the output budget unset by default, so the gateway decides', () => {
+    // A budget we compute is a guess about the model; a wrong guess cuts the JSON
+    // mid-object and is reported as `invalid_json`, i.e. blamed on the model.
+    expect(notesSectionSchema.parse({}).capture.maxOutputTokens).toBeUndefined();
+  });
+
+  it('accepts any positive output budget, because a constant no longer defines it', () => {
     const result = notesSectionSchema.safeParse({
       capture: { bodyMaxChars: 1200, maxNotesPerCapture: 3, maxOutputTokens: 500 },
     });
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    const issue = result.error.issues.find(
-      (item) => item.path.join('.') === 'capture.maxOutputTokens',
-    );
-    expect(issue?.message).toContain(String(deriveMaxOutputTokens(1200, 3)));
-  });
-
-  it('accepts an output budget with headroom', () => {
-    const required = deriveMaxOutputTokens(1200, 3);
-    const result = notesSectionSchema.safeParse({
-      capture: { bodyMaxChars: 1200, maxNotesPerCapture: 3, maxOutputTokens: required + 500 },
-    });
     expect(result.success).toBe(true);
-  });
-});
-
-describe('deriveMaxOutputTokens', () => {
-  it('scales with the cap and the number of notes', () => {
-    expect(deriveMaxOutputTokens(1200, 1)).toBe(1600);
-    expect(deriveMaxOutputTokens(1200, 3)).toBe(4000);
-    // Clamped: a slow flash model refuses an 8000-token request long before it would
-    // honour 4000 x 3 x 2 bodies.
-    expect(deriveMaxOutputTokens(4000, 3)).toBe(8000);
-    // Floor: a tiny body cap still needs room for the response envelope.
-    expect(deriveMaxOutputTokens(200, 0)).toBe(1200);
+    expect(notesSectionSchema.safeParse({ capture: { maxOutputTokens: 0 } }).success).toBe(false);
   });
 });
 
@@ -83,7 +61,7 @@ describe('notes config mapping', () => {
     expect(notes.ball.show).toBe(false);
   });
 
-  it('omits the output budget when the file does not state it, so it stays derived', () => {
+  it('omits the output budget when the file does not state it, so nothing caps the call', () => {
     const raw = yamlToAppConfigRaw({
       provider: { primary: 'openai/gpt-4o', api_key: 'sk-test' },
       notes: { enabled: true, capture: { body_max_chars: 900 } },

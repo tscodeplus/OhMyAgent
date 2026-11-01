@@ -21,12 +21,7 @@ import type { Logger } from 'pino';
 import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { extractJson } from '../memory/json-utils.js';
 import { normalizeTags } from './canonical.js';
-import {
-  BODY_MAX_DEFAULT,
-  MAX_NOTES_DEFAULT,
-  WINDOW_TURNS_MAX,
-  deriveMaxOutputTokens,
-} from './output-budget.js';
+import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT, WINDOW_TURNS_MAX } from './output-budget.js';
 import { NOTE_FIELDS, isNoteKind, type NoteField, type NoteKind } from './types.js';
 
 /** Caps from the plan §5.3 validation table. `bodyMax` is configurable, see output-budget.ts. */
@@ -421,9 +416,11 @@ export interface DistillOptions {
   /** Body cap from `notes.capture.bodyMaxChars`; also what the prompt states. */
   bodyMaxChars?: number;
   /**
-   * Output budget. Omitted = derived from `bodyMaxChars` x `maxNotes`
-   * (`deriveMaxOutputTokens`). Exposed because a model that pads fields and tags
-   * may need headroom, and because config-level overrides are validated at boot.
+   * Output budget for one call. Omitted by default, which means the request carries
+   * no `max_tokens` at all and the gateway decides — it knows the model, we were
+   * only guessing at it (see `output-budget.ts`). Set it only to force a ceiling;
+   * a value below what the notes need cuts the JSON mid-object and comes back as
+   * `invalid_json`, not as "budget too small".
    */
   maxOutputTokens?: number;
   modelConfig: AuxModelConfig;
@@ -468,14 +465,12 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     maxNotes: options.maxNotes,
   });
   /**
-   * The body cap is stated in the prompt; the token budget is derived from it so the
-   * two cannot drift. Stating the note cap unconditionally ("at most 3 note(s)") read
-   * as a target: a run holding one note started answering with three, which is what
-   * a number in front of a model that had no opinion yet does.
+   * No output budget unless the operator set one: see `output-budget.ts`. Stating the
+   * note cap unconditionally ("at most 3 note(s)") read as a target — a run holding
+   * one note started answering with three, which is what a number in front of a model
+   * that had no opinion yet does.
    */
-  const maxTokens =
-    options.maxOutputTokens ??
-    deriveMaxOutputTokens(bodyMaxChars, options.maxNotes ?? MAX_NOTES_DEFAULT);
+  const maxTokens = options.maxOutputTokens;
 
   const userPrompt = [
     options.instruction
