@@ -324,6 +324,31 @@ describe('distill validation', () => {
     expect(outcome.notes[0].fields).toEqual([]);
   });
 
+  it('keeps a note whose kind is outside the vocabulary, as other', () => {
+    // The plan's invariant: `kind` is a suggestion and never refuses a note. A model
+    // handed Chinese material may answer a Chinese label, and losing the note over a
+    // label would be content loss for no reason. The label is reported instead.
+    const outcome = parseDistillResponse(
+      JSON.stringify({
+        notes: [{ kind: '命令', title: 't', summary: 's', body: 'b', evidence: ['m1'] }],
+      }),
+      allowed,
+    );
+    expect(outcome.rejected).toEqual([]);
+    expect(outcome.notes[0].kind).toBe('other');
+    expect(outcome.kindFallbacks).toEqual([{ label: '命令', title: 't' }]);
+  });
+
+  it('does not report kind="other" as a fallback', () => {
+    const outcome = parseDistillResponse(
+      JSON.stringify({
+        notes: [{ kind: 'other', title: 't', summary: 's', body: 'b', evidence: ['m1'] }],
+      }),
+      allowed,
+    );
+    expect(outcome.kindFallbacks).toEqual([]);
+  });
+
   it('reports unparseable output as invalid_json', () => {
     const outcome = parseDistillResponse('sorry, I cannot', allowed);
     expect(outcome.notes).toHaveLength(0);

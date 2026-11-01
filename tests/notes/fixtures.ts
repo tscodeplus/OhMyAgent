@@ -89,7 +89,7 @@ export function cannedDistill(
 ): (input: DistillationCall) => Promise<DistillOutcome> {
   return async (input) => {
     calls.push(input);
-    return { notes, rejected: [], rawChars: 0 };
+    return { notes, rejected: [], kindFallbacks: [], rawChars: 0 };
   };
 }
 

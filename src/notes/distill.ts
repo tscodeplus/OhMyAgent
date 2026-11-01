@@ -48,7 +48,6 @@ export interface DistillRejection {
   reason:
     | 'invalid_json'
     | 'not_object'
-    | 'unknown_kind'
     | 'too_long'
     | 'empty'
     | 'evidence_outside_window'
@@ -60,6 +59,15 @@ export interface DistillRejection {
 export interface DistillOutcome {
   notes: DistilledNote[];
   rejected: DistillRejection[];
+  /**
+   * Labels the model used that are not in `NOTE_KINDS`, with the note they landed on.
+   *
+   * Such a note is kept as `other` — a wrong label is not a reason to lose a good
+   * note — but the label is worth reporting: a run of them says the prompt's
+   * vocabulary is not the vocabulary this model reaches for, which is a prompt bug
+   * rather than a model bug.
+   */
+  kindFallbacks: Array<{ label: string; title: string }>;
   /** Raw model output length, for the diagnostic log. */
   rawChars: number;
 }
@@ -146,6 +154,7 @@ function validateNote(
   raw: unknown,
   allowedEvidence: Set<string>,
   rejected: DistillRejection[],
+  kindFallbacks: Array<{ label: string; title: string }>,
 ): DistilledNote | null {
   if (!raw || typeof raw !== 'object') {
     rejected.push({ reason: 'not_object', detail: 'candidate is not an object' });
@@ -153,13 +162,19 @@ function validateNote(
   }
   const candidate = raw as Record<string, unknown>;
 
-  const kind = isNoteKind(candidate.kind) ? candidate.kind : null;
-  if (!kind) {
-    rejected.push({ reason: 'unknown_kind', detail: String(candidate.kind ?? 'missing') });
-    return null;
+  const title = clampText(candidate.title, LIMITS.titleMax);
+
+  // A label outside the closed set becomes `other`, never a rejection. The plan's
+  // invariant is that `kind` is a suggestion and cannot refuse a note, and a model
+  // given Chinese material may answer `"命令"` — discarding the note for that would
+  // lose content over a label. Reported instead, so a prompt whose vocabulary the
+  // model will not use is visible rather than silently degrading every note to
+  // `other` (which also drops the per-kind slot whitelist, see `buildFields`).
+  const kind: NoteKind = isNoteKind(candidate.kind) ? candidate.kind : 'other';
+  if (kind === 'other' && candidate.kind !== 'other') {
+    kindFallbacks.push({ label: String(candidate.kind ?? 'missing').slice(0, 40), title });
   }
 
-  const title = clampText(candidate.title, LIMITS.titleMax);
   const body = candidate.body;
   const bodyText = typeof body === 'string' ? body.trim() : '';
   if (!title || !bodyText) {
@@ -238,11 +253,13 @@ export function parseDistillResponse(
   allowedEvidence: Iterable<string>,
 ): DistillOutcome {
   const rejected: DistillRejection[] = [];
+  const kindFallbacks: Array<{ label: string; title: string }> = [];
   const json = extractJson(raw);
   if (!json) {
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'no JSON object in response' }],
+      kindFallbacks,
       rawChars: raw.length,
     };
   }
@@ -254,6 +271,7 @@ export function parseDistillResponse(
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'JSON.parse failed' }],
+      kindFallbacks,
       rawChars: raw.length,
     };
   }
@@ -263,16 +281,17 @@ export function parseDistillResponse(
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'missing notes array' }],
+      kindFallbacks,
       rawChars: raw.length,
     };
   }
 
   const allowed = new Set(allowedEvidence);
   const notes = list
-    .map((candidate) => validateNote(candidate, allowed, rejected))
+    .map((candidate) => validateNote(candidate, allowed, rejected, kindFallbacks))
     .filter((note): note is DistilledNote => note !== null);
 
-  return { notes, rejected, rawChars: raw.length };
+  return { notes, rejected, kindFallbacks, rawChars: raw.length };
 }
 
 export interface DistillOptions {

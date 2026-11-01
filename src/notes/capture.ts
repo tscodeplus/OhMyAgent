@@ -229,6 +229,20 @@ export class CapturePipeline {
       };
     }
 
+    if (outcome.kindFallbacks.length > 0) {
+      // Kept as `other` (a label never rejects a note) but counted: a run of these
+      // means the prompt's vocabulary is not the one the model reaches for, and the
+      // side effect is invisible — `other` also has no slot whitelist.
+      this.deps.logger.warn(
+        {
+          captureId,
+          labels: outcome.kindFallbacks.map((item) => item.label),
+          notes: outcome.kindFallbacks.length,
+        },
+        'Note distiller used a kind outside NOTE_KINDS; kept as other',
+      );
+    }
+
     const finalScope = this.resolveScope(request, session);
 
     const drafts: Note[] = [];
