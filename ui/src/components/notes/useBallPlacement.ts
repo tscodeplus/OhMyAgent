@@ -7,9 +7,10 @@
  * 1. **The composer wins.** The ball is an accessory; the send button is the
  *    thing the user is reaching for. So the ball never covers the bottom bar: it
  *    lifts itself above `[data-notes-avoid]` whenever that element is on screen.
- *    The composer grows as you type and the keyboard pushes it up, so the lift is
- *    re-measured on resize / focus / visual-viewport changes rather than computed
- *    once at mount.
+ *    The composer grows as you type, so the lift is re-measured on resize / focus /
+ *    layout changes rather than computed once at mount — and it is measured as the
+ *    composer's *height*, never as `innerHeight - top` (see `measure`), because
+ *    only the height holds still while a phone is scrolling.
  * 2. **The user's own position is remembered.** Dragging stores `{right, bottom}`
  *    from the viewport's bottom-right corner, so the ball comes back where it was
  *    left on this device. Rule 1 still overrides the stored value when the two
@@ -89,45 +90,88 @@ export function useBallPlacement(active: boolean) {
   useEffect(() => {
     if (!active) return;
 
+    /**
+     * How far off the bottom the ball has to sit to clear the composer.
+     *
+     * The composer's own height, deliberately — **not** `innerHeight - rect.top`.
+     * The two are equal at rest (the composer is anchored to the bottom of a
+     * full-height shell), but only the height is honest while a phone's viewport is
+     * mid-change: iOS Safari reports `window.innerHeight` in *visual* viewport
+     * space (the keyboard and the collapsing toolbar both move it) while the
+     * `fixed inset-0` shell — and therefore the composer — is laid out in *layout*
+     * viewport space. Scrolling with the keyboard open, or a swipe that collapses
+     * the toolbar, moves one without the other, so the old arithmetic slid the ball
+     * up and down relative to the composer under the user's thumb; the viewport then
+     * settled, the value came back equal to the height, and the ball snapped home.
+     *
+     * Measured this way the only input is a number that does not move when the
+     * viewport does — which is why nothing here needs `visualViewport` listeners.
+     */
     const measure = () => {
       const target = document.querySelector('[data-notes-avoid]');
       if (!target) {
         setComposerLift(0);
         return;
       }
-      const rect = target.getBoundingClientRect();
-      if (rect.height === 0 || rect.top >= window.innerHeight) {
+      // 0 means the composer is not rendered (an `hidden` column): "not in the
+      // way". There is no scrolled-off-screen case to handle — the composer is a
+      // flex child of a fixed full-height column, so it cannot leave the viewport,
+      // and a `rect.top >= innerHeight` test would itself be viewport-space churn.
+      const height = target.getBoundingClientRect().height;
+      if (height === 0) {
         setComposerLift(0);
         return;
       }
-      const lift = window.innerHeight - rect.top + AVOID_GAP;
-      const capped = Math.min(lift, window.innerHeight - BALL_SIZE - EDGE);
-      setComposerLift(Math.max(0, Math.round(capped)));
+      // A lift taller than the screen would put the ball outside it — the composer
+      // fills the whole column on the "new session" layout. The cap is the only
+      // place a viewport height may appear, and it is a one-off clamp, not an input
+      // that drags the ball around.
+      const cap = Math.max(0, window.innerHeight - BALL_SIZE - EDGE);
+      setComposerLift(Math.max(0, Math.round(Math.min(height + AVOID_GAP, cap))));
     };
 
-    // The composer is re-created on session change and resizes as the textarea
-    // grows, so observe whatever is there now AND re-resolve on a timer-free
-    // signal: every measurement re-queries the selector.
+    // A scroll can fire a burst of viewport events per frame and a streaming turn
+    // mutates the transcript continuously; one measurement per frame is plenty.
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+
+    // The composer is re-created on session change (and resizes as the textarea
+    // grows and chips appear), so re-resolve the node on every signal and only
+    // rebuild the observer when it actually changed — rebuilding it on every DOM
+    // mutation of the transcript was pure churn.
     let observer: ResizeObserver | null = null;
+    let observed: Element | null = null;
     const attach = () => {
       const target = document.querySelector('[data-notes-avoid]');
+      if (target === observed) {
+        schedule();
+        return;
+      }
       observer?.disconnect();
+      observer = null;
+      observed = target;
       if (target && typeof ResizeObserver !== 'undefined') {
-        observer = new ResizeObserver(measure);
+        observer = new ResizeObserver(schedule);
         observer.observe(target);
       }
+      // A node swap changes the answer outright, so apply it without the frame of
+      // latency the coalescing adds.
       measure();
     };
 
     attach();
-    const visualViewport = window.visualViewport;
     window.addEventListener('resize', attach);
-    // Focus changes are what tell us the on-screen keyboard appeared or went
-    // away on browsers that do not resize `visualViewport` before layout settles.
+    // Focus changes are what tell us the on-screen keyboard appeared or went away
+    // before layout settles; the height itself still comes from the observer, these
+    // only re-resolve the node.
     document.addEventListener('focusin', attach);
     document.addEventListener('focusout', attach);
-    visualViewport?.addEventListener('resize', attach);
-    visualViewport?.addEventListener('scroll', attach);
     const mutations =
       typeof MutationObserver !== 'undefined' ? new MutationObserver(() => attach()) : null;
     // A session switch replaces the composer node; watching the shell catches it
@@ -136,13 +180,12 @@ export function useBallPlacement(active: boolean) {
     mutations?.observe(document.body, { childList: true, subtree: true });
 
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
       observer?.disconnect();
       mutations?.disconnect();
       window.removeEventListener('resize', attach);
       document.removeEventListener('focusin', attach);
       document.removeEventListener('focusout', attach);
-      visualViewport?.removeEventListener('resize', attach);
-      visualViewport?.removeEventListener('scroll', attach);
     };
   }, [active]);
 
