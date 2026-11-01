@@ -80,7 +80,7 @@ describe('/note and /notes', () => {
   // ── What it asks capture for ──
 
   it('treats /note and /notes as the same command', async () => {
-    const capture = vi.fn(async () => okResult(['a']));
+    const capture = vi.fn(async (_request: CaptureRequest) => okResult(['a']));
     const deps = depsWith(capture);
 
     const singular = await handleCommand('/note', 's1', deps);
@@ -98,6 +98,27 @@ describe('/note and /notes', () => {
     const [first, second, third] = capture.mock.calls.map((call) => call[0]);
     expect(second).toEqual(first);
     expect(third).toEqual(first);
+  });
+
+  it('recognises the Telegram group form `/note@bot`', async () => {
+    const capture = vi.fn(async () => okResult(['a']));
+    const result = await handleCommand('/note@ohmyagent_bot 整理成一条', 's1', depsWith(capture));
+
+    // A group command only arrives when the bot is @-mentioned, and Telegram puts
+    // that mention in the same token — so an unstripped suffix means the command
+    // is silently the worst of both: delivered, and then ignored.
+    expect(capture).toHaveBeenCalledWith(expect.objectContaining({ instruction: '整理成一条' }));
+    expect(result!.reply).toBeTruthy();
+  });
+
+  it('keeps `@` inside an instruction intact', async () => {
+    const capture = vi.fn(async () => okResult(['a']));
+    await handleCommand('/note 把 @张三 的那段整理出来', 's1', depsWith(capture));
+
+    // Only the command token is normalised; an instruction is the user's words.
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({ instruction: '把 @张三 的那段整理出来' }),
+    );
   });
 
   it('captures the conversation, not one exchange', async () => {

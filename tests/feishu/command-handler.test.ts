@@ -63,6 +63,15 @@ describe('handleCommand (shared)', () => {
     expect(result!.reply).toBe(i18n.t('commands:clear.cleared'));
   });
 
+  it('strips the Telegram group mention from the command token', async () => {
+    // Telegram delivers group commands as `/stop@my_bot`, mention included in the
+    // token. Recognising it here means every command works in a group, not just
+    // the ones with a channel-specific special case.
+    const result = await handleCommand('/stop@my_agent_bot', 's1', deps);
+    expect(result).not.toBeNull();
+    expect(result!.reply).toBe(i18n.t('commands:stop.stopped'));
+  });
+
   it('handles leading/trailing whitespace', async () => {
     const result = await handleCommand('  /stop  ', 's1', deps);
     expect(result).not.toBeNull();

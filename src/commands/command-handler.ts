@@ -148,7 +148,18 @@ export async function handleCommand(
   if (!trimmed.startsWith('/')) return null;
 
   const parts = trimmed.split(/\s+/);
-  const command = parts[0].toLowerCase();
+  /**
+   * Telegram delivers a *group* command as `/note@my_bot` — the mention belongs to
+   * the same token. The suffix is stripped here rather than in each adapter
+   * because every channel shares this parser: without it `/stop@bot`,
+   * `/cron@bot` and `/note@bot` fall through to the agent as ordinary chat text,
+   * which looks like the bot ignoring commands in exactly the chats that need
+   * them most (a mention is the only way a group command is delivered at all).
+   *
+   * Only the command token is normalised; arguments are passed through untouched,
+   * so `@` remains usable in an instruction (`/note 把 @张三 的那段整理出来`).
+   */
+  const command = parts[0].toLowerCase().replace(/@[^@]*$/, '');
   const args = parts.slice(1).join(' ');
 
   switch (command) {

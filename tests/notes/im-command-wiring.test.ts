@@ -54,6 +54,18 @@ describe('/note IM wiring', () => {
     expect(result.commandDeps.notes).toBe(notesService);
   });
 
+  it('hands the same object to every IM channel through servicesMap', () => {
+    const notesService = { capture: vi.fn() } as unknown as NotesService;
+    const { result, servicesMap } = makeServices(notesService);
+
+    // Telegram, WeChat and QQ do not build their own deps: each extension reads
+    // `commandDeps` out of servicesMap (telegram/index.ts:55, wechat/index.ts:48,
+    // qq/index.ts:73), so this one entry is what makes `/note` work in all four
+    // channels rather than only in Feishu.
+    expect(servicesMap.get('commandDeps')).toBe(result.commandDeps);
+    expect((servicesMap.get('commandDeps') as typeof result.commandDeps).notes).toBe(notesService);
+  });
+
   it('leaves the dep absent when the layer is switched off', () => {
     const { result } = makeServices(undefined);
 
