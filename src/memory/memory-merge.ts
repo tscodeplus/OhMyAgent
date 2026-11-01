@@ -195,12 +195,27 @@ export async function mergeMemory(
   // LLM merge
   const userPrompt = `CURRENT:\n${existing.content}\n\nNEW EVIDENCE:\n${newContent}`;
 
+  /**
+   * The output budget scales with the material it must be able to hold. A fixed 1000
+   * truncated the worst legal case — two memories at the 2000-char `isSafe` ceiling,
+   * whose merge has to carry the substance of both — and the cut surfaced downstream
+   * as a parse failure, i.e. as a model fault. The floor is 2000 (which covers that
+   * worst case by the project's own CJK estimate of ~2 chars/token); smaller inputs
+   * get a proportionate budget instead of paying for room they cannot fill. This is a
+   * *lower bound on headroom*, not a guess about the model: it only guarantees the
+   * request cannot be the thing that cut the answer.
+   */
+  const mergeMaxTokens = Math.max(
+    2000,
+    Math.ceil((existing.content.length + newContent.length) / 2),
+  );
+
   try {
     const response = await auxLLMCall(config.auxConfig!, {
       systemPrompt: buildMergeSystemPrompt(config.outputLanguage),
       userPrompt,
       temperature: 0.3,
-      maxTokens: 1000,
+      maxTokens: mergeMaxTokens,
       logger: config.logger,
     });
     const mergedContent = parseMergedContent(response);

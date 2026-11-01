@@ -58,8 +58,24 @@ export const WINDOW_TURNS_DEFAULT = 5;
 export const WINDOW_TURNS_MAX = 20;
 
 /**
- * Hard cap on rows read for a `session` capture. Ten times the default token budget,
- * so the budget trims before the loader does and the truncation is counted rather
- * than silent.
+ * Hard cap on rows read for a `session` capture (`notes.capture.sessionRows`).
+ *
+ * The original justification — "ten times the default token budget, so the budget
+ * trims before the loader does" — died when the window token budget was removed:
+ * the cap is now the *only* thing that bounds a `session` read. So it is sized by
+ * measurement instead of tradition: IM messages are mostly short, 2000 rows is
+ * comfortably inside any modern model's window, and a value that a real chat still
+ * overflows is handled by head+tail sampling (see `capture.ts`) rather than by a
+ * larger guess.
+ *
+ * Over-cap is never silent: the omitted middle is counted into `droppedMessages`,
+ * the reply and the review card say what was read, and the prompt itself carries a
+ * marker so the distiller knows the middle is a hole, not an absence.
  */
-export const WINDOW_MESSAGES_MAX = 400;
+export const SESSION_ROWS_DEFAULT = 2000;
+
+/** Below this a `session` window is a suffix wearing the word "session". */
+export const SESSION_ROWS_MIN = 50;
+
+/** Past this the loader itself becomes the bottleneck a sampling pass cannot fix. */
+export const SESSION_ROWS_MAX = 20000;

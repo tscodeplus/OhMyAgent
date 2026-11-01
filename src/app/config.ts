@@ -8,6 +8,9 @@ import {
   BODY_MAX_MAX,
   BODY_MAX_MIN,
   MAX_NOTES_DEFAULT,
+  SESSION_ROWS_DEFAULT,
+  SESSION_ROWS_MAX,
+  SESSION_ROWS_MIN,
 } from '../notes/output-budget.js';
 import { DEFAULT_MCP_SECTION, MCP_SERVER_NAME_PATTERN } from '../mcp/config.js';
 import { envBool } from '../shared/env.js';
@@ -267,6 +270,22 @@ export const notesSectionSchema = z
         modelRef: z.string().default(''),
         /** Upper bound on drafts one capture may produce. */
         maxNotesPerCapture: z.coerce.number().int().nonnegative().default(MAX_NOTES_DEFAULT),
+        /**
+         * Hard cap on rows a `session` capture reads (`notes.capture.sessionRows`).
+         *
+         * The only bound on a `session` read since the window token budget was removed.
+         * A session with more rows is not silently cut to its tail: the loader keeps a
+         * head sample plus the newest rows, inserts an omission marker between them, and
+         * counts the omitted middle into `droppedMessages` so the reply says what was
+         * read. 2000 rows of mostly-short IM messages is comfortably inside any modern
+         * model's window; raise it only against a measured capture, not a guess.
+         */
+        sessionRows: z.coerce
+          .number()
+          .int()
+          .min(SESSION_ROWS_MIN)
+          .max(SESSION_ROWS_MAX)
+          .default(SESSION_ROWS_DEFAULT),
         /** `args` adds one line per tool call (no results). Off = conclusions only. */
         includeTools: z.enum(['off', 'args']).default('off'),
         /**

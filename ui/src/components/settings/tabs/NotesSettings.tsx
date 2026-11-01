@@ -190,6 +190,19 @@ export default function NotesSettings({
               {t('settings.notes.bodyMaxCharsHint')}
             </p>
           </div>
+          <div>
+            <Input
+              label={t('settings.notes.sessionRows')}
+              type="number"
+              min={50}
+              max={20000}
+              value={num('notes.capture.sessionRows', capture, 'sessionRows', 2000)}
+              onChange={(event) => setField('notes.capture.sessionRows', event.target.value)}
+            />
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.notes.sessionRowsHint')}
+            </p>
+          </div>
         </div>
 
         {/* The two switches below change what the model is allowed to see, so they

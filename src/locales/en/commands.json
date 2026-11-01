@@ -129,6 +129,7 @@
     "disabled": "Notes are switched off (notes.enabled in config.yaml).",
     "failed": "Distillation failed, so no note was written: {{error}}",
     "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the window budget",
+    "windowSampled": "Session exceeded the read cap: read the first {{head}} and the last {{tail}} messages; {{dropped}} in between were not read",
     "scopedTurns": "Used only the last {{turns}} turns, as asked"
   }
 }

@@ -231,7 +231,11 @@ export default function NotesFloatingBall() {
    * either of them. `dropped > 0` is rendered as a line under the card; silence would
    * let the first pass for the second.
    */
-  const [cardScope, setCardScope] = useState<{ read: number; dropped: number } | null>(null);
+  const [cardScope, setCardScope] = useState<{
+    read: number;
+    dropped: number;
+    head?: number;
+  } | null>(null);
   // A capture outcome that is not a draft still has to be *said*, or the button
   // looks broken: "nothing worth keeping here" is an answer, not a failure.
   useEffect(() => {
@@ -245,15 +249,19 @@ export default function NotesFloatingBall() {
   /**
    * The truncation line's payload, or `null` when the window read everything it
    * wanted. Absent fields mean "the server did not say", which is not the same as
-   * zero — a verbatim drop has no window at all.
+   * zero — a verbatim drop has no window at all. `head` present = the session
+   * exceeded the read cap and the server sampled opening + newest, so the line
+   * must describe that shape instead of "read the last N".
    */
   const scopeOf = (outcome: {
     readMessages?: number;
     droppedMessages?: number;
-  }): { read: number; dropped: number } | null => {
+    sampledHead?: number;
+  }): { read: number; dropped: number; head?: number } | null => {
     const dropped = outcome.droppedMessages ?? 0;
     if (dropped <= 0) return null;
-    return { read: outcome.readMessages ?? 0, dropped };
+    const head = outcome.sampledHead ?? 0;
+    return { read: outcome.readMessages ?? 0, dropped, ...(head > 0 ? { head } : {}) };
   };
 
   const report = (outcome: {
@@ -806,7 +814,7 @@ function DraftCard({
    * it on the card (not in a toast) is deliberate: the toast disappears in five
    * seconds, and this is information for the decision the card is asking for.
    */
-  scope: { read: number; dropped: number } | null;
+  scope: { read: number; dropped: number; head?: number } | null;
   onSave: () => void;
   onEdit: () => void;
   onRegenerate: () => void;
@@ -871,7 +879,13 @@ function DraftCard({
           mind — or opens the note page to write the missing half themselves. */}
       {scope && (
         <p className="border-t border-amber-100 bg-amber-50/60 px-3 py-1.5 text-[10.5px] leading-snug text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
-          {t('notes.capture.windowTruncated', { read: scope.read, dropped: scope.dropped })}
+          {scope.head
+            ? t('notes.capture.windowSampled', {
+                head: scope.head,
+                tail: Math.max(scope.read - scope.head, 0),
+                dropped: scope.dropped,
+              })
+            : t('notes.capture.windowTruncated', { read: scope.read, dropped: scope.dropped })}
         </p>
       )}
 

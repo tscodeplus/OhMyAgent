@@ -549,6 +549,8 @@
       "restartHint": "标记为需要重启的两项（启用开关、蒸馏模型）在服务重启后生效；其余改动下一次捕获或下一次清理时生效。",
       "bodyMaxChars": "正文上限（字符）",
       "bodyMaxCharsHint": "单条笔记正文的最大长度，超出会截断。一条笔记现在通常承载一个主题的多个方面，所以默认 1200；单词上限 4000，再长就不适合放进审核队列了。",
+      "sessionRows": "会话读取上限（条）",
+      "sessionRowsHint": "“基于这个会话”整理笔记时最多读取的消息条数（50–20000）。超过上限的会话会保留开头和最新的消息，并在回复里说明中间省略的部分，不会静默截断。",
       "ball": "悬浮球",
       "ballShow": "在聊天页显示笔记球",
       "ballShowHint": "关闭后聊天页不再显示笔记球，随时可以在这里打开。保存在 config.yaml，对所有设备生效，点保存后下一次进入聊天页生效，不需要重启。",
@@ -1692,7 +1694,8 @@
       "duplicate": "这条笔记已经记过了",
       "openExisting": "打开",
       "conversation": "基于这个会话整理笔记",
-      "windowTruncated": "只读了最近 {{read}} 条消息，更早的 {{dropped}} 条超出窗口预算"
+      "windowTruncated": "只读了最近 {{read}} 条消息，更早的 {{dropped}} 条超出窗口预算",
+      "windowSampled": "会话超过读取上限：读了开头的 {{head}} 条和最近的 {{tail}} 条，中间的 {{dropped}} 条未读"
     },
     "editor": {
       "titlePlaceholder": "标题",

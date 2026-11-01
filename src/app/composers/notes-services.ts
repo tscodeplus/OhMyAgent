@@ -21,7 +21,11 @@ import type { AppConfig } from '../types.js';
 import type { AuxModelConfig } from '../../memory/aux-llm-client.js';
 import { CapturePipeline } from '../../notes/capture.js';
 import { NotesRepository } from '../../notes/repository.js';
-import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../notes/output-budget.js';
+import {
+  BODY_MAX_DEFAULT,
+  MAX_NOTES_DEFAULT,
+  SESSION_ROWS_DEFAULT,
+} from '../../notes/output-budget.js';
 import { createNotesService } from '../../notes/service.js';
 import { configEventBus } from '../config-event-bus.js';
 import type { NotesRuntimeConfig, NotesService } from '../../notes/service-contract.js';
@@ -61,6 +65,7 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
   const notes = config.notes;
   return {
     maxNotesPerCapture: notes?.capture?.maxNotesPerCapture ?? MAX_NOTES_DEFAULT,
+    sessionRows: notes?.capture?.sessionRows ?? SESSION_ROWS_DEFAULT,
     includeTools: notes?.capture?.includeTools ?? 'off',
     redact: notes?.capture?.redact ?? true,
     bodyMaxChars: notes?.capture?.bodyMaxChars ?? BODY_MAX_DEFAULT,

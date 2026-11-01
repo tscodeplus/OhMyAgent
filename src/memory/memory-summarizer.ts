@@ -25,6 +25,7 @@ import {
   lookupAuxCapabilities,
   observeAuxUsage,
   resolveThinkingMode,
+  wasTruncated,
   type AuxThinkingMode,
 } from './aux-call-options.js';
 import type { PersonaDistiller } from './persona-distiller.js';
@@ -373,6 +374,16 @@ Output ONLY valid JSON with this shape:
         );
 
         const usage = observeAuxUsage(completion);
+        // Same contract as `auxLLMCall`: a summary cut by `finish_reason: 'length'`
+        // is the one trace that separates "the model summarised badly" from "we
+        // capped it in half" — and a truncated summary is stored as if it were the
+        // whole conversation's, which is exactly the failure nobody can see later.
+        if (wasTruncated(completion)) {
+          this.logger.warn(
+            { modelRef, ...usage },
+            'Summary LLM output hit the provider limit (finish_reason=length); the stored summary is cut short',
+          );
+        }
         this.logger.debug(
           { modelRef, thinking, ...usage },
           'summary LLM call completed (completion tokens / reasoning chars)',

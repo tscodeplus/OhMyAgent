@@ -31,8 +31,17 @@ import { parseEpochMs } from '../shared/timestamp.js';
 
 export const DEFAULT_CONVERSATION_SEARCH_LIMIT = 8;
 export const MAX_CONVERSATION_SEARCH_LIMIT = 50;
-/** Roughly one line of context per hit; the tool's budget is built on this. */
-export const CONVERSATION_SNIPPET_MAX_CHARS = 120;
+/**
+ * Roughly one line of context per hit; the tool's budget is built on this.
+ *
+ * 200, aligned with `EPISODIC_EXCERPT_MAX_CHARS` in `agent/context-transform.ts`:
+ * the two constants bound the same kind of material (a message excerpt shown to
+ * the model), and 120 was too short for a command or a line of code quoted in a
+ * chat message — after the keyword-centred cut both ends were ellipses, and the
+ * hit answered "where" while hiding "what". One line of IM text in zh is ~40-60
+ * chars; 200 covers the message that matters plus its immediate context.
+ */
+export const CONVERSATION_SNIPPET_MAX_CHARS = 200;
 
 /**
  * Policy, channel and time filters run after the SQL (they need the session row,

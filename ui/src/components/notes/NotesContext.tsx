@@ -98,6 +98,8 @@ export interface CaptureOutcome {
   /** Messages the window held, and how many the budget dropped from the old end. */
   readMessages?: number;
   droppedMessages?: number;
+  /** Present when the session exceeded the read cap: head messages kept by sampling. */
+  sampledHead?: number;
 }
 
 /** Ball size: the full 56px target, or a dot that does not cover the transcript. */
@@ -361,6 +363,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           redacted: number;
           readMessages?: number;
           droppedMessages?: number;
+          sampledHead?: number;
         }>('/api/notes/capture', {
           method: 'POST',
           body: JSON.stringify(body),
@@ -380,6 +383,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           redacted: response.redacted,
           readMessages: response.readMessages,
           droppedMessages: response.droppedMessages,
+          sampledHead: response.sampledHead,
         };
       } catch (err) {
         // A client-side timeout does not cancel the server's capture: the draft may

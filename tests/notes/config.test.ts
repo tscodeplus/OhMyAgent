@@ -10,7 +10,13 @@
 import { describe, it, expect } from 'vitest';
 import { notesSectionSchema } from '../../src/app/config.js';
 import { jsConfigToYaml, yamlToAppConfigRaw } from '../../src/app/config-loader.js';
-import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT } from '../../src/notes/output-budget.js';
+import {
+  BODY_MAX_DEFAULT,
+  MAX_NOTES_DEFAULT,
+  SESSION_ROWS_DEFAULT,
+  SESSION_ROWS_MAX,
+  SESSION_ROWS_MIN,
+} from '../../src/notes/output-budget.js';
 
 describe('notes config schema', () => {
   it('defaults to a body cap that can hold two aspects of one subject', () => {
@@ -18,6 +24,20 @@ describe('notes config schema', () => {
     expect(parsed.capture.bodyMaxChars).toBe(BODY_MAX_DEFAULT);
     expect(parsed.capture.maxNotesPerCapture).toBe(MAX_NOTES_DEFAULT);
     expect(parsed.ball.show).toBe(true);
+  });
+
+  it('defaults the session read cap to 2000 rows and refuses absurd values', () => {
+    // 2000 rows of mostly-short IM messages is comfortably inside any modern model;
+    // an over-cap session is head+tail sampled, never silently cut. Below 50 a
+    // "session" window is a suffix wearing the word "session".
+    expect(notesSectionSchema.parse({}).capture.sessionRows).toBe(SESSION_ROWS_DEFAULT);
+    expect(notesSectionSchema.safeParse({ capture: { sessionRows: 10 } }).success).toBe(false);
+    expect(
+      notesSectionSchema.safeParse({ capture: { sessionRows: SESSION_ROWS_MAX + 1 } }).success,
+    ).toBe(false);
+    expect(
+      notesSectionSchema.safeParse({ capture: { sessionRows: SESSION_ROWS_MIN } }).success,
+    ).toBe(true);
   });
 
   it('has no "0 = unlimited" body cap', () => {
@@ -51,13 +71,14 @@ describe('notes config mapping', () => {
       provider: { primary: 'openai/gpt-4o', api_key: 'sk-test' },
       notes: {
         enabled: true,
-        capture: { body_max_chars: 1600, max_output_tokens: 5000 },
+        capture: { body_max_chars: 1600, max_output_tokens: 5000, session_rows: 1500 },
         ball: { show: false },
       },
     });
     const notes = raw.notes as Record<string, any>;
     expect(notes.capture.bodyMaxChars).toBe(1600);
     expect(notes.capture.maxOutputTokens).toBe(5000);
+    expect(notes.capture.sessionRows).toBe(1500);
     expect(notes.ball.show).toBe(false);
   });
 
@@ -75,14 +96,18 @@ describe('notes config mapping', () => {
     const yaml = jsConfigToYaml(
       {
         notes: {
-          capture: { bodyMaxChars: 1500, maxOutputTokens: 6000 },
+          capture: { bodyMaxChars: 1500, maxOutputTokens: 6000, sessionRows: 1200 },
           ball: { show: false },
         },
       },
       {},
     );
     const notes = yaml.notes as Record<string, any>;
-    expect(notes.capture).toMatchObject({ body_max_chars: 1500, max_output_tokens: 6000 });
+    expect(notes.capture).toMatchObject({
+      body_max_chars: 1500,
+      max_output_tokens: 6000,
+      session_rows: 1200,
+    });
     expect(notes.ball).toEqual({ show: false });
   });
 

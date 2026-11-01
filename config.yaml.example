@@ -342,12 +342,20 @@ channels:
 #   capture:
 #     model_ref: ""                 # empty = reuse memory_aux_models (extraction wants a fast model)
 #     max_notes_per_capture: 3      # upper bound on drafts per capture; 0 = no distillation
-#     window_turns: 5               # how much of the conversation one capture reads
-#     token_budget: 4000            # window budget; oldest messages are trimmed first
+#     session_rows: 2000            # rows a session capture reads (50..20000); an over-cap
+#                                    # session is head+tail sampled, the omitted middle is
+#                                    # counted into droppedMessages and shown in the reply
+#     body_max_chars: 1200          # per-note body cap (200..4000); stated in the prompt and
+#                                    # enforced per note, never silently truncated
+#     max_output_tokens:            # unset = no max_tokens on the request; the gateway's own
+#                                    # limit applies and finish_reason=length is logged
 #     include_tools: off            # off = conclusions only | args = one line per tool call, no results
 #     redact: true                  # hide credential-shaped spans before the model sees them
 #     thinking: inherit             # inherit = memory_aux_models.thinking | auto | off
 #     temperature: 0.2              # first attempt; the repair retry uses half of it
+#                                    # NOTE: window_turns / token_budget were removed — the
+#                                    # window is the session itself (turn/recent/session
+#                                    # modes are sizes the UI promises, not knobs to tune)
 #   draft:
 #     ttl_days: 14                  # unapproved drafts archive after N days; 0 = never
 #   log_retention_days: 90          # note_events horizon; 0 = keep forever

@@ -24,11 +24,11 @@
  *       query ("上次那个方案叫什么"), from conversation search. Conditional on
  *       intent: a turn that asks for new work never pays for it.
  *
- * It is budgeted (together with the memory block, the plan's ≤400 G4 limit,
+ * It is budgeted (together with the memory block, the ≤800-token pool,
  * configurable through `injectionBudget`) and a no-op when its provider throws —
  * retrieval must never be a reason a turn fails.
  *
- * The ≤400 tokens are ONE pool, not independent budgets appended in a fixed
+ * The pool is ONE budget, not independent budgets appended in a fixed
  * order: every provider is consulted, then a single ranking pass
  * (`allocateInjectionCandidates`) decides which entries fit. The blocks
  * themselves stay separate and keep their labels — they are what the model
@@ -43,6 +43,15 @@
  * budgets defaulted to 0, so five recalled memories could add ~10k characters
  * to a turn that was documented as ≤400 tokens. It now competes for the pool
  * like the other two lanes and is reported in the same telemetry row.
+ *
+ * The pool and `RecallConfig`'s char caps are two layers over the same material,
+ * and they must be read together: `maxTotalRecallChars` (2000) is the *retriever*
+ * cap — it also bounds tool-call results, which have no per-turn pool — while
+ * this pool is the final per-turn constraint. 2000 chars ≈ 1000 tokens by the
+ * shared estimator, so on the injection path the pool always trims first; the
+ * char cap only binds the tool lane. Raising one number without the other is
+ * invisible: raise the pool and the retriever never returns more than 2000
+ * chars; raise the char cap and the pool cuts it back down on the next line.
  */
 
 import type { MemoryRetriever, RetrievedMemory } from '../memory/memory-retriever.js';
@@ -484,11 +493,20 @@ export interface EpisodicContextItem {
 }
 
 // ── Per-turn injection budget (plan §4 principle 5 / §6 G4, §6 K5 item 4) ───
-// The whole automatic injection may add ≤400 tokens per turn, as ONE pool
+// The whole automatic injection may add ≤800 tokens per turn, as ONE pool
 // allocated by one ranking pass; the lanes' item and line caps are what bound
 // each block. The numbers stay configuration
 // (`TransformOptions.injectionBudget`) — the constants below are the defaults.
-const INJECTION_BLOCK_TOKEN_BUDGET = 400;
+//
+// 800, not the plan's original 400: by the shared estimator (CJK ≈ 2 chars/token)
+// one `maxCharsPerMemory`-sized memory is ~400 tokens on its own, so a 400 pool
+// was exactly "one full memory and nothing else" — the episodic lane (2 × 200
+// chars ≈ 200 tokens) and the block headers could never coexist with the
+// memory the ranker had already decided was the most relevant thing in the
+// turn. 800 is the size at which everything the lane caps allow actually fits:
+// one full memory + the full episodic lane + headers. The pool is a ceiling,
+// not a target — raising it only admits material the ranking pass found.
+const INJECTION_BLOCK_TOKEN_BUDGET = 800;
 const EPISODIC_MAX_ITEMS = 2;
 /** Plan K1-4: "≤2 条片段 × ≤200 字". */
 const EPISODIC_EXCERPT_MAX_CHARS = 200;
@@ -497,10 +515,11 @@ const INJECTION_HEADER_MAX_CHARS = 60;
 
 /**
  * Token budgets for the injected blocks, as configuration rather than
- * constants: `totalTokens` is the plan's ≤400 G4 ceiling for every block
- * together, and the per-lane ceilings are optional — left unset, a lane may use
- * the whole pool, which is the point of K5-4 (the pool follows relevance, not a
- * fixed split). Set a lane ceiling to reserve the other lanes' share.
+ * constants: `totalTokens` is the ≤800-token ceiling for every block together
+ * (see `INJECTION_BLOCK_TOKEN_BUDGET` for why 800), and the per-lane ceilings
+ * are optional — left unset, a lane may use the whole pool, which is the point
+ * of K5-4 (the pool follows relevance, not a fixed split). Set a lane ceiling
+ * to reserve the other lanes' share.
  */
 export interface InjectionBudgetConfig {
   /** Ceiling for `<memory_context>` + `<recent_conversation>`, in tokens. */

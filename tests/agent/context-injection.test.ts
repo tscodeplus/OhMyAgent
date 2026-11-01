@@ -6,8 +6,8 @@
  *
  * - **undefined provider = today's behaviour.** The option is opt-in, so a
  *   deployment that never wires it must produce byte-identical context.
- * - **budget.** 2 items × ≤200 chars inside the plan's ≤400-token per-turn
- *   automatic-injection increment (G4).
+ * - **budget.** 2 items × ≤200 chars inside the ≤800-token per-turn
+ *   automatic-injection pool (see `INJECTION_BLOCK_TOKEN_BUDGET`).
  * - **intent gate.** The episodic block is only for a recall-shaped turn
  *   ("上次…", "we discussed…"); a turn asking for new work must not pay for it.
  * - **failure is a no-op.** A provider that throws leaves the turn exactly as
@@ -163,7 +163,7 @@ describe('per-turn episodic injection', () => {
     expect(text.indexOf('<persona>')).toBeGreaterThan(text.indexOf('</recent_conversation>'));
   });
 
-  it('keeps the injected increment within the 400-token plan limit', async () => {
+  it('keeps the injected increment within the 800-token pool', async () => {
     const transform = createTransformContext({
       maxMessages: 5,
       sessionKey: 'inject-combined-budget',
@@ -175,7 +175,10 @@ describe('per-turn episodic injection', () => {
       .filter((text) => text.includes('<recent_conversation>'))
       .join('\n');
 
-    expect(estimateTokensForText(injected)).toBeLessThanOrEqual(400);
+    // The pool default lives in context-transform.ts (INJECTION_BLOCK_TOKEN_BUDGET);
+    // 800 is the size at which one maxCharsPerMemory-sized memory plus the full
+    // episodic lane plus headers all fit — 400 held the memory alone.
+    expect(estimateTokensForText(injected)).toBeLessThanOrEqual(800);
   });
 });
 

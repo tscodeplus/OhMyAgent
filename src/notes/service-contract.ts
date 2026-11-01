@@ -108,12 +108,19 @@ export type CaptureResult =
       /** Messages the window actually held, and the mode it was read in. */
       readMessages: number;
       /**
-       * Messages the token/character budget removed from the **old** end. Non-zero
-       * means the note was written from the tail of the conversation, and the reply
-       * says so — a reviewer cannot judge a note whose material silently stopped
-       * halfway.
+       * Messages a size cap removed from the **old** end, loader cap included. Non-zero
+       * means the note was written from part of the conversation, and the reply says so
+       * — a reviewer cannot judge a note whose material silently stopped halfway.
        */
       droppedMessages: number;
+      /**
+       * Present only when the session exceeded `notes.capture.sessionRows` and the
+       * loader kept a head sample plus the newest rows: the number of *head* messages
+       * in the window. `droppedMessages` is then the omitted middle, not "everything
+       * older" — the same count means two different shapes of window, which is why
+       * this field exists rather than being folded into `droppedMessages`.
+       */
+      sampledHead?: number;
       /**
        * The scope the model reported for a brief like "only the last 3 turns", after it
        * was enforced. Present only when the brief stated one — it is what makes the
@@ -209,11 +216,20 @@ export interface NotesService {
 /** Runtime knobs the service reads per call (hot-reloadable, unlike construction). */
 export interface NotesRuntimeConfig {
   maxNotesPerCapture: number;
+  /**
+   * Hard cap on rows a `session` capture reads; over-cap sessions are head+tail
+   * sampled with the omitted middle counted into `droppedMessages` (never silent).
+   */
+  sessionRows: number;
   includeTools: 'off' | 'args';
   redact: boolean;
   /** Body cap per note, in characters. */
   bodyMaxChars: number;
-  /** Output budget; undefined = derive from bodyMaxChars x maxNotesPerCapture. */
+  /**
+   * Output budget for one distillation call. Unset means the request carries no
+   * `max_tokens` at all — the gateway's own limit applies, and `finish_reason:
+   * 'length'` is the only visible trace of it (see `output-budget.ts`).
+   */
   maxOutputTokens?: number;
   /**
    * Whether the distillation call may think. `inherit` = whatever

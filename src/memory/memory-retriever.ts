@@ -131,7 +131,15 @@ export interface RecallConfig {
   /** Total recall char budget across the final result set (0 = no cap).
    * Items that would overflow the budget are dropped in score order; the first
    * item alone is truncated to fit rather than dropped. Mirrors TDAM's
-   * `recall.maxTotalRecallChars`. */
+   * `recall.maxTotalRecallChars`.
+   *
+   * Two layers, read together: this is the *retriever* cap and bounds every
+   * consumer, including tool-call results (which have no per-turn pool); the
+   * per-turn injection pool in `agent/context-transform.ts` (default 800
+   * tokens ≈ 1600 chars by the shared estimator) is the final constraint on the
+   * *injection* path alone. On that path the pool trims first — 2000 chars ≈
+   * 1000 estimated tokens — so this knob only binds where there is no pool.
+   * Raising one without the other is invisible in either direction. */
   maxTotalRecallChars: number;
   /**
    * Score multiplier for a `scope: 'session'` memory whose `scope_key` is a

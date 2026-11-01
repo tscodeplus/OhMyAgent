@@ -391,6 +391,64 @@ describe('notes service', () => {
     expect(distillationCalls[0]).toMatchObject({ bodyMaxChars: 900, maxOutputTokens: 5000 });
   });
 
+  it('samples head+tail and reports the omitted middle when a session exceeds sessionRows', async () => {
+    // 30 prose messages against a cap of 10: the loader must keep the opening
+    // (where a session states its subject) plus the newest rows, tell the
+    // distiller the middle is a hole, and count the omission into
+    // droppedMessages — the old behaviour (silently cut to the tail) is exactly
+    // the invisible beginning-loss this layer refuses everywhere else.
+    const insert = db.prepare(
+      `INSERT INTO messages (id, session_id, role, content, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    for (let i = 3; i <= 30; i += 1) {
+      insert.run(
+        `extra-${i}`,
+        SESSION_ID,
+        i % 2 === 0 ? 'assistant' : 'user',
+        `filler message number ${i} of thirty`,
+        String(1_780_000_002_000 + i * 1000),
+      );
+    }
+    const { service, distillationCalls } = createTestService(db, {
+      config: { sessionRows: 10 },
+    });
+
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'session' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // cap 10 → head = clamp(max(20, cap/10), cap/2) = 5, tail = 5, middle = 20.
+    expect(result.readMessages).toBe(10);
+    expect(result.sampledHead).toBe(5);
+    expect(result.droppedMessages).toBe(20);
+
+    const windowText = distillationCalls[0].windowText;
+    // The marker is what tells the distiller the gap is a gap, not a topic change.
+    expect(windowText).toContain('20 messages omitted here');
+    // The opening (the seeded exchange) and the newest message both survived.
+    expect(windowText).toContain(MESSAGE_USER);
+    expect(windowText).toContain('extra-30');
+    // The middle was neither read nor citable.
+    expect(windowText).not.toContain('extra-15');
+    expect(distillationCalls[0].windowIds).not.toContain('extra-15');
+    // The ledger row carries the omission too, so hygiene/debugging sees it.
+    const run = db
+      .prepare('SELECT dropped_messages FROM capture_runs ORDER BY rowid DESC LIMIT 1')
+      .get() as { dropped_messages: number };
+    expect(run.dropped_messages).toBe(20);
+  });
+
+  it('reads the whole session without sampling when it fits under sessionRows', async () => {
+    const { service } = createTestService(db, { config: { sessionRows: 2000 } });
+    const result = await service.capture({ sessionId: SESSION_ID, mode: 'session' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.readMessages).toBe(2);
+    expect(result.droppedMessages).toBe(0);
+    expect(result.sampledHead).toBeUndefined();
+  });
+
   it('approves only one of two same-titled drafts instead of throwing', () => {
     // The state a pre-dedupe library is in: two drafts, one title. Approving the
     // second must answer with the conflict, because the alternative was a 500 that

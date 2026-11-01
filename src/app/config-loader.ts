@@ -3,6 +3,7 @@ import { parse as parseYaml } from 'yaml';
 import type { CustomProviderConfig, CustomModelConfig, ToolProfileId } from './types.js';
 import type { McpSectionConfig } from '../mcp/types.js';
 import { normaliseMcpSection } from '../mcp/config.js';
+import { SESSION_ROWS_DEFAULT } from '../notes/output-budget.js';
 import type { AgentConfig } from '../agent/config-types.js';
 
 // ─── Env interpolation ───
@@ -700,6 +701,11 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
         3,
         'notesCfg.capture.max_notes_per_capture',
       ),
+      sessionRows: num(
+        captureCfg?.session_rows ?? captureCfg?.sessionRows,
+        SESSION_ROWS_DEFAULT,
+        'notesCfg.capture.session_rows',
+      ),
       includeTools: str(
         captureCfg?.include_tools ?? captureCfg?.includeTools,
         'off',
@@ -715,8 +721,9 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
         1200,
         'notesCfg.capture.body_max_chars',
       ),
-      // Absent means "derive from bodyMaxChars x maxNotesPerCapture"; the schema keeps
-      // it optional, so it is passed through only when the file actually says it.
+      // Unset means "no max_tokens on the request at all" — the gateway applies its
+      // own limit (see notes/output-budget.ts). Passed through only when the file
+      // actually says it, so the field stays absent from the request by default.
       ...((captureCfg?.max_output_tokens ?? captureCfg?.maxOutputTokens) != null
         ? {
             maxOutputTokens: num(
@@ -1823,6 +1830,7 @@ export function jsConfigToYaml(
           if (cap.modelRef !== undefined) ycap.model_ref = cap.modelRef;
           if (cap.maxNotesPerCapture !== undefined)
             ycap.max_notes_per_capture = cap.maxNotesPerCapture;
+          if (cap.sessionRows !== undefined) ycap.session_rows = cap.sessionRows;
           if (cap.includeTools !== undefined) ycap.include_tools = cap.includeTools;
           if (cap.thinking !== undefined) ycap.thinking = cap.thinking;
           if (cap.temperature !== undefined) ycap.temperature = cap.temperature;

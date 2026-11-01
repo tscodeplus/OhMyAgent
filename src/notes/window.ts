@@ -382,7 +382,13 @@ function lastUserOf(ordered: readonly Message[]): WindowMessage | null {
 }
 
 /**
- * The window as prompt text.
+ * The window as prompt text, with an optional hole in the middle.
+ *
+ * `omission` marks where the loader dropped the middle of an over-cap `session`
+ * window (head+tail sampling, `capture.ts`): the marker is the *only* way the
+ * distiller can know the gap is a gap — without it, a head excerpt followed by a
+ * tail excerpt reads as one short conversation with a strange topic change. The
+ * marker is not a message, has no id, and can never be cited as evidence.
  *
  * Roles are spelled out (`user` / `assistant`) instead of emitted as a chat history:
  * the model must see this as *material to distil*, not as a conversation to
@@ -395,11 +401,23 @@ function lastUserOf(ordered: readonly Message[]): WindowMessage | null {
  * every note was rejected as uncitable. Brackets are the notation the prompt asks
  * for, so what the model sees and what it must return are the same shape.
  */
-export function renderWindowPrompt(messages: readonly WindowMessage[]): string {
-  return messages
-    .map(
-      (message) =>
-        `[${message.id}] ${message.role === 'user' ? 'user' : 'assistant'}:\n${message.content}`,
-    )
-    .join('\n\n---\n\n');
+export function renderWindowPrompt(
+  messages: readonly WindowMessage[],
+  omission?: { afterMessageId: string; omitted: number },
+): string {
+  const rendered = messages.map(
+    (message) =>
+      `[${message.id}] ${message.role === 'user' ? 'user' : 'assistant'}:\n${message.content}`,
+  );
+  if (omission) {
+    const at = messages.findIndex((message) => message.id === omission.afterMessageId);
+    if (at >= 0) {
+      rendered.splice(
+        at + 1,
+        0,
+        `[... ${omission.omitted} messages omitted here: the session exceeded the read cap, so the opening and the newest messages were kept and the middle was not read ...]`,
+      );
+    }
+  }
+  return rendered.join('\n\n---\n\n');
 }

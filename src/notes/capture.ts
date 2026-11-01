@@ -49,7 +49,7 @@ import {
   type ResolvedWindow,
 } from './window.js';
 import { parseWindowIntent } from './window-intent.js';
-import { WINDOW_MESSAGES_MAX, WINDOW_TURNS_DEFAULT } from './output-budget.js';
+import { WINDOW_TURNS_DEFAULT } from './output-budget.js';
 import type {
   CaptureRequest,
   CaptureResult,
@@ -132,7 +132,7 @@ export class CapturePipeline {
     };
   }
 
-  /** Newest `limit` messages of a session, oldest-first. */
+  /** Newest `limit` messages of a session, newest-first in the array. */
   private readMessages(sessionId: string, limit: number): Message[] {
     return this.deps.db
       .prepare(
@@ -140,6 +140,24 @@ export class CapturePipeline {
           ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       )
       .all(sessionId, limit) as Message[];
+  }
+
+  /** Oldest `limit` messages — the head sample of an over-cap `session` window. */
+  private readOldestMessages(sessionId: string, limit: number): Message[] {
+    return this.deps.db
+      .prepare(
+        `SELECT * FROM messages WHERE session_id = ?
+          ORDER BY created_at ASC, rowid ASC LIMIT ?`,
+      )
+      .all(sessionId, limit) as Message[];
+  }
+
+  /** Rows the session holds — decides whether a `session` read needs sampling. */
+  private countMessages(sessionId: string): number {
+    const row = this.deps.db
+      .prepare('SELECT COUNT(*) AS n FROM messages WHERE session_id = ?')
+      .get(sessionId) as { n: number } | undefined;
+    return row?.n ?? 0;
   }
 
   async capture(request: CaptureRequest): Promise<CaptureResult> {
@@ -171,13 +189,48 @@ export class CapturePipeline {
     if (intent.turns !== undefined && mode !== 'selection' && mode !== 'text') mode = 'recent';
     const turns = request.turns ?? intent.turns ?? WINDOW_TURNS_DEFAULT;
 
-    // How much history to load depends on the mode. `session` is bounded only by the
-    // loader cap — there is no token budget, because a token guess about a model's
-    // capacity is invisible when it is wrong. `recent` needs turns × 2 plus tool rows,
-    // `turn` needs the tail, `selection` needs ids only.
-    const historyLimit =
-      mode === 'session' ? WINDOW_MESSAGES_MAX : mode === 'recent' ? Math.min(turns * 8, 200) : 60;
-    const history = this.readMessages(session.id, historyLimit);
+    /**
+     * How much history to load depends on the mode. `session` is bounded only by
+     * `notes.capture.sessionRows` — there is no token budget, because a token guess
+     * about a model's capacity is invisible when it is wrong. `recent` needs turns × 2
+     * plus tool rows, `turn` needs the tail, `selection` needs ids only.
+     *
+     * An over-cap `session` is **never silently cut to its tail**: the loader keeps a
+     * head sample (cap/10 — the opening usually carries the session's subject and
+     * constraints) plus the newest rows, and the omitted middle is counted into
+     * `droppedMessages` and shown in the prompt as a marker, so both the reviewer and
+     * the distiller can tell a hole from an absence. `droppedMessages` is therefore the
+     * sum of what the loader skipped and what a stated character cap trimmed.
+     */
+    let history: Message[];
+    let headIds: Set<string> | undefined;
+    let loaderDropped = 0;
+    if (mode === 'session') {
+      const sessionRows = config.sessionRows;
+      const total = this.countMessages(session.id);
+      if (total <= sessionRows) {
+        history = this.readMessages(session.id, sessionRows);
+      } else {
+        const headRows = Math.min(
+          Math.max(20, Math.floor(sessionRows / 10)),
+          Math.floor(sessionRows / 2),
+        );
+        const tailRows = Math.max(sessionRows - headRows, 1);
+        const head = this.readOldestMessages(session.id, headRows);
+        const tail = this.readMessages(session.id, tailRows);
+        history = [...head, ...tail];
+        headIds = new Set(head.map((message) => message.id));
+        loaderDropped = total - head.length - tail.length;
+        this.deps.logger.warn(
+          { sessionId: session.id, total, headRows, tailRows, omitted: loaderDropped },
+          'Note capture: session exceeded notes.capture.sessionRows; head+tail sampled',
+        );
+      }
+    } else if (mode === 'recent') {
+      history = this.readMessages(session.id, Math.min(turns * 8, 200));
+    } else {
+      history = this.readMessages(session.id, 60);
+    }
 
     const window: ResolvedWindow = resolveWindow(history, {
       sessionId: session.id,
@@ -188,6 +241,14 @@ export class CapturePipeline {
       includeTools: config.includeTools,
       charBudget: intent.charBudget,
     });
+    /** Head messages that survived rendering, oldest-side boundary of the sampled hole. */
+    const sampledHead = headIds
+      ? window.messages.filter((message) => headIds.has(message.id)).length
+      : 0;
+    const lastHeadRendered = headIds
+      ? [...window.messages].reverse().find((message) => headIds.has(message.id))
+      : undefined;
+    const droppedMessages = window.droppedMessages + loaderDropped;
 
     const captureId = this.deps.repository.createCaptureRun({
       sessionId: session.id,
@@ -196,7 +257,7 @@ export class CapturePipeline {
       messageIds: window.messageIds,
       tokenEst: window.tokenEst,
       status: 'ok',
-      droppedMessages: window.droppedMessages,
+      droppedMessages,
     });
 
     if (window.error || window.messages.length === 0) {
@@ -212,7 +273,12 @@ export class CapturePipeline {
       };
     }
 
-    const rawWindowText = renderWindowPrompt(window.messages);
+    const rawWindowText = renderWindowPrompt(
+      window.messages,
+      lastHeadRendered && loaderDropped > 0
+        ? { afterMessageId: lastHeadRendered.id, omitted: loaderDropped }
+        : undefined,
+    );
     const redacted = config.redact
       ? redactSecrets(rawWindowText)
       : { text: rawWindowText, count: 0 };
@@ -439,7 +505,8 @@ export class CapturePipeline {
       redacted: redacted.count,
       droppedRecaps,
       readMessages: window.messages.length,
-      droppedMessages: window.droppedMessages,
+      droppedMessages,
+      ...(sampledHead > 0 ? { sampledHead } : {}),
       appliedScope: outcome.scope,
     };
   }

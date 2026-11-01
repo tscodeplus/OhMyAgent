@@ -549,6 +549,8 @@
       "restartHint": "The two restart-owned fields (the switch and the distillation model) apply after a service restart; everything else applies on the next capture or the next cleanup run.",
       "bodyMaxChars": "Body cap (characters)",
       "bodyMaxCharsHint": "Maximum body length per note; longer bodies are truncated. One note now usually carries several aspects of its subject, hence 1200. The hard ceiling is 4000 — past that it is a document, not something a review queue can absorb.",
+      "sessionRows": "Session read cap (rows)",
+      "sessionRowsHint": "How many messages a \"from this conversation\" capture reads at most (50–20000). A session with more rows keeps its opening plus the newest messages and reports the omitted middle — never a silent cut.",
       "ball": "Floating ball",
       "ballShow": "Show the notes ball on conversation pages",
       "ballShowHint": "When off, conversation pages show no ball. Written to config.yaml, so it applies to every device; saves apply on the next visit to a conversation, no restart needed.",
@@ -1692,7 +1694,8 @@
       "duplicate": "You already have this note",
       "openExisting": "Open",
       "conversation": "Notes from this conversation",
-      "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the budget"
+      "windowTruncated": "Read the last {{read}} messages; {{dropped}} earlier ones fell outside the budget",
+      "windowSampled": "Session exceeded the read cap: read the first {{head}} and the last {{tail}} messages; {{dropped}} in between were not read"
     },
     "editor": {
       "titlePlaceholder": "Title",

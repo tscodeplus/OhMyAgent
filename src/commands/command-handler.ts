@@ -858,7 +858,19 @@ function readScopeLines(result: Extract<CaptureResult, { ok: true }>): string[] 
   // `> 0` rather than `<= 0`: a fixture or an older server that omits the field must
   // not print "read undefined messages".
   const lines: string[] = [];
-  if (result.droppedMessages > 0) {
+  if (result.sampledHead && result.sampledHead > 0) {
+    // Head+tail sampling: the session exceeded `notes.capture.sessionRows`, so the
+    // window held the opening AND the newest messages. The plain "read the last N"
+    // line would be a lie here — the reply must describe the shape the reviewer is
+    // actually judging, or a hole in the middle reads as a thin conversation.
+    lines.push(
+      i18n.t('commands:note.windowSampled', {
+        head: result.sampledHead,
+        tail: Math.max(result.readMessages - result.sampledHead, 0),
+        dropped: result.droppedMessages,
+      }),
+    );
+  } else if (result.droppedMessages > 0) {
     lines.push(
       i18n.t('commands:note.windowTruncated', {
         read: result.readMessages,

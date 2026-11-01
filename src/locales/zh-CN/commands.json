@@ -129,6 +129,7 @@
     "disabled": "笔记功能没开启（config.yaml 的 notes.enabled）。",
     "failed": "整理出错了，这次没有写入笔记：{{error}}",
     "windowTruncated": "只读了最近的 {{read}} 条消息，更早的 {{dropped}} 条超出窗口预算未读",
+    "windowSampled": "会话超过读取上限：读了开头的 {{head}} 条和最近的 {{tail}} 条，中间的 {{dropped}} 条未读",
     "scopedTurns": "按要求只用了最近 {{turns}} 轮"
   }
 }
