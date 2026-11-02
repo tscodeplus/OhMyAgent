@@ -5,17 +5,23 @@
  * Two rules, in this order:
  *
  * 1. **The composer wins.** The ball is an accessory; the send button is the
- *    thing the user is reaching for. So the ball never covers the bottom bar: it
- *    lifts itself above `[data-notes-avoid]` whenever that element is on screen.
- *    The composer grows as you type, so the lift is re-measured on resize / focus /
- *    layout changes rather than computed once at mount — and it is measured as the
- *    composer's *height*, never as `innerHeight - top` (see `measure`), because
- *    only the height holds still while a phone is scrolling.
+ *    thing the user is reaching for. So an untouched ball sits `AVOID_GAP` above
+ *    the composer's top edge, in its usual corner, and is re-measured on resize /
+ *    focus / layout changes rather than computed once at mount.
+ *    Which way it is measured is the marker's own business, because the marker is
+ *    what knows where the box is: `[data-notes-avoid]` is a bottom bar (its height
+ *    *is* its distance from the bottom), `[data-notes-avoid="centered"]` is a box
+ *    floating mid-column (its top edge has to be read off the viewport). Get this
+ *    wrong and the ball lifts itself by the height of the screen — it lands in the
+ *    top corner, above the edge its menu opens toward, and a tap looks like a dead
+ *    button. See `ChatInput` for which layout marks which.
  * 2. **The user's own position is remembered.** Dragging stores `{right, bottom}`
  *    from the viewport's bottom-right corner, so the ball comes back where it was
- *    left on this device. Rule 1 still overrides the stored value when the two
- *    disagree — a remembered position must not put the ball back over the send
- *    button.
+ *    left on this device — and from then on that position wins, including over
+ *    rule 1. Rule 1 only nudges a ball that is *on* the composer (`resolveBottom`),
+ *    because a rule enforced as a floor rather than as an overlap test makes the
+ *    ball undraggable in any layout where there is free space on the other side of
+ *    the box.
  *
  * Why `bottom`/`right` rather than `top`/`left`: the anchor is the corner the ball
  * lives in, so a resize (or the on-screen keyboard) moves it with the edge instead
@@ -29,7 +35,7 @@ const STORAGE_KEY = 'oma-notes-ball-pos';
 const BALL_SIZE = 56;
 /** Minimum gap to the viewport edge. */
 const EDGE = 8;
-/** Gap between the ball and the top of the composer. */
+/** Gap between the ball and the box it stands beside. */
 const AVOID_GAP = 12;
 /** Movement (px) before a press counts as a drag instead of a tap. */
 const DRAG_THRESHOLD = 4;
@@ -37,6 +43,17 @@ const DRAG_THRESHOLD = 4;
 export interface BallPosition {
   right: number;
   bottom: number;
+}
+
+/**
+ * The composer, in the units the ball is placed in: distances off the column's
+ * bottom edge.
+ */
+interface Composer {
+  /** Where the ball lives if the user has never moved it: just above the box. */
+  lift: number;
+  /** Where the box is, as a band of `bottom`/`right` values — for snapping out. */
+  band: { fromBottom: number; toBottom: number; fromRight: number; toRight: number };
 }
 
 function clampToViewport(position: BallPosition): BallPosition {
@@ -52,25 +69,84 @@ function defaultPosition(): BallPosition {
   return { right: window.innerWidth >= 768 ? 24 : 16, bottom: 20 };
 }
 
-function loadPosition(): BallPosition {
+function sameComposer(a: Composer | null, b: Composer | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.lift === b.lift &&
+    a.band.fromBottom === b.band.fromBottom &&
+    a.band.toBottom === b.band.toBottom &&
+    a.band.fromRight === b.band.fromRight &&
+    a.band.toRight === b.band.toRight
+  );
+}
+
+/**
+ * A remembered position, and whether it is one the *user* chose.
+ *
+ * The two are not the same thing and the difference is visible: with no remembered
+ * position the ball belongs above the composer, while a position someone picked
+ * belongs wherever they dropped it. Deriving the first from the second is how the
+ * ball ends up pinned over the composer on every page, unable to be moved.
+ */
+function loadPlacement(): { position: BallPosition; placed: boolean } {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<BallPosition>;
       if (typeof parsed.right === 'number' && typeof parsed.bottom === 'number') {
-        return clampToViewport({ right: parsed.right, bottom: parsed.bottom });
+        return {
+          position: clampToViewport({ right: parsed.right, bottom: parsed.bottom }),
+          placed: true,
+        };
       }
     }
   } catch {
     // A corrupt or unavailable store is not a reason to lose the ball: fall
     // through to the default corner.
   }
-  return defaultPosition();
+  return { position: defaultPosition(), placed: false };
+}
+
+/**
+ * The nearest `bottom` that does not put the ball on the composer.
+ *
+ * Only a *chosen* position is ever moved this way (see `placed`): the ball is a
+ * thing you can drag, and a drag that lands somewhere is the answer unless it lands
+ * on the send button. The old rule — `bottom = max(dragged, lift)` — could not tell
+ * the two apart, so in the centred new-session layout, where the composer sits
+ * mid-column with free space underneath it, dragging the ball down did nothing at
+ * all and the ball could never be brought near the input.
+ */
+function resolveBottom(position: BallPosition, composer: Composer | null): number {
+  if (!composer) return position.bottom;
+  const { fromBottom, toBottom, fromRight, toRight } = composer.band;
+  // Both boxes are measured off the same corner, so this is a plain overlap test.
+  const hitsX =
+    position.right < toRight + AVOID_GAP && position.right + BALL_SIZE > fromRight - AVOID_GAP;
+  const hitsY =
+    position.bottom < toBottom + AVOID_GAP && position.bottom + BALL_SIZE > fromBottom - AVOID_GAP;
+  if (!hitsX || !hitsY) return position.bottom;
+  // Out the short way: whichever side of the box the drop is closer to, and only
+  // the side that leaves the ball on screen at all — a docked bar has no room
+  // underneath it, which is why it always resolves upward.
+  const above = toBottom + AVOID_GAP;
+  const below = fromBottom - BALL_SIZE - AVOID_GAP;
+  const maxBottom = Math.max(EDGE, window.innerHeight - BALL_SIZE - EDGE);
+  const canAbove = above <= maxBottom;
+  const canBelow = below >= EDGE;
+  if (
+    canAbove &&
+    (!canBelow || Math.abs(above - position.bottom) <= Math.abs(below - position.bottom))
+  ) {
+    return above;
+  }
+  return canBelow ? below : position.bottom;
 }
 
 export function useBallPlacement(active: boolean) {
-  const [position, setPosition] = useState<BallPosition>(loadPosition);
-  const [composerLift, setComposerLift] = useState(0);
+  const [{ position, placed }, setPlacement] = useState(loadPlacement);
+  const [composer, setComposer] = useState<Composer | null>(null);
   const [dragging, setDragging] = useState(false);
 
   // Read inside pointer handlers that must not close over a stale value.
@@ -78,6 +154,8 @@ export function useBallPlacement(active: boolean) {
   positionRef.current = position;
 
   const wasDragRef = useRef(false);
+  /** The `bottom` actually on screen — see the assignment next to `style`. */
+  const renderedRef = useRef(position.bottom);
   const dragRef = useRef<{
     id: number;
     startX: number;
@@ -88,46 +166,76 @@ export function useBallPlacement(active: boolean) {
 
   // ── rule 1: keep clear of the composer ───────────────────────────────────
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      setComposer(null);
+      return;
+    }
 
     /**
-     * How far off the bottom the ball has to sit to clear the composer.
+     * Where the composer is, and therefore where the ball belongs.
      *
-     * The composer's own height, deliberately — **not** `innerHeight - rect.top`.
-     * The two are equal at rest (the composer is anchored to the bottom of a
-     * full-height shell), but only the height is honest while a phone's viewport is
-     * mid-change: iOS Safari reports `window.innerHeight` in *visual* viewport
-     * space (the keyboard and the collapsing toolbar both move it) while the
-     * `fixed inset-0` shell — and therefore the composer — is laid out in *layout*
-     * viewport space. Scrolling with the keyboard open, or a swipe that collapses
-     * the toolbar, moves one without the other, so the old arithmetic slid the ball
-     * up and down relative to the composer under the user's thumb; the viewport then
-     * settled, the value came back equal to the height, and the ball snapped home.
+     * For a *docked* composer, just above it = its own height, deliberately —
+     * **not** `innerHeight - rect.top`. The two are equal at rest (the composer is
+     * anchored to the bottom of a full-height shell), but only the height is honest
+     * while a phone's viewport is mid-change: iOS Safari reports `window.innerHeight`
+     * in *visual* viewport space (the keyboard and the collapsing toolbar both move
+     * it) while the `fixed inset-0` shell — and therefore the composer — is laid out
+     * in *layout* viewport space. Scrolling with the keyboard open, or a swipe that
+     * collapses the toolbar, moves one without the other, so the old arithmetic slid
+     * the ball up and down relative to the composer under the user's thumb; the
+     * viewport then settled, the value came back equal to the height, and the ball
+     * snapped home.
      *
-     * Measured this way the only input is a number that does not move when the
-     * viewport does — which is why nothing here needs `visualViewport` listeners.
+     * A *centred* composer (`data-notes-avoid="centered"`, the new-session layout)
+     * has no such number — it floats mid-column, so "just above it" is necessarily
+     * a viewport measurement. That is fine here for the reason the height trick
+     * exists: a centred composer is itself positioned off the viewport, so the ball
+     * has to be too if it is to stay glued to the box while the keyboard opens.
      */
     const measure = () => {
       const target = document.querySelector('[data-notes-avoid]');
       if (!target) {
-        setComposerLift(0);
+        setComposer(null);
         return;
       }
       // 0 means the composer is not rendered (an `hidden` column): "not in the
       // way". There is no scrolled-off-screen case to handle — the composer is a
       // flex child of a fixed full-height column, so it cannot leave the viewport,
       // and a `rect.top >= innerHeight` test would itself be viewport-space churn.
-      const height = target.getBoundingClientRect().height;
-      if (height === 0) {
-        setComposerLift(0);
+      const rect = target.getBoundingClientRect();
+      if (rect.height === 0) {
+        setComposer(null);
         return;
       }
-      // A lift taller than the screen would put the ball outside it — the composer
-      // fills the whole column on the "new session" layout. The cap is the only
-      // place a viewport height may appear, and it is a one-off clamp, not an input
+      const centered = target.getAttribute('data-notes-avoid') === 'centered';
+      /**
+       * The box's own top edge, off the bottom of the column.
+       *
+       * A bottom bar is flush with the column's bottom, so its height *is* that
+       * distance and nothing has to ask where anything is. A centred box is not
+       * flush: the ball's home is `AVOID_GAP` above the box's top edge, the same
+       * relationship as when the box is docked — which is what the marker is for.
+       */
+      const boxTop = centered ? window.innerHeight - rect.top : rect.height;
+      const boxBottom = centered ? window.innerHeight - rect.bottom : 0;
+      // A lift taller than the screen would put the ball outside it; this only
+      // catches a measurement taken mid-relayout — a shrinking viewport whose
+      // composer has not been re-laid-out yet. It is a one-off clamp, not an input
       // that drags the ball around.
       const cap = Math.max(0, window.innerHeight - BALL_SIZE - EDGE);
-      setComposerLift(Math.max(0, Math.round(Math.min(height + AVOID_GAP, cap))));
+      const next: Composer = {
+        lift: Math.max(0, Math.round(Math.min(boxTop + AVOID_GAP, cap))),
+        band: {
+          fromBottom: boxBottom,
+          toBottom: boxTop,
+          fromRight: Math.round(window.innerWidth - rect.right),
+          toRight: Math.round(window.innerWidth - rect.left),
+        },
+      };
+      // Same object back = same answer: a streaming turn mutates the transcript
+      // continuously, and a fresh object per measurement would re-render the ball on
+      // every frame for nothing.
+      setComposer((prev) => (sameComposer(prev, next) ? prev : next));
     };
 
     // A scroll can fire a burst of viewport events per frame and a streaming turn
@@ -192,7 +300,8 @@ export function useBallPlacement(active: boolean) {
   // A smaller window must not leave the ball outside the screen.
   useEffect(() => {
     if (!active) return;
-    const onResize = () => setPosition((prev) => clampToViewport(prev));
+    const onResize = () =>
+      setPlacement((prev) => ({ placed: prev.placed, position: clampToViewport(prev.position) }));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [active]);
@@ -206,7 +315,7 @@ export function useBallPlacement(active: boolean) {
       startX: event.clientX,
       startY: event.clientY,
       right: positionRef.current.right,
-      bottom: positionRef.current.bottom,
+      bottom: renderedRef.current,
     };
     wasDragRef.current = false;
   }, []);
@@ -221,7 +330,12 @@ export function useBallPlacement(active: boolean) {
       wasDragRef.current = true;
       setDragging(true);
     }
-    setPosition(clampToViewport({ right: drag.right - dx, bottom: drag.bottom - dy }));
+    // A drag is the user placing the ball, so from here on its position is theirs
+    // to keep — it is only ever nudged off the composer itself (see `resolveBottom`).
+    setPlacement({
+      placed: true,
+      position: clampToViewport({ right: drag.right - dx, bottom: drag.bottom - dy }),
+    });
   }, []);
 
   const endDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -244,8 +358,20 @@ export function useBallPlacement(active: boolean) {
 
   const style: CSSProperties = {
     right: position.right,
-    bottom: Math.max(position.bottom, composerLift),
+    // Two rules, and the order matters: an untouched ball lives above the composer,
+    // a ball the user dropped stays where they dropped it unless that is *on* the
+    // composer. See `loadPlacement` and `resolveBottom`.
+    bottom: placed
+      ? resolveBottom(position, composer)
+      : Math.max(position.bottom, composer?.lift ?? 0),
   };
+
+  // What the user sees, as opposed to what is remembered: a drag has to start from
+  // here. Starting from the remembered `bottom` made the ball jump on the first
+  // pixel of a downward drag whenever the two disagree — which they do by design,
+  // since the remembered value is the corner and the rendered one is above the
+  // composer.
+  renderedRef.current = Number(style.bottom);
 
   return {
     style,

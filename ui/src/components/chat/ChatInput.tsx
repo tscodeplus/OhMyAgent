@@ -1787,7 +1787,16 @@ export default function ChatInput({
       // The floating notes ball lifts itself above this element, so it never sits
       // on top of the send button. Changing this attribute silently reintroduces
       // that overlap (see `notes/useBallPlacement.ts`).
-      data-notes-avoid=""
+      //
+      // Only the *docked* composer is a bottom bar, and only a bottom bar may be
+      // marked here: the hook lifts the ball by this element's height, which is
+      // only "the bar" while the bar is anchored to the bottom of the column. In
+      // `centered` mode this element is the full-height `flex-1` centering box
+      // (the visible input floats around the middle of it), so the lift came out as
+      // the height of the screen — the ball sat in the top-right corner, above the
+      // viewport edge its menu opens toward, and a tap on it did nothing visible.
+      // The centred case marks the visible block below instead, as `centered`.
+      data-notes-avoid={centered ? undefined : ''}
       className={`chat-input-theme relative bg-white dark:bg-neutral-950 ${
         centered
           ? 'flex min-h-0 flex-1 flex-col justify-center px-3 pb-[14vh] sm:px-4'
@@ -1935,7 +1944,12 @@ export default function ChatInput({
             on the left it never reserved anything at all, so the last line
             already ran under the pills. The band is sized to the taller of the
             two control rows (h-7 = 28px at `bottom-1.5` → 34px) plus slack. */}
-        <div className="relative">
+        {/* The input box itself — what the ball stands beside while this column is
+            centred rather than docked. The welcome header above it is deliberately
+            *not* part of the mark: measuring from the top of the header put the ball
+            100-odd pixels above the box it belongs to. Not flush with the bottom of
+            the column, hence `centered` rather than a bottom bar. */}
+        <div data-notes-avoid={centered ? 'centered' : undefined} className="relative">
           <textarea
             ref={textareaRef}
             value={input}

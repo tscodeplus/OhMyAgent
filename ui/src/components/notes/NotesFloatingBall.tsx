@@ -77,6 +77,9 @@ import { useBallPlacement } from './useBallPlacement';
 
 /** The draft card retracts after this long; the draft itself never expires here. */
 const CARD_AUTO_HIDE_MS = 30_000;
+/** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
+const BALL_HEIGHT = 56;
+const BALL_HEIGHT_COMPACT = 28;
 /** How long a "nothing worth keeping" notice stays; long enough to read, short enough to ignore. */
 const NOTICE_AUTO_HIDE_MS = 8_000;
 
@@ -152,6 +155,27 @@ export default function NotesFloatingBall() {
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const placement = useBallPlacement(onConversationPage);
+
+  /**
+   * Which way the popover stack opens: up (the default) or down.
+   *
+   * Up is right because the ball lives at the bottom of the column and the
+   * conversation is above it. But the ball is not always down there — on the
+   * new-session layout it sits above a *centred* composer, and dragging it to the
+   * top is allowed — and the stack grows upward out of a `bottom` anchor, so in
+   * those positions the menu opened off the top of the viewport: open, invisible,
+   * and indistinguishable from a button that does nothing. The side with more room
+   * wins, and the anchor moves with it, so the ball itself does not move.
+   */
+  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
+  useEffect(() => {
+    const onResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const ballHeight = ballSize === 'compact' ? BALL_HEIGHT_COMPACT : BALL_HEIGHT;
+  const ballTop = viewportHeight - Number(placement.style.bottom) - ballHeight;
+  const stackDown = viewportHeight - ballTop - ballHeight > ballTop;
 
   // Click outside closes the menu; Esc closes whichever layer is topmost.
   useEffect(() => {
@@ -382,10 +406,20 @@ export default function NotesFloatingBall() {
     <>
       <div
         ref={rootRef}
-        className="pointer-events-none fixed z-40 flex flex-col items-end gap-2"
+        className={cn(
+          'pointer-events-none fixed z-40 flex items-end gap-2',
+          // Reversed, the ball (the last child) is the *top* of the stack, i.e. the
+          // one anchored to `top`, and everything it opens hangs below it. See
+          // `stackDown` above.
+          stackDown ? 'flex-col-reverse' : 'flex-col',
+        )}
         // `right`/`bottom` come from the placement hook so the ball can be dragged
         // and lifted clear of the composer; see `useBallPlacement.ts`.
-        style={{ right: placement.style.right, bottom: placement.style.bottom }}
+        style={
+          stackDown
+            ? { right: placement.style.right, top: ballTop }
+            : { right: placement.style.right, bottom: placement.style.bottom }
+        }
       >
         {notice && !menuOpen && (
           <div
