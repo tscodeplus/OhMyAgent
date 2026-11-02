@@ -37,7 +37,7 @@ import Modal from '../ui/Modal';
 import MultiSelect from '../ui/MultiSelect';
 import Select from '../ui/Select';
 import { useToast } from '../ui/Toast';
-import { toSearchParams, useNotes } from './NotesContext';
+import { toSearchParams, useNotes, type PurgeOutcome } from './NotesContext';
 import {
   CHANNEL_LABEL,
   CopyableValue,
@@ -107,6 +107,7 @@ export default function NotesView() {
     togglePin,
     archiveNote,
     restoreNote,
+    purgeNote,
     markViewed,
     fetchNote,
     stats,
@@ -560,6 +561,42 @@ export default function NotesView() {
   );
 
   /**
+   * The purge dialog, for the archived note in the detail pane.
+   *
+   * An archived note is the only row it can act on, and the header button of the detail
+   * is the only way to open it: the list's archived rows keep the single 恢复 action they
+   * have, because an irreversible verb in a list you are scanning is a verb you press by
+   * accident. The state lives at page level so the follow-through — toast, navigation,
+   * dropping the row from the loaded tail — sits beside every other way out of a note.
+   */
+  const [purgeOpen, setPurgeOpen] = useState(false);
+
+  /**
+   * Follow-through for a row that no longer exists: just purged, or already gone.
+   *
+   * `gone` is the `404` case (purged in another tab). It is not a failure — the note is
+   * gone, which is what the user asked for — but it is not the success sentence either,
+   * because `已彻底删除` would claim an action this page did not take.
+   */
+  const finishPurge = useCallback(
+    (note: Note, outcome: 'purged' | 'gone') => {
+      setPurgeOpen(false);
+      // The tail pages are this component's own state and the provider cannot see them,
+      // so its refetch would leave a purged row rendering from `加载更多` until the
+      // filter changed.
+      setMore((prev) => prev.filter((item) => item.id !== note.id));
+      // Purging ends the detail view: there is nothing left in the pane to read.
+      navigate('/notes');
+      showToast(
+        t(outcome === 'purged' ? 'notes.toast.purged' : 'notes.purgeGone'),
+        outcome === 'purged' ? 'success' : 'info',
+        3000,
+      );
+    },
+    [navigate, showToast, t],
+  );
+
+  /**
    * Esc closes what is open, through the same guard as every other exit.
    *
    * Registered only while a note is on screen, and skipped while the unsaved-changes
@@ -569,7 +606,7 @@ export default function NotesView() {
   useEffect(() => {
     // `contextHit`: while the citation sheet is open, `SearchContextPanel` owns Escape.
     // Both listeners would otherwise fire on one press and close two things at once.
-    if (!selected || askSave || contextHit) return;
+    if (!selected || askSave || contextHit || purgeOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       // `defaultPrevented`: a dropdown that already consumed the key keeps it — Escape
       // there means "close me", not "close the note behind me".
@@ -579,7 +616,7 @@ export default function NotesView() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [askSave, contextHit, requestClose, selected]);
+  }, [askSave, contextHit, purgeOpen, requestClose, selected]);
 
   /**
    * Up/Down move between rows.
@@ -616,6 +653,14 @@ export default function NotesView() {
     // A blank note has no row to count a visit on.
     if (noteId && noteId !== 'new') markViewed(noteId);
   }, [noteId, markViewed]);
+
+  // The purge dialog is a question about one row, so it closes with that row. Left
+  // open, `purgeOpen` would outlive a note the dialog stopped rendering for — the row
+  // was restored in another tab, say — and re-mount the question on whatever archived
+  // note is opened next.
+  useEffect(() => {
+    setPurgeOpen(false);
+  }, [noteId]);
 
   // `?edit=1` is how "新笔记" and "手写笔记" land in the editor; consumed once.
   useEffect(() => {
@@ -732,6 +777,20 @@ export default function NotesView() {
           {t('notes.unsaved.body')}
         </p>
       </Modal>
+
+      {/*
+       * Mounted only while open (`purgeOpen`), so the typed title and any refusal
+       * reset when the dialog is reopened on another row — state kept across opens
+       * would be a confirmation already half given for a different note.
+       */}
+      {purgeOpen && selected?.status === 'archived' && (
+        <PurgeDialog
+          note={selected}
+          onPurge={purgeNote}
+          onClose={() => setPurgeOpen(false)}
+          onDone={(outcome) => finishPurge(selected, outcome)}
+        />
+      )}
 
       <SearchContextPanel
         hit={contextHit}
@@ -1090,6 +1149,7 @@ export default function NotesView() {
             }}
             onPin={() => void togglePin(selected.id)}
             onArchive={() => void removeNote(selected)}
+            onPurge={() => setPurgeOpen(true)}
             // Not `onBack={requestClose}`: this handler receives the click event, and an
             // optional `target` would take it for a route.
             onBack={() => requestClose()}
@@ -1478,6 +1538,7 @@ function NoteDetail({
   onBack,
   onPin,
   onArchive,
+  onPurge,
   onOpenNote,
   onOpenSource,
   onOpenTag,
@@ -1500,6 +1561,13 @@ function NoteDetail({
   onBack: () => void;
   onPin: () => void;
   onArchive: () => void;
+  /**
+   * Opens the purge dialog; present only where the button belongs.
+   *
+   * Archived rows get it — the server refuses anything else, and a control that can
+   * only answer "not archived" teaches the wrong thing about what it does.
+   */
+  onPurge: () => void;
   onOpenNote: (id: string) => void;
   /** Show a citation in its conversation (bottom sheet, §4.7). */
   onOpenSource: (source: NoteSource) => void;
@@ -1571,6 +1639,17 @@ function NoteDetail({
                   <Archive className="h-3.5 w-3.5" />
                 )}
               </IconAction>
+              {/* Only on an archived note, and only here: the archived *rows* in the
+                  list keep their single 恢复 button. Purging is the one verb in this page
+                  that cannot be undone, so it is behind a visit to the detail and a
+                  typed title rather than one click away from a list being scanned.
+                  Disabled while editing: the text on screen would have nowhere to go,
+                  and the deleted note is exactly the one holding the unsaved edit. */}
+              {note.status === 'archived' && (
+                <IconAction label={t('notes.purge')} onClick={onPurge} disabled={editing} danger>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </IconAction>
+              )}
             </>
           )}
         </div>
@@ -1783,12 +1862,15 @@ function IconAction({
   onClick,
   active,
   disabled,
+  danger,
 }: {
   children: React.ReactNode;
   label: string;
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
+  /** Red ink, for the one verb that does not come back. */
+  danger?: boolean;
 }) {
   return (
     <button
@@ -1799,13 +1881,185 @@ function IconAction({
       aria-label={label}
       className={cn(
         'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-40',
-        active
-          ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10'
-          : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100',
+        // `danger` first: a red action never borrows the amber "this is pinned" state,
+        // and two tints on one button would say nothing about which it is.
+        danger
+          ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
+          : active
+            ? 'text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10'
+            : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100',
       )}
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * Confirm-and-purge, the dialog behind the one irreversible verb in the notes page.
+ *
+ * The rest of the page deletes by archiving and offers a three-second 撤销; that undo is
+ * genuinely absent here — the row, its citations, its relations and its review records are
+ * erased together — so the friction takes its place: the title has to be typed back. The
+ * client check is deliberately shallow (`title.trim()` against `note.title.trim()`): only
+ * the obvious mismatch is caught, because the server compares normalised titles and is the
+ * authority. Catching the obvious case is still this side's job — a disabled button with
+ * 请重新输入这条笔记的标题 under it is an answer, while a 422 after a click that looked
+ * like it worked is not.
+ */
+function PurgeDialog({
+  note,
+  onPurge,
+  onClose,
+  onDone,
+}: {
+  note: Note;
+  onPurge: (id: string, title: string) => Promise<PurgeOutcome>;
+  onClose: () => void;
+  /** The row is gone for good (`purged`) or was already (`gone`). */
+  onDone: (outcome: 'purged' | 'gone') => void;
+}) {
+  const { t } = useTranslation('common');
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  /**
+   * What the server said about the last attempt.
+   *
+   * Kept apart from the live check below: that one is a fact about the text box, this
+   * one is a fact about the row, and they need different sentences. `mismatch` appears
+   * here only when the server's normalisation disagrees with this side's — the only
+   * way a click with a "matching" title is refused.
+   */
+  const [refusal, setRefusal] = useState<'not_archived' | 'mismatch' | 'failed' | null>(null);
+
+  // The server repeats this comparison through `normalizeTitle` (`src/notes/canonical.ts`),
+  // and this side has to agree with it or the guard becomes stricter than the rule:
+  // `termux换源` re-typed for a note titled `Termux 换源` is the same subject by the
+  // library's only definition, and blocking it here would be testing memory for
+  // punctuation. `titleKey` below is that function's browser twin.
+  const matches = titleKey(typed) === titleKey(note.title);
+  /**
+   * A restored note cannot be purged, so retyping cannot fix a 409: the button stays
+   * disabled until the dialog is reopened on the row's real status — which the refetch
+   * `purgeNote` runs has already put on the list behind it.
+   */
+  const blocked = refusal === 'not_archived';
+
+  const submit = async () => {
+    if (busy || blocked || !matches) return;
+    setBusy(true);
+    setRefusal(null);
+    const outcome = await onPurge(note.id, typed.trim());
+    setBusy(false);
+    if (outcome === 'ok') {
+      onDone('purged');
+      return;
+    }
+    if (outcome === 'not_found') {
+      // Already erased elsewhere: 彻底删除失败 would invite a retry that cannot work,
+      // and leaving the dialog open would ask for the title of a note that is not there.
+      onDone('gone');
+      return;
+    }
+    setRefusal(
+      outcome === 'not_archived'
+        ? 'not_archived'
+        : outcome === 'title_mismatch'
+          ? 'mismatch'
+          : 'failed',
+    );
+  };
+
+  /**
+   * One line under the input. A fact about the row wins over a fact about the text box:
+   * when the note is not archived any more, telling the user to retype its title would
+   * point at the wrong fix — the box cannot make the 409 go away.
+   */
+  const hint =
+    refusal === 'not_archived'
+      ? t('notes.purgeNotArchived')
+      : refusal === 'failed'
+        ? t('notes.purgeFailed')
+        : !matches || refusal === 'mismatch'
+          ? t('notes.purgeMismatch')
+          : null;
+
+  return (
+    <Modal
+      open
+      onClose={() => {
+        // A request in flight owns the outcome: closing now would drop the toast and
+        // the navigation while the row is already being erased.
+        if (!busy) onClose();
+      }}
+      title={t('notes.purgeTitle')}
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            {t('notes.cancel')}
+          </Button>
+          <Button
+            variant="danger"
+            loading={busy}
+            disabled={!matches || blocked}
+            onClick={() => void submit()}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            {t('notes.purgeConfirm')}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
+        {t('notes.purgeBody')}
+      </p>
+      <label
+        htmlFor="notes-purge-title"
+        className="mt-3 block text-[11.5px] font-medium text-neutral-500 dark:text-neutral-400"
+      >
+        {t('notes.purgePlaceholder')}
+      </label>
+      <input
+        id="notes-purge-title"
+        value={typed}
+        onChange={(event) => {
+          setTyped(event.target.value);
+          // The sentence was about the text that was sent, and editing it is the fix,
+          // so it goes. `not_archived` is the exception: no retyping makes an active
+          // note archived again.
+          setRefusal((current) => (current === 'not_archived' ? current : null));
+        }}
+        onKeyDown={(event) => {
+          // Enter is the same request as the button, guards included: the keyboard must
+          // not be able to do what the button refuses.
+          if (event.key === 'Enter') void submit();
+        }}
+        // The note's own title, so the two can be read against each other instead of
+        // recalled; the server compares the text, so nothing here fills it in.
+        placeholder={note.title}
+        aria-label={t('notes.purgePlaceholder')}
+        autoFocus
+        // 36px: the height of every other control a thumb aims at on this page, and
+        // `text-[13px]` keeps the browser from zooming the page on focus on iOS.
+        className="mt-1 h-9 w-full rounded-lg border border-neutral-300 bg-white px-2.5 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-red-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:placeholder:text-neutral-500"
+      />
+      {hint && (
+        <p
+          className={cn(
+            'mt-1.5 text-[11.5px] leading-relaxed',
+            // An untouched box is guidance, not an error: in red it would read as a
+            // mistake the user has already made the moment the dialog opens. Anything
+            // the server refused is red.
+            refusal === null && !matches
+              ? 'text-neutral-500 dark:text-neutral-400'
+              : 'text-red-600 dark:text-red-400',
+          )}
+        >
+          {hint}
+        </p>
+      )}
+    </Modal>
   );
 }
 
@@ -1838,6 +2092,24 @@ function firstLineOf(text: string): string {
     .map((item) => item.replace(/^[#>\-*\s]+/, '').trim())
     .find((item) => item.length > 0);
   return (line ?? '').slice(0, 60);
+}
+
+/**
+ * The comparison key a title is checked under, mirroring `normalizeTitle` in
+ * `src/notes/canonical.ts`.
+ *
+ * Not imported for the same reason as `firstLineOf`: the WebUI bundle does not pull
+ * the notes server into the browser. Kept deliberately small and identical in effect
+ * (NFKC, lower case, whitespace/`-`/`_`/`·` folded, punctuation dropped) because a
+ * client that is stricter than the server turns a correct answer into "does not
+ * match".
+ */
+function titleKey(title: string): string {
+  return title
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s\-_·・]+/g, '')
+    .replace(/[!"#$%&'()*+,:;<=>?@[\\\]^`{|}~，。、；：？！“”‘’（）《》【】…—]/g, '');
 }
 
 function NoteEditor({

@@ -33,9 +33,23 @@ export interface NoteIndexable {
   indexTags: string[];
 }
 
+/**
+ * Drop one note's index row.
+ *
+ * Exported because it is the only way to make a note unfindable: this is a
+ * *standalone* FTS5 table — no external-content sync, no trigger — so the row holds
+ * its own copy of the title, summary and body. Deleting the `notes` row alone leaves
+ * every word of it searchable, which is exactly what a purge exists to prevent;
+ * `indexNote` uses this as the first half of its replace, and `purge` uses it as the
+ * last step of a real delete.
+ */
+export function removeNoteFromIndex(db: Database.Database, noteId: string): void {
+  db.prepare('DELETE FROM notes_fts_jieba WHERE note_id = ?').run(noteId);
+}
+
 /** Replace one note's index row. Always called inside the note write's transaction. */
 export function indexNote(db: Database.Database, note: NoteIndexable): void {
-  db.prepare('DELETE FROM notes_fts_jieba WHERE note_id = ?').run(note.id);
+  removeNoteFromIndex(db, note.id);
   db.prepare(
     `INSERT INTO notes_fts_jieba (title, summary, body, tags, note_id, status, scope, scope_key)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

@@ -173,6 +173,29 @@ export interface ReviewDecision {
   actor?: NoteEventActor;
 }
 
+/**
+ * The outcome of a physical erase.
+ *
+ * `title_mismatch` is its own code rather than a 404 because the two are different
+ * facts: the note is there, the caller did not prove they meant *this* one. Only
+ * `not_found` is about the row.
+ */
+export type PurgeResult =
+  { ok: true } | { ok: false; code: 'not_found' | 'not_archived' | 'title_mismatch' };
+
+/** What a purge needs from the caller: the title, typed again, and who did it. */
+export interface PurgeOptions {
+  /**
+   * The note's title, in any spelling. Compared through `normalizeTitle`
+   * (`canonical.ts`) against the note's stored comparison key — the same key the
+   * unique index uses, so `Termux 换源` and `termux换源` are one title: the friction
+   * is *retyping*, not guessing punctuation.
+   */
+  title: string;
+  /** For the log line; defaults to `user`. */
+  actor?: NoteEventActor;
+}
+
 export interface NotesStats {
   byStatus: Record<NoteStatus, number>;
   /** Drafts that will expire within a day — what the badge should nag about. */
@@ -214,6 +237,17 @@ export interface NotesService {
   pin(id: string, pinned: boolean): UpdateResult;
   archive(id: string, reason?: NoteStatusReason): UpdateResult;
   restore(id: string): UpdateResult;
+  /**
+   * Physically erase an archived note — the single exception to "archive never
+   * deletes".
+   *
+   * Why it has to exist: `redact.ts` is a heuristic (≥32-character high-entropy
+   * spans), so a leaked or hand-written credential in `body` survives every other
+   * operation, and archiving keeps both the body and its FTS index row. Why it takes
+   * the title: it is irreversible, so the friction is the protection — and a caller
+   * who reached the detail page already has the title in hand.
+   */
+  purge(id: string, options: PurgeOptions): PurgeResult;
   recordView(id: string): void;
   stats(): NotesStats;
 }

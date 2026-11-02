@@ -362,4 +362,65 @@ describe('notes routes', () => {
     const response = await app.inject({ url: '/api/notes/prefill?sessionId=' + SESSION_ID });
     expect(response.statusCode).toBe(404);
   });
+
+  /**
+   * `DELETE /api/notes/:id/purge`: archive first, then erase.
+   *
+   * The codes are the contract the detail page reacts to, and each one is a different
+   * instruction: 409 → archive it first, 422 → you did not retype the title, 404 →
+   * there is nothing here. Collapsing them into one error would leave the UI guessing
+   * which of the three the user actually did wrong.
+   */
+  it('purges an archived note and refuses everything else with its own code', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/notes',
+      payload: { title: 'Termux 换源', body: 'token=ghp_x' },
+    });
+    const id = created.json().note.id as string;
+
+    const tooEarly = await app.inject({
+      method: 'DELETE',
+      url: `/api/notes/${id}/purge`,
+      payload: { title: 'Termux 换源' },
+    });
+    expect(tooEarly.statusCode).toBe(409);
+    expect(tooEarly.json()).toEqual({ error: 'not_archived' });
+
+    // The existing `DELETE` on the note is the archive step, not a deletion.
+    const archived = await app.inject({ method: 'DELETE', url: `/api/notes/${id}` });
+    expect(archived.statusCode).toBe(200);
+    expect(archived.json().note.status).toBe('archived');
+
+    const wrongTitle = await app.inject({
+      method: 'DELETE',
+      url: `/api/notes/${id}/purge`,
+      payload: { title: 'Termux 后台被杀' },
+    });
+    expect(wrongTitle.statusCode).toBe(422);
+    expect(wrongTitle.json()).toEqual({ error: 'title_mismatch' });
+
+    // A missing title is the same refusal: the guard is "did you retype it".
+    const noTitle = await app.inject({ method: 'DELETE', url: `/api/notes/${id}/purge` });
+    expect(noTitle.statusCode).toBe(422);
+    expect(noTitle.json()).toEqual({ error: 'title_mismatch' });
+    expect(service.get(id)?.status).toBe('archived');
+
+    const purged = await app.inject({
+      method: 'DELETE',
+      url: `/api/notes/${id}/purge`,
+      payload: { title: 'termux换源' },
+    });
+    expect(purged.statusCode).toBe(200);
+    expect(purged.json()).toEqual({ purged: true });
+    expect(service.get(id)).toBeUndefined();
+
+    const gone = await app.inject({
+      method: 'DELETE',
+      url: `/api/notes/${id}/purge`,
+      payload: { title: 'Termux 换源' },
+    });
+    expect(gone.statusCode).toBe(404);
+    expect(gone.json()).toEqual({ error: 'not_found' });
+  });
 });

@@ -127,6 +127,17 @@ export interface NotesStatsView {
   approvalRate: number;
 }
 
+/**
+ * What came of a purge request.
+ *
+ * A code, not a boolean: `purgeNote` is the one write whose refusals mean three
+different things — the row was restored elsewhere (`not_archived`), the typed title
+is not the note's title (`title_mismatch`), the row is gone already (`not_found`) —
+and the dialog that asks for the title has a sentence for each. Collapsing them into
+`false` is how "clicked 彻底删除 and nothing happened" reads.
+ */
+export type PurgeOutcome = 'ok' | 'not_archived' | 'title_mismatch' | 'not_found' | 'failed';
+
 interface NotesContextValue {
   /** Rows for the current query (whatever `query.status` is). */
   notes: Note[];
@@ -182,6 +193,16 @@ interface NotesContextValue {
   togglePin: (id: string) => Promise<boolean>;
   archiveNote: (id: string) => Promise<boolean>;
   restoreNote: (id: string) => Promise<boolean>;
+  /**
+   * The layer's only physical delete: archived rows, and the title typed back.
+   *
+   * Everything else here moves a row between statuses (`DELETE /api/notes/:id`
+   * archives, `restore` brings it back); this one erases the row and the records
+   * hanging off it. The title is the server's own guard, so the caller has to send
+   * what the user typed rather than the note object's title — a client that filled
+   * that in itself would turn the confirmation into a no-op click.
+   */
+  purgeNote: (id: string, title: string) => Promise<PurgeOutcome>;
   /** Detail-page visit, counted server-side (`view_count`). */
   markViewed: (id: string) => void;
   /**
@@ -627,6 +648,48 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   );
 
   /**
+   * Erase one archived note — body, sources, relations and review records included.
+   *
+   * `409`/`404` on a refusal are *answers*, so they come back as codes and the list is
+   * refetched: a row restored in another tab has left the archived filter, and the
+   * page behind the dialog must not keep rendering it. Only an unrecognized failure
+   * (network, 500) lands in `error`, because that one has no sentence of its own and
+   * must not be explained away as "it is not archived any more".
+   */
+  const purgeNote = useCallback(
+    async (id: string, title: string): Promise<PurgeOutcome> => {
+      try {
+        await apiRequest<{ purged: true }>(`/api/notes/${id}/purge`, {
+          method: 'DELETE',
+          body: JSON.stringify({ title }),
+        });
+        // Nothing comes back to write into the overlay — the row does not exist. It has
+        // to be dropped from it explicitly: `refresh()` clears only the ids the new list
+        // returns, so a note the server has forgotten would keep rendering from here.
+        setCaptured((prev) => prev.filter((note) => note.id !== id));
+        await refresh();
+        return 'ok';
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        // The title was wrong while the row was still a candidate: the list did not
+        // move, so there is nothing to refetch and the dialog keeps the typed text.
+        if (status === 422) return 'title_mismatch';
+        if (status === 404 || status === 409) {
+          // The row moved under the open dialog: purged somewhere else (404) or
+          // restored there (409). Either way the archived list is now a lie, so it is
+          // refetched before the caller decides what to say.
+          if (status === 404) setCaptured((prev) => prev.filter((note) => note.id !== id));
+          await refresh();
+          return status === 404 ? 'not_found' : 'not_archived';
+        }
+        setError(describeError(err));
+        return 'failed';
+      }
+    },
+    [refresh],
+  );
+
+  /**
    * Persisted to `config.yaml` through the same `PUT /api/config` dot-notation the
    * settings page uses, so the ball's own menu and the settings toggle are two
    * entrances to one value instead of two values that disagree.
@@ -688,6 +751,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       togglePin,
       archiveNote,
       restoreNote,
+      purgeNote,
       markViewed,
     }),
     [
@@ -715,6 +779,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       togglePin,
       archiveNote,
       restoreNote,
+      purgeNote,
       markViewed,
       ballHidden,
       setBallHidden,

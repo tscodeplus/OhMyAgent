@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { normalizeTags, normalizeTitle } from './canonical.js';
 import { ftsFacetTokens } from './facets.js';
 import { NoteRelations, MAX_RELATIONS } from './relations.js';
-import { indexNote, noteSearchClause } from './indexer.js';
+import { indexNote, noteSearchClause, removeNoteFromIndex } from './indexer.js';
 import { readableScopeSql } from './scope.js';
 import {
   isNoteChannel,
@@ -65,6 +65,8 @@ const MAX_TAG_FACETS = 30;
 
 export type CreateNoteResult =
   { ok: true; note: Note } | { ok: false; code: 'title_conflict'; existingId: string };
+
+export type PurgeResult = { ok: true } | { ok: false; code: 'not_found' | 'not_archived' };
 
 export type UpdateNoteResult =
   | { ok: true; note: Note }
@@ -978,6 +980,56 @@ export class NotesRepository {
 
     const updated = this.rawRow(id);
     return updated ? { ok: true, note: this.hydrate(updated) } : undefined;
+  }
+
+  /**
+   * Physically erase an archived note and everything derived from it.
+   *
+   * The one exception to "archive is a state, not a deletion" (§6), and the reason
+   * it exists: `redact.ts` is a heuristic (≥32-character high-entropy spans), so a
+   * credential that does not match it — or anything the user typed by hand — sits in
+   * `notes.body` and in the FTS index for as long as the row exists. Archiving hides
+   * the note from every read and erases none of it. This is the only path that does.
+   *
+   * Gated on `archived`, and re-checked *inside* the transaction: between the caller's
+   * read and this point a `restore()` can lift the note back to `active`, and deleting
+   * a note the user just brought back is the one outcome that is not recoverable. The
+   * two-step rule (archive, then purge) is not ceremony either — the first click is
+   * reversible, the second one is the one that needs the title typed again.
+   *
+   * Order matters and cascades are not relied on: `note_relations` is deleted in both
+   * directions explicitly (the mirror row points *at* this note from a neighbour that
+   * stays), and `note_events` has no foreign key at all, so a row left behind is a
+   * dangling journal entry rather than a cascaded one. `notes_fts_jieba` is a
+   * standalone table, so the index row has to be named too.
+   *
+   * `note_events` going with the note shrinks `stats().approvalRate`'s denominator —
+   * correct, not a side effect: a purged note takes its review verdict with it, and a
+   * verdict about a note that no longer exists is not a measurement of anything.
+   */
+  purge(id: string): PurgeResult {
+    const row = this.rawRow(id);
+    if (!row) return { ok: false, code: 'not_found' };
+    if (row.status !== 'archived') return { ok: false, code: 'not_archived' };
+
+    return this.db.transaction((): PurgeResult => {
+      const current = this.rawRow(id);
+      if (!current) return { ok: false, code: 'not_found' };
+      if (current.status !== 'archived') return { ok: false, code: 'not_archived' };
+
+      // Children first, parents last: the note row is the thing every other table
+      // above is keyed by, so the wipe reads in dependency order instead of relying
+      // on `ON DELETE CASCADE` to finish the job silently.
+      this.prepare('DELETE FROM note_sources WHERE note_id = ?').run(id);
+      // Same statement as `NoteRelations.dropFor` (the scope-move path); kept inline
+      // so the four operations of a wipe are readable in one place. Both columns are
+      // named because the mirror row would otherwise survive with a dead target.
+      this.prepare('DELETE FROM note_relations WHERE note_id = ? OR related_id = ?').run(id, id);
+      this.prepare('DELETE FROM note_events WHERE note_id = ?').run(id);
+      this.prepare('DELETE FROM notes WHERE id = ?').run(id);
+      removeNoteFromIndex(this.db, id);
+      return { ok: true };
+    })();
   }
 
   setPinned(id: string, pinned: boolean, actor: NoteEventActor = 'user'): Note | undefined {

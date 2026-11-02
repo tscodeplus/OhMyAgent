@@ -21,7 +21,7 @@
 import type { Logger } from 'pino';
 import type { NotesRepository } from './repository.js';
 import type { CapturePipeline } from './capture.js';
-import { normalizeTags } from './canonical.js';
+import { normalizeTags, normalizeTitle } from './canonical.js';
 import {
   isNoteStatus,
   type Note,
@@ -37,6 +37,8 @@ import type {
   NotesRuntimeConfig,
   NotesService,
   NotesStats,
+  PurgeOptions,
+  PurgeResult,
   ReviewDecision,
   UpdateResult,
 } from './service-contract.js';
@@ -169,6 +171,26 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       // missing row would still append an event.
       if (!repository.get(id)) return;
       repository.recordView(id);
+    },
+
+    purge(id: string, options: PurgeOptions): PurgeResult {
+      const note = repository.get(id);
+      if (!note) return { ok: false, code: 'not_found' };
+      // The stored comparison key, not the stored string: retyping `termux换源` for a
+      // note titled `Termux 换源` has to work, because that is the same subject by the
+      // only rule the library has (the one the unique index enforces). Anything
+      // stricter would make the guard a test of punctuation memory.
+      if (normalizeTitle(options.title) !== normalizeTitle(note.title)) {
+        return { ok: false, code: 'title_mismatch' };
+      }
+      const purged = repository.purge(id);
+      if (!purged.ok) return purged;
+      // A purge deliberately leaves no audit trail — erasing something means it must
+      // read as if it never existed, and `note_events` going with the note is part of
+      // that. This line is therefore the *only* record that it happened: whoever has
+      // to answer "what happened to that note" has this and nothing else.
+      deps.logger.info({ noteId: id, actor: options.actor ?? 'user' }, 'notes.purge');
+      return { ok: true };
     },
 
     stats(): NotesStats {

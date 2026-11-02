@@ -17,9 +17,12 @@
  *         can answer it: `list` returns an empty array.
  *   409 — optimistic-concurrency conflict: `expectedVersion` was missing or
  *         stale. The body carries `currentVersion` and `currentBody` so the
- *         editor can show a diff instead of throwing the user's text away.
+ *         editor can show a diff instead of throwing the user's text away. On
+ *         `/purge` it means `not_archived`: a physical erase is only reachable
+ *         from `archived`, so the caller archives first.
  *   422 — the layer decided not to write: capture produced nothing usable
- *         (`no_notes`, `invalid`, `empty_window`), or the title already exists.
+ *         (`no_notes`, `invalid`, `empty_window`), the title already exists, or a
+ *         purge's retyped title does not match the note's comparison key.
  *   503 — the model chain failed (`model_failed`); a retry may work.
  *
  * `scope` is a filter here, never a permission:
@@ -437,5 +440,33 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
       return reply.status(422).send({ error: 'title_conflict', existingId: result.existingId });
     }
     return reply.status(404).send({ error: 'not found' });
+  });
+
+  /**
+   * Physical erase — the one `DELETE` here that really deletes.
+   *
+   * Separate from `DELETE /api/notes/:id` because the two are different promises:
+   * that one archives (reversible, keeps the body), this one removes the row, its
+   * citations, its relations, its journal and its index entry, and cannot be undone.
+   * Hence the body: the caller repeats the title, and `service.purge` compares it
+   * through the library's own normalisation key. A missing title is a mismatch, not a
+   * 400 — the guard is "did you retype it", and an absent value answers that already.
+   */
+  app.delete('/api/notes/:id/purge', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const title = asString(body.title);
+    if (!title) return reply.status(422).send({ error: 'title_mismatch' });
+
+    const result = service.purge(id, { title, actor: 'user' });
+    if (result.ok) return reply.send({ purged: true });
+    switch (result.code) {
+      case 'not_found':
+        return reply.status(404).send({ error: 'not_found' });
+      case 'not_archived':
+        return reply.status(409).send({ error: 'not_archived' });
+      default:
+        return reply.status(422).send({ error: 'title_mismatch' });
+    }
   });
 }
