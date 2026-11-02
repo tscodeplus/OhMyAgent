@@ -239,7 +239,6 @@ export default function MemoryView() {
   const handleDelete = async (id: string) => {
     try {
       await apiRequest(`/api/memory/${id}`, { method: 'DELETE' });
-      showToast(t('project.deleted'), 'success');
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -268,7 +267,8 @@ export default function MemoryView() {
         method: 'POST',
         body: JSON.stringify({ ids: Array.from(selectedIds) }),
       });
-      showToast(t('memory.batchDeleteDone', { count: selectedIds.size }), 'success');
+      // The selection is cleared and the rows are gone — the two visible facts
+      // already say what a "已删除 N 条" toast would say.
       setSelectedIds(new Set());
       setSelectedMemory(null);
       fetchMemories();

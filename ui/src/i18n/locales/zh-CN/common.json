@@ -169,7 +169,6 @@
     "createError": "创建失败",
     "deleteError": "删除失败",
     "renameError": "重命名失败",
-    "deleted": "已删除",
     "loadAgentError": "加载 Agent 列表失败",
     "nameRequired": "名称不能为空",
     "nameTooLong": "名称最多 50 个字符",
@@ -1187,7 +1186,6 @@
     "save": "保存",
     "cancel": "取消",
     "batchDelete": "批量删除",
-    "batchDeleteDone": "已删除 {{count}} 条记忆",
     "batchDeleteError": "批量删除失败",
     "selectedCount": "已选中 {{count}} 条",
     "visibility_shared": "共享",
@@ -1344,7 +1342,6 @@
     "confirmDelete": "确认删除此技能吗？本操作将删除此技能对应的目录。",
     "confirmDiscard": "放弃未保存的修改？",
     "savedSuccess": "已保存",
-    "deletedSuccess": "已删除",
     "createdSuccess": "已创建",
     "selectPrompt": "选择一个技能进行编辑",
     "loadError": "加载技能失败",
@@ -1519,10 +1516,8 @@
       "unknownHint": "该会话无法判断来自哪个渠道：可能创建于渠道识别上线之前，或由脚本/测试创建。"
     },
     "emptySession": "新会话",
-    "renamed": "已重命名",
     "renameError": "重命名失败",
     "renamePlaceholder": "会话标题",
-    "deleted": "已删除会话",
     "deleteError": "删除失败",
     "confirmDelete": "确定要删除「{{name}}」吗？该会话的消息记录会一起删除，且无法恢复。"
   },
@@ -1535,9 +1530,7 @@
     "loadMore": "加载更多",
     "unknownProject": "已删除的对话空间",
     "restore": "取消归档",
-    "archived": "已归档 {{count}} 个会话",
     "archiveError": "归档失败",
-    "restored": "已取消归档 {{count}} 个会话",
     "restoreError": "取消归档失败"
   },
   "selection": {
@@ -1548,7 +1541,6 @@
     "exit": "退出多选",
     "delete": "删除",
     "confirmDelete": "确定要删除选中的 {{count}} 个会话吗？消息记录会一并删除，且无法恢复。",
-    "deleted": "已删除 {{count}} 个会话",
     "deleteError": "删除失败",
     "deletePartial": "{{count}} 个会话未删除（{{reasons}}）",
     "skipRunning": "{{count}} 个正在回复中",
@@ -1775,12 +1767,6 @@
     "loadMoreError": "加载失败，请重试",
     "endOfList": "没有更多了",
     "toast": {
-      "archived": "已归档",
-      "discarded": "已丢弃",
-      "restored": "已恢复",
-      "purged": "已彻底删除",
-      "undo": "撤销",
-      "undoFailed": "撤销失败，请重试",
       "failed": "操作失败，请重试"
     },
     "draftsStats": "{{due}} 条明天到期 · 批准率 {{rate}}%"

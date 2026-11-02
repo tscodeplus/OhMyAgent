@@ -199,12 +199,11 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
       if (ids.length === 0) return;
       setBusy(true);
       try {
-        const res = await setArchived(ids, false);
+        await setArchived(ids, false);
         // Drop the rows locally first so the sidebar responds immediately; the
         // refresh below reconciles against the server.
         const restored = new Set(ids);
         setItems((prev) => prev.filter((row) => !restored.has(row.id)));
-        showToast(t('archive.restored', { count: res.updated }), 'success');
         selection.exit();
         onChanged();
         void fetchFirstPage(false);
@@ -234,7 +233,6 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
         const res = await deleteSessions(ids);
         const gone = new Set(ids.filter((id) => !res.skipped.some((s) => s.id === id)));
         setItems((prev) => prev.filter((row) => !gone.has(row.id)));
-        showToast(t('selection.deleted', { count: res.deleted }), 'success');
         const partial = describeSkippedDeletes(t, res.skipped);
         if (partial) showToast(partial, 'warning', 4000);
         selection.exit();

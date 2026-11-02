@@ -170,9 +170,9 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
     if (!s) return;
     try {
       await apiRequest(`/api/projects/${projectId}/sessions/${s.id}`, { method: 'DELETE' });
+      // The row leaving the list is the confirmation of a single delete.
       setSessions((prev) => prev.filter((ss) => ss.id !== s.id));
       if (sessionId === s.id) navigate(`/p/${projectId}`);
-      showToast(t('project.deleted'), 'success');
     } catch (err: any) {
       showToast(err?.message || t('project.deleteError'), 'error');
     }
@@ -218,10 +218,11 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
       if (ids.length === 0) return;
       setArchiving(true);
       try {
-        const res = await setArchived(ids, true);
+        // Rows moving out of this list (and the 归档 count going up) is the
+        // confirmation; a toast only repeating "archived" is noise.
+        await setArchived(ids, true);
         const moved = new Set(ids);
         setSessions((prev) => prev.filter((s) => !moved.has(s.id)));
-        showToast(t('archive.archived', { count: res.updated }), 'success');
         selection.exit();
         onChanged?.();
         fetchSessions(false);
@@ -244,7 +245,8 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
         const res = await deleteSessions(ids);
         const removed = new Set(ids.filter((id) => !res.skipped.some((s) => s.id === id)));
         setSessions((prev) => prev.filter((s) => !removed.has(s.id)));
-        showToast(t('selection.deleted', { count: res.deleted }), 'success');
+        // Only the exceptions are worth saying: a deleted count the user just
+        // watched happen adds nothing, but "2 个未删除" is news.
         const partial = describeSkippedDeletes(t, res.skipped);
         if (partial) showToast(partial, 'warning', 4000);
         selection.exit();

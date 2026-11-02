@@ -174,10 +174,10 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
           '/api/inbox/' + encodeURIComponent(item.id) + '/title',
           { method: 'PUT', body: JSON.stringify({ title }) },
         );
+        // The row already shows the new title, so "已重命名" would only repeat it.
         setItems((prev) =>
           prev.map((row) => (row.id === item.id ? { ...row, title: res.title } : row)),
         );
-        showToast(t('inbox.renamed'), 'success');
       } catch (err) {
         showToast(err instanceof Error ? err.message : t('inbox.renameError'), 'error');
       } finally {
@@ -197,7 +197,6 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
           { method: 'DELETE' },
         );
         setItems((prev) => prev.filter((row) => row.id !== item.id));
-        showToast(t('inbox.deleted'), 'success');
         if (activeId === item.id) {
           // The server may have opened the chat's next conversation; otherwise
           // fall back to the newest remaining row so the pane is never blank.
@@ -230,10 +229,9 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
       if (ids.length === 0) return;
       setArchiving(true);
       try {
-        const res = await setArchived(ids, true);
+        await setArchived(ids, true);
         const moved = new Set(ids);
         setItems((prev) => prev.filter((row) => !moved.has(row.id)));
-        showToast(t('archive.archived', { count: res.updated }), 'success');
         selection.exit();
         onChanged?.();
         void fetchFirstPage(false);
@@ -261,7 +259,6 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
         const res = await deleteSessions(ids);
         const removed = new Set(ids.filter((id) => !res.skipped.some((s) => s.id === id)));
         setItems((prev) => prev.filter((row) => !removed.has(row.id)));
-        showToast(t('selection.deleted', { count: res.deleted }), 'success');
         const partial = describeSkippedDeletes(t, res.skipped);
         if (partial) showToast(partial, 'warning', 4000);
         selection.exit();

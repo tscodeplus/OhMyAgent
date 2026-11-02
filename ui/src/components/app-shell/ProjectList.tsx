@@ -168,8 +168,8 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
     const proj = confirmDeleteProject;
     if (!proj) return;
     try {
+      // The project row leaving the sidebar is the confirmation — no success toast.
       await apiRequest(`/api/projects/${proj.id}`, { method: 'DELETE' });
-      showToast(t('project.deleted'), 'success');
       if (selectedProjectId === proj.id) {
         setSelectedProjectId(null);
         navigate('/');

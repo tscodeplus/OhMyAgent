@@ -508,20 +508,19 @@ export default function NotesView() {
   );
 
   /**
-   * Remove one row, whatever "remove" means for its status, and offer the way back.
+   * Remove one row, whatever "remove" means for its status.
    *
    * One handler for the three verbs: the *action* differs (archive is a soft delete, a
    * draft's reject records a verdict, an archived row comes back) while the
-   * follow-through does not — in a list built for clearing out a review queue, a mis-click
-   * is the expected mistake, so archive and discard end in a three-second `撤销` instead
-   * of a confirm dialog. `restoreNote` is the whole undo: the server never dropped the
-   * text, so nothing has to be reconstructed.
+   * follow-through does not — the row leaving the list is the confirmation. Nothing is
+   * lost for a mis-click either: nothing was thrown away, so an archive or a discard is
+   * one `恢复` click away in 归档.
    */
   const removeNote = useCallback(
     async (note: Note, reason: NoteRejectionCode = 'other'): Promise<boolean> => {
       // The three writes answer `false` for a refusal (404 from another tab, a title
-      // conflict on restore) — they do not throw — so a refusal must not fall through
-      // into the success toast, and it is what the caller waits for before leaving.
+      // conflict on restore) — they do not throw — and it is what the caller waits for
+      // before leaving.
       let ok = false;
       try {
         ok =
@@ -536,31 +535,7 @@ export default function NotesView() {
         showToast(t('notes.toast.failed'), 'error');
         return false;
       }
-      if (!ok) return false;
-      // Restoring is not the kind of delete that needs an undo — its inverse is the
-      // row's own button, one click away in the list it just rejoined.
-      if (note.status === 'archived') {
-        showToast(t('notes.toast.restored'), 'success', 3000);
-        return true;
-      }
-      showToast(
-        t(note.status === 'draft' ? 'notes.toast.discarded' : 'notes.toast.archived'),
-        'success',
-        3000,
-        [
-          {
-            label: t('notes.toast.undo'),
-            onClick: () => {
-              // Already gone from the screen: a refused undo has to say so, or the row
-              // silently stays archived.
-              void restoreNote(note.id).then((restored) => {
-                if (!restored) showToast(t('notes.toast.undoFailed'), 'error');
-              });
-            },
-          },
-        ],
-      );
-      return true;
+      return ok;
     },
     [archiveNote, discardDraft, restoreNote, showToast, t],
   );
@@ -592,11 +567,10 @@ export default function NotesView() {
       setMore((prev) => prev.filter((item) => item.id !== note.id));
       // Purging ends the detail view: there is nothing left in the pane to read.
       navigate('/notes');
-      showToast(
-        t(outcome === 'purged' ? 'notes.toast.purged' : 'notes.purgeGone'),
-        outcome === 'purged' ? 'success' : 'info',
-        3000,
-      );
+      // A purge is confirmed by the note being gone and the pane closing, so it
+      // needs nothing said. `gone` is the exception: nothing visible changed,
+      // so the fact that it was already gone has to be stated.
+      if (outcome === 'gone') showToast(t('notes.purgeGone'), 'info', 3000);
     },
     [navigate, showToast, t],
   );
@@ -1938,14 +1912,16 @@ function IconAction({
 /**
  * Confirm-and-purge, the dialog behind the one irreversible verb in the notes page.
  *
- * The rest of the page deletes by archiving and offers a three-second 撤销; that undo is
- * genuinely absent here — the row, its citations, its relations and its review records are
- * erased together — so the friction takes its place: the title has to be typed back. The
- * client check is deliberately shallow (`title.trim()` against `note.title.trim()`): only
- * the obvious mismatch is caught, because the server compares normalised titles and is the
- * authority. Catching the obvious case is still this side's job — a disabled button with
- * 请重新输入这条笔记的标题 under it is an answer, while a 422 after a click that looked
- * like it worked is not.
+ * The rest of the page deletes by archiving, which is undone from 归档 (`恢复`); that way
+ * back is genuinely absent here — the row, its citations, its relations and its review
+ * records are erased together — so the friction takes its place: the title has to be typed
+ * back.
+ *
+ * The client check is deliberately shallow (`title.trim()` against `note.title.trim()`):
+ * only the obvious mismatch is caught, because the server compares normalised titles and
+ * is the authority. Catching the obvious case is still this side's job — a disabled button
+ * with 请重新输入这条笔记的标题 under it is an answer, while a 422 after a click that
+ * looked like it worked is not.
  */
 function PurgeDialog({
   note,

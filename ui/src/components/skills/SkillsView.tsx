@@ -129,9 +129,9 @@ export default function SkillsView() {
     const performDelete = async () => {
       try {
         await apiRequest(`/api/skills/${activeSlug}`, { method: 'DELETE' });
+        // The skill leaves the list and the editor closes — that is the receipt.
         setActiveSlug(null);
         await fetchSkills();
-        showToast(t('skills.deletedSuccess'), 'success');
       } catch {
         showToast(t('skills.saveError'), 'error');
       }

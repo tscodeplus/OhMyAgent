@@ -169,7 +169,6 @@
     "createError": "Create failed",
     "deleteError": "Delete failed",
     "renameError": "Rename failed",
-    "deleted": "Deleted",
     "loadAgentError": "Failed to load agents",
     "nameRequired": "Name is required",
     "nameTooLong": "Name too long (max 50)",
@@ -1187,7 +1186,6 @@
     "save": "Save",
     "cancel": "Cancel",
     "batchDelete": "Delete selected",
-    "batchDeleteDone": "Deleted {{count}} memories",
     "batchDeleteError": "Batch delete failed",
     "selectedCount": "{{count}} selected",
     "visibility_shared": "Shared",
@@ -1310,7 +1308,6 @@
     "confirmDelete": "Delete this skill? This will remove the skill directory.",
     "confirmDiscard": "Discard unsaved changes?",
     "savedSuccess": "Saved",
-    "deletedSuccess": "Deleted",
     "createdSuccess": "Created",
     "selectPrompt": "Select a skill to edit",
     "loadError": "Failed to load skills",
@@ -1519,10 +1516,8 @@
       "unknownHint": "This session's channel could not be determined: it predates channel tracking, or was created by a script or test."
     },
     "emptySession": "New conversation",
-    "renamed": "Renamed",
     "renameError": "Rename failed",
     "renamePlaceholder": "Conversation title",
-    "deleted": "Conversation deleted",
     "deleteError": "Delete failed",
     "confirmDelete": "Delete \"{{name}}\"? Its messages are deleted with it and cannot be recovered."
   },
@@ -1535,9 +1530,7 @@
     "loadMore": "Load more",
     "unknownProject": "Deleted space",
     "restore": "Unarchive",
-    "archived": "Archived {{count}} conversation(s)",
     "archiveError": "Archive failed",
-    "restored": "Unarchived {{count}} conversation(s)",
     "restoreError": "Unarchive failed"
   },
   "selection": {
@@ -1548,7 +1541,6 @@
     "exit": "Exit selection",
     "delete": "Delete",
     "confirmDelete": "Delete the {{count}} selected conversation(s)? Their messages are deleted too, and this cannot be undone.",
-    "deleted": "Deleted {{count}} conversation(s)",
     "deleteError": "Delete failed",
     "deletePartial": "{{count}} conversation(s) not deleted ({{reasons}})",
     "skipRunning": "{{count}} still replying",
@@ -1775,12 +1767,6 @@
     "loadMoreError": "Could not load more — try again",
     "endOfList": "That is everything",
     "toast": {
-      "archived": "Archived",
-      "discarded": "Discarded",
-      "restored": "Restored",
-      "purged": "Deleted permanently",
-      "undo": "Undo",
-      "undoFailed": "Undo failed — try again",
       "failed": "That did not work — try again"
     },
     "draftsStats": "{{due}} expiring tomorrow · {{rate}}% approved"

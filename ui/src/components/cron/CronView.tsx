@@ -185,7 +185,6 @@ export default function CronView() {
   const handleDelete = async (id: string) => {
     try {
       await apiRequest(`/api/cron/jobs/${id}`, { method: 'DELETE' });
-      showToast(t('project.deleted'), 'success');
       fetchJobs();
     } catch {
       showToast(t('project.deleteError'), 'error');

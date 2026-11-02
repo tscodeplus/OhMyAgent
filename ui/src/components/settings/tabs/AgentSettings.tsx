@@ -115,7 +115,6 @@ export default function AgentSettings({
   const handleDelete = async (id: string) => {
     try {
       await apiRequest(`/api/agents/${id}`, { method: 'DELETE' });
-      showToast(t('project.deleted'), 'success');
       fetchAgents();
     } catch (err: unknown) {
       const apiErr = err as { status?: number };
