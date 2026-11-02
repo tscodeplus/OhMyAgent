@@ -60,44 +60,31 @@ export function indexNote(db: Database.Database, note: NoteIndexable): void {
  */
 const BM25_WEIGHTS = '3.0, 2.0, 1.0, 1.5';
 
-export interface NoteSearchOptions {
-  query: string;
-  status: NoteStatus;
-  /** Extra SQL predicate on `notes_fts_jieba` (scope filter), pre-built. */
-  scopeSql?: { sql: string; params: string[] } | null;
-  limit?: number;
+export interface NoteSearchClause {
+  /** FTS5 `MATCH` expression built from the user's words. */
+  match: string;
+  /** `bm25()` expression; ascending, so the best hit sorts first. */
+  rank: string;
 }
 
 /**
- * Ids of matching notes, best first.
+ * The FTS half of a note list query: the two things a caller cannot write itself
+ * without knowing the index (the `MATCH` expression and the column weights).
  *
- * Returns ids only: the caller has to join back to `notes` anyway (for the
- * authoritative body, tags and timestamps), and returning index rows here would
- * make it tempting to render stale indexed text.
+ * Deliberately a clause rather than a query. The caller joins `notes_fts_jieba`
+ * into its own statement, so the ranking, its own filters, `LIMIT`, `OFFSET` and
+ * `COUNT` all apply to **one** ranked set. Fetching ids first and re-sorting them
+ * by `updated_at` — the shape this replaced — discarded `bm25()` completely, and a
+ * capped id list made `total` and every row past the cap wrong (they were counted
+ * and paged over at most 200 hits, whatever the match count was).
+ *
+ * Returns null for a query with no usable term (`!!!`): that is a search that
+ * matches nothing, not a browse, and the caller has to keep the two apart.
  */
-export function searchNoteIds(db: Database.Database, options: NoteSearchOptions): string[] {
-  const match = buildFtsQuery(options.query);
-  if (!match) return [];
-
-  // The scope predicate is written against the FTS table (hence `alias`).
-  const scope = options.scopeSql;
-  const where = [`notes_fts_jieba MATCH ?`, 'status = ?'];
-  const params: unknown[] = [match, options.status];
-  if (scope) {
-    where.push(scope.sql.replace(/\bn\./g, ''));
-    params.push(...scope.params);
-  }
-  params.push(Math.max(1, Math.min(options.limit ?? 50, 200)));
-
-  const rows = db
-    .prepare(
-      `SELECT note_id FROM notes_fts_jieba
-        WHERE ${where.join(' AND ')}
-        ORDER BY bm25(notes_fts_jieba, ${BM25_WEIGHTS})
-        LIMIT ?`,
-    )
-    .all(...params) as Array<{ note_id: string }>;
-  return rows.map((row) => row.note_id);
+export function noteSearchClause(query: string): NoteSearchClause | null {
+  const match = buildFtsQuery(query);
+  if (!match) return null;
+  return { match, rank: `bm25(notes_fts_jieba, ${BM25_WEIGHTS})` };
 }
 
 /** Index/pages drift, checked by `pnpm notes:reindex --check` (M4). */

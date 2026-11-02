@@ -84,6 +84,26 @@ const BARE_CHAT_PATTERNS: RegExp[] = [
 const NARROWING_FORCED = STRICT_FORCED_CORE_TOOLS;
 
 /**
+ * Read-only retrieval tools, exempt from narrowing in every domain.
+ *
+ * A back-reference — 「还记得上次那个命令吗」, 「where did we note that」 — is
+ * exactly the message that must keep `notes_search` / `session_search`, and it is
+ * also a message whose wording matches a domain: 「记一下」/「还记得」 hit
+ * `memory`, 「上次搜到的」 hits `web`, 「上次那个脚本报错」 hits `code`. Listing
+ * them under one domain's patterns would answer only the first case and would
+ * require every new retrieval tool to be remembered in every list; the failure it
+ * leaves behind is the one that matters most — the sentence that most needs a
+ * search tool is the one that removes it.
+ *
+ * The exemption is cheap: both tools are `deferrable`, so what survives narrowing
+ * is a `tool_search` catalog entry, not a schema in the prompt.
+ */
+const NARROWING_EXEMPT_RETRIEVAL_TOOLS: ReadonlySet<string> = new Set([
+  'notes_search',
+  'session_search',
+]);
+
+/**
  * Detect the intent domain of a user message.
  *
  * Returns undefined when no domain matches confidently — callers must treat
@@ -127,6 +147,8 @@ export function isToolVisibleForIntent(toolName: string, domain: IntentDomain): 
   // DOMAIN_TOOL_PATTERNS allow-lists, and deferring already keeps them out of
   // the prompt, so narrowing gains no context by dropping them.
   if (toolName.startsWith(MCP_TOOL_PREFIX)) return true;
+
+  if (NARROWING_EXEMPT_RETRIEVAL_TOOLS.has(toolName)) return true;
 
   if (domain === 'bare-chat') {
     return /^(?:memory|session_summarize|summarize-session|brief)/.test(toolName);

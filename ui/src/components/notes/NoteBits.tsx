@@ -60,7 +60,6 @@ export const CHANNEL_LABEL: Record<NoteChannel, string> = {
  */
 export function FacetRow({ note, className }: { note: Note; className?: string }) {
   const { t } = useTranslation('common');
-  const scopeLabel = t(`notes.scope.${note.scope}`);
   return (
     <div className={cn('flex flex-wrap items-center gap-1 text-[11px]', className)}>
       <span
@@ -93,13 +92,30 @@ export function FacetRow({ note, className }: { note: Note; className?: string }
           {note.projectName}
         </span>
       )}
-      <span
-        className="inline-flex items-center gap-1 rounded-md border border-dashed border-neutral-300 px-1.5 py-0.5 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400"
-        title={t('notes.facet.scopeHint')}
-      >
-        {scopeLabel}
-      </span>
+      <ScopeChip scope={note.scope} />
     </div>
+  );
+}
+
+/**
+ * Where a note is visible, as a chip.
+ *
+ * One component for the detail's facet row and the list row: the same scope spelled two
+ * ways in one screen is how a filter stops matching what the row says. Dashed, because
+ * scope is derived from the row rather than a value anyone edits in place.
+ */
+export function ScopeChip({ scope, className }: { scope: Note['scope']; className?: string }) {
+  const { t } = useTranslation('common');
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded-md border border-dashed border-neutral-300 px-1.5 py-0.5 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400',
+        className,
+      )}
+      title={t('notes.facet.scopeHint')}
+    >
+      {t(`notes.scope.${scope}`)}
+    </span>
   );
 }
 
@@ -284,7 +300,12 @@ export function CopyableValue({ value }: { value: string }) {
 }
 
 /**
- * One citation chip. An unavailable source keeps its place and loses its link —
+ * One citation chip.
+ *
+ * The visible text is *what the citation said*, not its id: `msg:om_9c1f2ab73d` is a row
+ * identifier from another layer, and a reader scanning a note's trace cannot do anything
+ * with it. The id stays in `title`/`aria-label`, so it is still available to whoever needs
+ * to check the receipt. An unavailable source keeps its place and loses its link —
  * dropping the row would quietly rewrite history (plan §4.7).
  */
 export function SourceChip({
@@ -296,12 +317,21 @@ export function SourceChip({
   onOpen?: (source: NoteSource) => void;
 }) {
   const { t } = useTranslation('common');
-  const id = source.id.replace(/^om_/, '');
-  const label = source.kind === 'message' ? `msg:${id}` : source.kind;
+  const excerpt = source.excerpt.replace(/\s+/g, ' ').trim();
+  // Long enough to recognise the quote, short enough that three chips still fit a
+  // 364px column: the chip ellipsises anyway, and a truncated chip with no visible
+  // words reads as an id again.
+  const label = excerpt
+    ? excerpt.length > 16
+      ? `${excerpt.slice(0, 16)}…`
+      : excerpt
+    : source.kind;
+  const idLabel = `${source.kind}:${source.id}`;
   if (!source.available) {
     return (
       <span
-        title={t('notes.sourcesGone')}
+        title={`${t('notes.sourcesGone')} · ${idLabel}`}
+        aria-label={`${t('notes.sourcesGone')} · ${idLabel}`}
         className="inline-flex max-w-[220px] items-center gap-1 truncate rounded-full border border-dashed border-neutral-300 px-2.5 py-1 text-[11px] text-neutral-400 line-through decoration-neutral-300 dark:border-neutral-700 dark:text-neutral-500"
       >
         {label}
@@ -316,21 +346,15 @@ export function SourceChip({
       // reader into the middle of a long transcript.
       onClick={onOpen ? () => onOpen(source) : undefined}
       title={source.excerpt || t('notes.traceOpen')}
+      aria-label={`${t('notes.traceCited')} · ${idLabel}`}
       className="inline-flex max-w-[260px] items-center gap-1 truncate rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-left text-[11px] text-neutral-600 transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800"
     >
-      {source.kind === 'message' ? (
-        <>
-          <span className="font-mono text-[10px] text-neutral-400 dark:text-neutral-500">msg:</span>
-          {id}
-        </>
-      ) : (
-        <>
-          <span className="font-mono text-[10px] text-neutral-400 dark:text-neutral-500">
-            {source.kind}:
-          </span>
-          {id}
-        </>
-      )}
+      {/* The kind stays as a muted prefix — it is a category, not an id — and the
+          content follows it, so the chip reads `msg: pnpm dev 报端口占用`. */}
+      <span className="shrink-0 font-mono text-[10px] text-neutral-400 dark:text-neutral-500">
+        {source.kind === 'message' ? 'msg:' : `${source.kind}:`}
+      </span>
+      {label}
     </button>
   );
 }

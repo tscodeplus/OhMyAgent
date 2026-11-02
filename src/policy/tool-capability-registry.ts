@@ -206,6 +206,21 @@ export function getCapabilityForTool(toolName: string, args?: unknown): ToolCapa
       pathAccess: 'none',
       approvalDefault: 'mutating',
     },
+    // The notes layer's read tool (review §4 U1). Filed with the memory tools
+    // because it reads a curated knowledge tier — not because the layers merged
+    // (they share the database and nothing else). Read-only: the tool filters to
+    // `status='active'`, so no path here can approve a draft.
+    notes_search: {
+      category: 'memory',
+      readOnly: true,
+      readsFiles: false,
+      writesFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    },
     // A session tool like `session_summarize`, not a memory tool: it reads raw
     // transcripts rather than the memory layer's curated tier.
     session_search: {

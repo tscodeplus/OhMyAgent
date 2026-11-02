@@ -26,8 +26,8 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { normalizeTags, normalizeTitle } from './canonical.js';
 import { ftsFacetTokens } from './facets.js';
-import { NoteRelations } from './relations.js';
-import { indexNote, searchNoteIds } from './indexer.js';
+import { NoteRelations, MAX_RELATIONS } from './relations.js';
+import { indexNote, noteSearchClause } from './indexer.js';
 import { readableScopeSql } from './scope.js';
 import {
   isNoteChannel,
@@ -46,6 +46,7 @@ import {
   type NoteListQuery,
   type NoteListResult,
   type NoteRow,
+  type NoteScopeContext,
   type NoteSource,
   type NoteStatus,
   type NoteStatusReason,
@@ -69,11 +70,18 @@ export type UpdateNoteResult =
   | { ok: false; code: 'not_found' }
   | { ok: false; code: 'version_mismatch'; currentVersion: number; currentBody: string }
   | { ok: false; code: 'version_required'; currentVersion: number; currentBody: string }
-  | { ok: false; code: 'title_conflict'; existingId: string };
+  | { ok: false; code: 'title_conflict'; existingId: string }
+  /** A scope that needs a key (`project`/`channel`/`session`) arrived without one. */
+  | { ok: false; code: 'invalid_scope' };
 
 /** `?, ?, ?` for an `IN (...)` list — every value stays a bound parameter. */
 function placeholders(count: number): string {
   return new Array(count).fill('?').join(', ');
+}
+
+/** Distinct cited ids of one source kind, out of a page's citations. */
+function citedIds(rows: Array<{ kind: string; source_id: string }>, kind: string): string[] {
+  return [...new Set(rows.filter((row) => row.kind === kind).map((row) => row.source_id))];
 }
 
 function parseJsonArray<T>(raw: string | null): T[] {
@@ -109,10 +117,31 @@ export class NotesRepository {
    * faking — the same rows either exist or they do not, and the tests assert on them.
    */
   private readonly relations: NoteRelations;
+  /**
+   * Prepared statements, keyed by SQL text.
+   *
+   * better-sqlite3 prepares on every `db.prepare()` and caches nothing, and this
+   * class used to prepare per row: one page of 50 notes issued ~350 statements,
+   * ~7 per note (project name, session title, sources, three availability probes,
+   * relations). The set of distinct query shapes is bounded by the statements this
+   * class writes, so one map removes the whole cost — including for statements
+   * carrying an `IN (?, ?, …)` list, which is why the key is the SQL and not a
+   * hand-maintained name.
+   */
+  private readonly statements = new Map<string, Database.Statement>();
 
   constructor(db: Database.Database) {
     this.db = db;
     this.relations = new NoteRelations(db);
+  }
+
+  private prepare(sql: string): Database.Statement {
+    let statement = this.statements.get(sql);
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
   }
 
   // ── row mapping ────────────────────────────────────────────────────
@@ -151,77 +180,110 @@ export class NotesRepository {
   }
 
   private rawRow(id: string): NoteRow | undefined {
-    return this.db.prepare('SELECT * FROM notes WHERE id = ?').get(id) as NoteRow | undefined;
+    return this.prepare('SELECT * FROM notes WHERE id = ?').get(id) as NoteRow | undefined;
   }
 
   /**
    * Facets that are resolved rather than stored: the project's current name and
    * the origin conversation's title (plan §4.6 — a rename must show everywhere).
+   *
+   * Resolved for the whole page in one query each, so the cost is one statement
+   * per facet regardless of how many notes the page holds.
    */
-  private decorate(note: Note): Note {
-    let projectName: string | undefined;
-    if (note.scope === 'project' && note.scopeKey) {
-      const project = this.db
-        .prepare('SELECT name FROM projects WHERE id = ?')
-        .get(note.scopeKey) as { name: string } | undefined;
-      projectName = project?.name;
-    }
-
-    let sessionTitle: string | null = null;
-    if (note.sessionId) {
-      const session = this.db
-        .prepare('SELECT title, external_chat_id FROM sessions WHERE id = ?')
-        .get(note.sessionId) as
-        { title: string | null; external_chat_id: string | null } | undefined;
-      sessionTitle = session?.title ?? session?.external_chat_id ?? null;
-    }
-    return { ...note, projectName, sessionTitle };
+  private projectNames(notes: Note[]): Map<string, string> {
+    const ids = [
+      ...new Set(
+        notes.filter((note) => note.scope === 'project' && note.scopeKey).map((n) => n.scopeKey),
+      ),
+    ];
+    if (ids.length === 0) return new Map();
+    const rows = this.prepare(
+      `SELECT id, name FROM projects WHERE id IN (${placeholders(ids.length)})`,
+    ).all(...ids) as Array<{ id: string; name: string }>;
+    return new Map(rows.map((row) => [row.id, row.name]));
   }
 
-  /** Sources with their availability resolved against `messages`/`sessions`. */
-  private sourcesFor(noteId: string): NoteSource[] {
-    const rows = this.db
-      .prepare(
-        `SELECT kind, source_id, excerpt, created_at FROM note_sources WHERE note_id = ?
-          ORDER BY rowid`,
-      )
-      .all(noteId) as Array<{
+  private sessionTitles(notes: Note[]): Map<string, string | null> {
+    const ids = [
+      ...new Set(notes.map((note) => note.sessionId).filter((id): id is string => !!id)),
+    ];
+    if (ids.length === 0) return new Map();
+    const rows = this.prepare(
+      `SELECT id, title, external_chat_id FROM sessions WHERE id IN (${placeholders(ids.length)})`,
+    ).all(...ids) as Array<{ id: string; title: string | null; external_chat_id: string | null }>;
+    return new Map(rows.map((row) => [row.id, row.title ?? row.external_chat_id ?? null]));
+  }
+
+  /**
+   * Sources with their availability resolved against `messages`/`sessions`.
+   *
+   * One query for the page's citations, then at most one per source kind for the
+   * availability probes, grouped back by note id. The per-note version answered
+   * "does this citation still resolve" with a statement of its own for every
+   * citation on the page, which is where most of the old ~350 came from.
+   */
+  private sourcesFor(noteIds: string[]): Map<string, NoteSource[]> {
+    const grouped = new Map<string, NoteSource[]>();
+    if (noteIds.length === 0) return grouped;
+
+    const rows = this.prepare(
+      `SELECT note_id, kind, source_id, excerpt, created_at FROM note_sources
+        WHERE note_id IN (${placeholders(noteIds.length)})
+        ORDER BY note_id, rowid`,
+    ).all(...noteIds) as Array<{
+      note_id: string;
       kind: string;
       source_id: string;
       excerpt: string | null;
       created_at: number;
     }>;
+    const citations = rows.filter((row) => isNoteSourceKind(row.kind));
+    if (citations.length === 0) return grouped;
 
     // The message probe reads the session too: one query answers both "does this
     // citation still resolve" and "which conversation should show it in place".
-    const messageProbe = this.db.prepare('SELECT session_id FROM messages WHERE id = ?');
-    const sessionExists = this.db.prepare('SELECT 1 AS ok FROM sessions WHERE id = ?');
-    const memoryExists = this.db.prepare('SELECT 1 AS ok FROM memories WHERE id = ?');
+    const messageIds = citedIds(citations, 'message');
+    const messageSessions = new Map<string, string>();
+    if (messageIds.length > 0) {
+      const live = this.prepare(
+        `SELECT id, session_id FROM messages WHERE id IN (${placeholders(messageIds.length)})`,
+      ).all(...messageIds) as Array<{ id: string; session_id: string }>;
+      for (const row of live) messageSessions.set(row.id, row.session_id);
+    }
 
-    return rows
-      .filter((row): row is typeof row & { kind: string } => isNoteSourceKind(row.kind))
-      .map((row) => {
-        if (row.kind === 'message') {
-          const hit = messageProbe.get(row.source_id) as { session_id: string } | undefined;
-          return {
-            kind: 'message' as const,
-            id: row.source_id,
-            excerpt: row.excerpt ?? '',
-            at: row.created_at,
-            available: !!hit,
-            sessionId: hit?.session_id ?? null,
-          };
-        }
-        const probe = row.kind === 'session' ? sessionExists : memoryExists;
-        return {
-          kind: row.kind as NoteSource['kind'],
-          id: row.source_id,
-          excerpt: row.excerpt ?? '',
-          at: row.created_at,
-          available: !!probe.get(row.source_id),
-          sessionId: null,
-        };
-      });
+    const liveSessions = this.liveIds('sessions', citedIds(citations, 'session'));
+    const liveMemories = this.liveIds('memories', citedIds(citations, 'memory'));
+
+    for (const row of citations) {
+      const available =
+        row.kind === 'message'
+          ? messageSessions.has(row.source_id)
+          : row.kind === 'session'
+            ? liveSessions.has(row.source_id)
+            : liveMemories.has(row.source_id);
+      const source: NoteSource = {
+        kind: row.kind as NoteSource['kind'],
+        id: row.source_id,
+        excerpt: row.excerpt ?? '',
+        at: row.created_at,
+        available,
+        // Only a message has a conversation to show it in place.
+        sessionId: row.kind === 'message' ? (messageSessions.get(row.source_id) ?? null) : null,
+      };
+      const list = grouped.get(row.note_id) ?? [];
+      list.push(source);
+      grouped.set(row.note_id, list);
+    }
+    return grouped;
+  }
+
+  /** Which of these soft-citation targets still exist. `table` is a literal, never input. */
+  private liveIds(table: 'sessions' | 'memories', ids: string[]): Set<string> {
+    if (ids.length === 0) return new Set();
+    const rows = this.prepare(
+      `SELECT id FROM ${table} WHERE id IN (${placeholders(ids.length)})`,
+    ).all(...ids) as Array<{ id: string }>;
+    return new Set(rows.map((row) => row.id));
   }
 
   /**
@@ -236,27 +298,61 @@ export class NotesRepository {
    * Rows for a note that has since been archived simply stop appearing here rather
    * than being deleted, which is what lets un-archiving restore the list for free.
    */
-  private relatedFor(noteId: string): Note['related'] {
-    const rows = this.db
-      .prepare(
-        `SELECT r.related_id AS id, n.title AS title, r.basis AS basis
-           FROM note_relations r JOIN notes n ON n.id = r.related_id
-          WHERE r.note_id = ? AND n.status = 'active'
-          ORDER BY r.score DESC, r.related_id ASC LIMIT 5`,
-      )
-      .all(noteId) as Array<{ id: string; title: string; basis: string }>;
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      basis: isRelationBasis(row.basis) ? row.basis : 'tags',
-    }));
+  private relatedFor(noteIds: string[]): Map<string, Note['related']> {
+    const grouped = new Map<string, Note['related']>();
+    if (noteIds.length === 0) return grouped;
+    const rows = this.prepare(
+      `SELECT r.note_id AS note_id, r.related_id AS id, n.title AS title, r.basis AS basis
+         FROM note_relations r JOIN notes n ON n.id = r.related_id
+        WHERE r.note_id IN (${placeholders(noteIds.length)}) AND n.status = 'active'
+        ORDER BY r.note_id, r.score DESC, r.related_id ASC`,
+    ).all(...noteIds) as Array<{ note_id: string; id: string; title: string; basis: string }>;
+    for (const row of rows) {
+      const list = grouped.get(row.note_id) ?? [];
+      // The per-note cap, applied while grouping: the query has no `LIMIT` because
+      // it now answers for a page, not for one note.
+      if (list.length >= MAX_RELATIONS) continue;
+      list.push({
+        id: row.id,
+        title: row.title,
+        basis: isRelationBasis(row.basis) ? row.basis : 'tags',
+      });
+      grouped.set(row.note_id, list);
+    }
+    return grouped;
   }
 
   private hydrate(row: NoteRow): Note {
-    return this.decorate({
-      ...this.mapRow(row),
-      sources: this.sourcesFor(row.id),
-      related: this.relatedFor(row.id),
+    return this.hydratePage([row])[0]!;
+  }
+
+  /**
+   * Map, decorate and attach companions for a whole page in one pass.
+   *
+   * Every companion (`sources`, `related`, project names, session titles) is one
+   * `IN (...)` query for the page instead of one per row. The cost of opening the
+   * note list used to grow with the number of rows shown; it now grows with the
+   * number of *kinds* of companion there are — four, regardless of page size.
+   */
+  private hydratePage(rows: NoteRow[]): Note[] {
+    if (rows.length === 0) return [];
+    const notes = rows.map((row) => this.mapRow(row));
+    const ids = notes.map((note) => note.id);
+    const sources = this.sourcesFor(ids);
+    const related = this.relatedFor(ids);
+    const projectNames = this.projectNames(notes);
+    const sessionTitles = this.sessionTitles(notes);
+
+    return notes.map((note) => {
+      const projectName = note.scope === 'project' ? projectNames.get(note.scopeKey) : undefined;
+      const sessionTitle = note.sessionId ? (sessionTitles.get(note.sessionId) ?? null) : null;
+      return {
+        ...note,
+        projectName,
+        sessionTitle,
+        sources: sources.get(note.id) ?? [],
+        related: related.get(note.id) ?? [],
+      };
     });
   }
 
@@ -281,16 +377,13 @@ export class NotesRepository {
     scope: Note['scope'],
     scopeKey: string,
   ): { id: string; status: NoteStatus } | undefined {
-    return this.db
-      .prepare(
-        `SELECT id, status FROM notes
+    return this.prepare(
+      `SELECT id, status FROM notes
           WHERE normalized_title = ? AND scope = ? AND scope_key = ?
             AND status IN ('active', 'draft')
           ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
           LIMIT 1`,
-      )
-      .get(normalizeTitle(title), scope, scopeKey) as
-      { id: string; status: NoteStatus } | undefined;
+    ).get(normalizeTitle(title), scope, scopeKey) as { id: string; status: NoteStatus } | undefined;
   }
 
   /**
@@ -298,6 +391,9 @@ export class NotesRepository {
    *
    * `q` goes through FTS and everything else through columns: a JSON scan over
    * `tags` would make the tag filter disagree with the tag row it renders.
+   *
+   * A search is ordered by relevance, not by recency (see the ranking note below);
+   * a browse is ordered by pin then `updated_at`.
    */
   list(query: NoteListQuery): NoteListResult {
     const limit = Math.max(1, Math.min(query.limit ?? DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT));
@@ -336,62 +432,70 @@ export class NotesRepository {
       params.push(...scope.params);
     }
 
-    let ids: string[] | null = null;
-    if (query.q && query.q.trim()) {
-      ids = searchNoteIds(this.db, {
-        query: query.q,
-        status: query.status,
-        scopeSql: scope
-          ? {
-              // The FTS table has no `n` alias — strip the qualifier for it.
-              sql: scope.sql.replace(/\bn\./g, ''),
-              params: scope.params,
-            }
-          : null,
-        limit: MAX_LIST_LIMIT,
-      });
-      if (ids.length === 0) {
-        return {
-          notes: [],
-          total: 0,
-          counts: this.counts(scope),
-          ...this.facets(query.status, scope),
-        };
-      }
-      where.push(`n.id IN (${placeholders(ids.length)})`);
-      params.push(...ids);
+    const searchText = query.q?.trim();
+    const search = searchText ? noteSearchClause(searchText) : null;
+    if (searchText && !search) {
+      // The words held no indexable term (`!!!`). That is a search that matches
+      // nothing, not a browse — returning the whole library here would look like
+      // the filter was ignored.
+      return {
+        notes: [],
+        total: 0,
+        counts: this.counts(query.context ?? null),
+        ...this.facets(query.status, scope),
+      };
+    }
+    if (search) {
+      where.push('notes_fts_jieba MATCH ?');
+      params.push(search.match);
     }
 
-    const rows = this.db
-      .prepare(
-        `SELECT n.* FROM notes n WHERE ${where.join(' AND ')}
-          ORDER BY n.pinned DESC, n.updated_at DESC
-          LIMIT ? OFFSET ?`,
-      )
-      .all(...params, limit, offset) as NoteRow[];
+    // Search and browse share one statement, and the difference is exactly where
+    // the ranking lives: relevance first (`bm25()`, ascending) with `pinned` as the
+    // tie-break, versus the browse order of pin then recency. `LIMIT`, `OFFSET` and
+    // the `COUNT` below therefore apply to the *ranked* set — the shape this
+    // replaced fetched at most 200 ids, re-sorted them by `updated_at` (throwing the
+    // ranking away) and counted the same capped list, so `total` stopped at 200 and
+    // rows past it were unreachable.
+    const join = search ? 'JOIN notes_fts_jieba ON notes_fts_jieba.note_id = n.id' : '';
+    const order = search
+      ? `${search.rank} ASC, n.pinned DESC, n.updated_at DESC, n.id ASC`
+      : 'n.pinned DESC, n.updated_at DESC, n.id ASC';
+
+    const rows = this.prepare(
+      `SELECT n.* FROM notes n ${join} WHERE ${where.join(' AND ')}
+        ORDER BY ${order}
+        LIMIT ? OFFSET ?`,
+    ).all(...params, limit, offset) as NoteRow[];
 
     const total = (
-      this.db
-        .prepare(`SELECT COUNT(*) AS cnt FROM notes n WHERE ${where.join(' AND ')}`)
-        .get(...params) as { cnt: number }
+      this.prepare(`SELECT COUNT(*) AS cnt FROM notes n ${join} WHERE ${where.join(' AND ')}`).get(
+        ...params,
+      ) as { cnt: number }
     ).cnt;
 
     return {
-      notes: rows.map((row) => this.hydrate(row)),
+      notes: this.hydratePage(rows),
       total,
-      counts: this.counts(scope),
+      counts: this.counts(query.context ?? null),
       ...this.facets(query.status, scope),
     };
   }
 
-  private counts(scope: ReturnType<typeof readableScopeSql>): Record<NoteStatus, number> {
-    const rows = this.db
-      .prepare(
-        `SELECT n.status AS status, COUNT(*) AS cnt FROM notes n
+  /**
+   * Status tallies for everything the caller can read.
+   *
+   * Public because `stats()` needs only the numbers: it used to call
+   * `list({ limit: 1 })` and throw the note away, which meant opening the note list
+   * (facets, sources, relations, probes) to answer "how many drafts are there".
+   */
+  counts(context: NoteScopeContext | null = null): Record<NoteStatus, number> {
+    const scope = readableScopeSql(context, 'n');
+    const rows = this.prepare(
+      `SELECT n.status AS status, COUNT(*) AS cnt FROM notes n
           ${scope ? `WHERE ${scope.sql}` : ''}
           GROUP BY n.status`,
-      )
-      .all(...(scope?.params ?? [])) as Array<{ status: string; cnt: number }>;
+    ).all(...(scope?.params ?? [])) as Array<{ status: string; cnt: number }>;
     const counts: Record<NoteStatus, number> = { active: 0, draft: 0, archived: 0 };
     for (const row of rows) {
       if (isNoteStatus(row.status)) counts[row.status] = row.cnt;
@@ -428,14 +532,12 @@ export class NotesRepository {
       where.push(scope.sql);
       params.push(...scope.params);
     }
-    return this.db
-      .prepare(
-        `SELECT n.channel AS channel, COUNT(*) AS count FROM notes n
+    return this.prepare(
+      `SELECT n.channel AS channel, COUNT(*) AS count FROM notes n
           WHERE ${where.join(' AND ')}
           GROUP BY n.channel
           ORDER BY count DESC, channel ASC`,
-      )
-      .all(...params) as Array<{ channel: NoteChannel; count: number }>;
+    ).all(...params) as Array<{ channel: NoteChannel; count: number }>;
   }
 
   /** Projects that actually hold notes, so the filter cannot offer an empty shelf. */
@@ -449,15 +551,13 @@ export class NotesRepository {
       where.push(scope.sql);
       params.push(...scope.params);
     }
-    return this.db
-      .prepare(
-        `SELECT n.scope_key AS id, p.name AS name, COUNT(*) AS count
+    return this.prepare(
+      `SELECT n.scope_key AS id, p.name AS name, COUNT(*) AS count
            FROM notes n JOIN projects p ON p.id = n.scope_key
           WHERE ${where.join(' AND ')}
           GROUP BY n.scope_key, p.name
           ORDER BY count DESC, name ASC`,
-      )
-      .all(...params) as Array<{ id: string; name: string; count: number }>;
+    ).all(...params) as Array<{ id: string; name: string; count: number }>;
   }
 
   /** Tag counts for the filter row, from the rows the caller can actually see. */
@@ -471,16 +571,14 @@ export class NotesRepository {
       where.push(scope.sql);
       params.push(...scope.params);
     }
-    return this.db
-      .prepare(
-        `SELECT json_each.value AS tag, COUNT(*) AS count
+    return this.prepare(
+      `SELECT json_each.value AS tag, COUNT(*) AS count
            FROM notes n, json_each(n.tags)
           WHERE ${where.join(' AND ')}
           GROUP BY json_each.value
           ORDER BY count DESC, tag ASC
           LIMIT ${MAX_TAG_FACETS}`,
-      )
-      .all(...params) as Array<{ tag: string; count: number }>;
+    ).all(...params) as Array<{ tag: string; count: number }>;
   }
 
   // ── writes ────────────────────────────────────────────────────────
@@ -503,47 +601,43 @@ export class NotesRepository {
     );
     const sources = (input.sources ?? []).filter((source) => isNoteSourceKind(source.kind));
 
-    const existing = this.db
-      .prepare(
-        `SELECT id FROM notes
+    const existing = this.prepare(
+      `SELECT id FROM notes
           WHERE normalized_title = ? AND scope = ? AND scope_key = ? AND status = 'active'`,
-      )
-      .get(normalizedTitle, input.scope, input.scopeKey) as { id: string } | undefined;
+    ).get(normalizedTitle, input.scope, input.scopeKey) as { id: string } | undefined;
     if (existing && input.status === 'active') {
       return { ok: false, code: 'title_conflict', existingId: existing.id };
     }
 
     this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO notes (
+      this.prepare(
+        `INSERT INTO notes (
              id, title, normalized_title, summary, body, fields, tags, status,
              status_reason, origin, scope, scope_key, session_id, channel, pinned,
              confidence, version, capture_id, created_at, updated_at, reviewed_at
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?)`,
-        )
-        .run(
-          id,
-          input.title,
-          normalizedTitle,
-          input.summary,
-          input.body,
-          fields.length > 0 ? JSON.stringify(fields) : null,
-          serializeArray(tags),
-          input.status,
-          input.statusReason ?? null,
-          input.origin,
-          input.scope,
-          input.scopeKey,
-          input.sessionId ?? null,
-          input.channel ?? null,
-          input.confidence ?? null,
-          input.captureId ?? null,
-          now,
-          now,
-          // An active note created by a human is reviewed by definition (§4.2-2).
-          input.status === 'active' ? now : null,
-        );
+      ).run(
+        id,
+        input.title,
+        normalizedTitle,
+        input.summary,
+        input.body,
+        fields.length > 0 ? JSON.stringify(fields) : null,
+        serializeArray(tags),
+        input.status,
+        input.statusReason ?? null,
+        input.origin,
+        input.scope,
+        input.scopeKey,
+        input.sessionId ?? null,
+        input.channel ?? null,
+        input.confidence ?? null,
+        input.captureId ?? null,
+        now,
+        now,
+        // An active note created by a human is reviewed by definition (§4.2-2).
+        input.status === 'active' ? now : null,
+      );
 
       this.writeSources(id, sources, now);
       indexNote(this.db, {
@@ -583,7 +677,7 @@ export class NotesRepository {
 
   private writeSources(noteId: string, sources: CreateNoteInput['sources'], now: number): void {
     if (!sources || sources.length === 0) return;
-    const statement = this.db.prepare(
+    const statement = this.prepare(
       `INSERT OR REPLACE INTO note_sources (note_id, kind, source_id, excerpt, created_at)
        VALUES (?, ?, ?, ?, ?)`,
     );
@@ -610,7 +704,11 @@ export class NotesRepository {
       input.body !== undefined ||
       input.fields !== undefined ||
       input.tags !== undefined ||
-      input.scope !== undefined;
+      input.scope !== undefined ||
+      // A key-only move is still an unmergeable write: it changes which library the
+      // note belongs to, so it needs the version of the text the editor was looking
+      // at, exactly like a scope move does.
+      input.scopeKey !== undefined;
 
     if (touchesContent && input.expectedVersion === undefined) {
       return {
@@ -643,39 +741,54 @@ export class NotesRepository {
     const nextScope = isNoteScope(input.scope)
       ? input.scope
       : (row.scope as CreateNoteInput['scope']);
-    const nextScopeKey = input.scopeKey ?? (input.scope ? '' : row.scope_key);
+    /**
+     * Where the note lands, and the key it lands under.
+     *
+     * `input.scope` on its own used to mean `scope_key = ''`: the editor's scope
+     * Select sends no key, so every "move to project" wrote a note that no project
+     * facet and no scope read rule could see — saved, reported as saved, invisible.
+     * A *move* into a scope that needs a key therefore requires the key, while an
+     * unchanged scope keeps the key it already has (re-sending the same scope is a
+     * no-op, not a reset). Only a move is refused: a row already keyless from the old
+     * path still has to be editable, or the bug would freeze the note as well as hide
+     * it. `user` is the one scope with no key at all.
+     */
+    const scopeMoved = input.scope !== undefined && input.scope !== row.scope;
+    const nextScopeKey =
+      nextScope === 'user' ? '' : (input.scopeKey ?? (scopeMoved ? '' : row.scope_key));
+    if (scopeMoved && nextScope !== 'user' && !nextScopeKey) {
+      return { ok: false, code: 'invalid_scope' };
+    }
     const nextNormalized = normalizeTitle(nextTitle);
+    const nextTagsSerialized = serializeArray(nextTags);
+    const nextScopeChanged = nextScope !== row.scope || nextScopeKey !== row.scope_key;
 
-    const conflict = this.db
-      .prepare(
-        `SELECT id FROM notes
+    const conflict = this.prepare(
+      `SELECT id FROM notes
           WHERE normalized_title = ? AND scope = ? AND scope_key = ? AND status = 'active' AND id <> ?`,
-      )
-      .get(nextNormalized, nextScope, nextScopeKey, id) as { id: string } | undefined;
+    ).get(nextNormalized, nextScope, nextScopeKey, id) as { id: string } | undefined;
     if (conflict && row.status === 'active') {
       return { ok: false, code: 'title_conflict', existingId: conflict.id };
     }
 
     this.db.transaction(() => {
-      this.db
-        .prepare(
-          `UPDATE notes SET
+      this.prepare(
+        `UPDATE notes SET
              title = ?, normalized_title = ?, summary = ?, body = ?, fields = ?,
              tags = ?, scope = ?, scope_key = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
-        )
-        .run(
-          nextTitle,
-          nextNormalized,
-          nextSummary,
-          nextBody,
-          nextFields.length > 0 ? JSON.stringify(nextFields) : null,
-          serializeArray(nextTags),
-          nextScope,
-          nextScopeKey,
-          now,
-          id,
-        );
+      ).run(
+        nextTitle,
+        nextNormalized,
+        nextSummary,
+        nextBody,
+        nextFields.length > 0 ? JSON.stringify(nextFields) : null,
+        nextTagsSerialized,
+        nextScope,
+        nextScopeKey,
+        now,
+        id,
+      );
       indexNote(this.db, {
         id,
         status: row.status as NoteStatus,
@@ -694,26 +807,23 @@ export class NotesRepository {
         ],
       });
       this.appendEvent(id, 'edit', input.actor ?? 'user', null, now);
-      // Only the two signals that feed a relation: retitling or retagging can create
-      // and destroy edges, while editing the body cannot. Recomputing on every save
-      // would make the neighbours flicker for no change.
-      if (input.title !== undefined || input.tags !== undefined || input.scope !== undefined) {
+      // Rebuild only when a relation *input* changed value — not when its key merely
+      // appeared in the patch. The WebUI editor sends title, tags and scope on every
+      // save, so "key present" made this gate permanently true and rewrote the whole
+      // scope's relations (and their tag-frequency exclusion set) for a typo fix,
+      // which is exactly the neighbour flicker the gate was meant to prevent.
+      // Tags are compared through the serialiser the write uses: `[]` and `null` say
+      // the same thing, and `JSON.stringify` on the parsed value would call them
+      // different, rebuilding on every save that clears a field.
+      const titleChanged = input.title !== undefined && nextNormalized !== row.normalized_title;
+      const tagsChanged = input.tags !== undefined && nextTagsSerialized !== row.tags;
+      if (titleChanged || tagsChanged || nextScopeChanged) {
         // A scope move clears the note's own rows first (neither scope's rebuild
         // lists cross-scope rows) and recomputes the scope it *left* as well —
         // its tag ratios shifted too, and `rebuild(id)` only sees the new one.
-        if (
-          input.scope !== undefined &&
-          (input.scope !== row.scope || nextScopeKey !== row.scope_key)
-        ) {
-          this.relations.dropFor(id);
-        }
+        if (nextScopeChanged) this.relations.dropFor(id);
         this.relations.rebuild(id, now);
-        if (
-          input.scope !== undefined &&
-          (input.scope !== row.scope || nextScopeKey !== row.scope_key)
-        ) {
-          this.relations.rebuildScope(row.scope, row.scope_key, now);
-        }
+        if (nextScopeChanged) this.relations.rebuildScope(row.scope, row.scope_key, now);
       }
     })();
 
@@ -724,7 +834,7 @@ export class NotesRepository {
 
   private projectNameFor(scope: string, scopeKey: string): string | null {
     if (scope !== 'project' || !scopeKey) return null;
-    const project = this.db.prepare('SELECT name FROM projects WHERE id = ?').get(scopeKey) as
+    const project = this.prepare('SELECT name FROM projects WHERE id = ?').get(scopeKey) as
       { name: string } | undefined;
     return project?.name ?? null;
   }
@@ -751,37 +861,33 @@ export class NotesRepository {
     // approved. Letting the index throw would surface as a 500 and leave the second
     // draft unapprovable forever; the caller gets the owner instead.
     if (status === 'active' && row.status !== 'active') {
-      const owner = this.db
-        .prepare(
-          `SELECT id FROM notes
+      const owner = this.prepare(
+        `SELECT id FROM notes
             WHERE normalized_title = ? AND scope = ? AND scope_key = ?
               AND status = 'active' AND id <> ?`,
-        )
-        .get(row.normalized_title, row.scope, row.scope_key, id) as { id: string } | undefined;
+      ).get(row.normalized_title, row.scope, row.scope_key, id) as { id: string } | undefined;
       if (owner) return { ok: false, code: 'title_conflict', existingId: owner.id };
     }
     const action: NoteEventAction =
       status === 'active' ? 'approve' : options.reason === 'rejected' ? 'reject' : 'archive';
 
     this.db.transaction(() => {
-      this.db
-        .prepare(
-          `UPDATE notes SET status = ?, status_reason = ?, updated_at = ?,
+      this.prepare(
+        `UPDATE notes SET status = ?, status_reason = ?, updated_at = ?,
              reviewed_at = CASE WHEN ? = 'active' THEN ? ELSE reviewed_at END,
              reviewed_by = CASE WHEN ? = 'active' THEN ? ELSE reviewed_by END,
              version = version + 1
            WHERE id = ?`,
-        )
-        .run(
-          status,
-          options.reason ?? null,
-          now,
-          status,
-          now,
-          status,
-          options.reviewedBy ?? 'user',
-          id,
-        );
+      ).run(
+        status,
+        options.reason ?? null,
+        now,
+        status,
+        now,
+        status,
+        options.reviewedBy ?? 'user',
+        id,
+      );
       // The FTS row carries `status`, so a promoted note must be re-indexed or it
       // stays invisible to every `status='active'` search.
       const updated = this.rawRow(id);
@@ -823,9 +929,11 @@ export class NotesRepository {
     if (!row) return undefined;
     const now = Date.now();
     this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE notes SET pinned = ?, updated_at = ? WHERE id = ?')
-        .run(pinned ? 1 : 0, now, id);
+      this.prepare('UPDATE notes SET pinned = ?, updated_at = ? WHERE id = ?').run(
+        pinned ? 1 : 0,
+        now,
+        id,
+      );
       this.appendEvent(id, pinned ? 'pin' : 'unpin', actor, null, now);
     })();
     const updated = this.rawRow(id);
@@ -835,15 +943,18 @@ export class NotesRepository {
   /**
    * Detail-page visit.
    *
-   * The one reader of `view_count` today is the WebUI's detail view (§8.3); the
-   * column is not a "was it useful" signal and nothing filters on it.
+   * Counted for notes that are notes: a draft has never been *read*, it is being
+   * reviewed, and counting review glances made "viewed N times" mean two different
+   * things on the same page. The log row follows the counter, so the audit trail
+   * never claims a view the counter refused.
    */
   recordView(id: string): void {
     const now = Date.now();
-    this.db
-      .prepare('UPDATE notes SET view_count = view_count + 1, last_viewed_at = ? WHERE id = ?')
-      .run(now, id);
-    this.appendEvent(id, 'view', 'user', null, now);
+    const changed = this.prepare(
+      `UPDATE notes SET view_count = view_count + 1, last_viewed_at = ?
+        WHERE id = ? AND status <> 'draft'`,
+    ).run(now, id).changes;
+    if (changed > 0) this.appendEvent(id, 'view', 'user', null, now);
   }
 
   appendEvent(
@@ -853,45 +964,34 @@ export class NotesRepository {
     detail: string | null,
     now = Date.now(),
   ): void {
-    this.db
-      .prepare(
-        `INSERT INTO note_events (id, note_id, action, actor, detail, created_at)
+    this.prepare(
+      `INSERT INTO note_events (id, note_id, action, actor, detail, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        `nev_${randomUUID().replace(/-/g, '').slice(0, 16)}`,
-        noteId,
-        action,
-        actor,
-        detail,
-        now,
-      );
+    ).run(`nev_${randomUUID().replace(/-/g, '').slice(0, 16)}`, noteId, action, actor, detail, now);
   }
 
   /** Capture bookkeeping. `noteCount` and the final status are written once. */
   createCaptureRun(input: CaptureRunInput, now = Date.now()): string {
     const id = `cap_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    this.db
-      .prepare(
-        `INSERT INTO capture_runs (
+    this.prepare(
+      `INSERT INTO capture_runs (
            id, session_id, scope, mode, message_ids, token_est, model_ref, status, error,
            note_count, created_at, dropped_messages
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        input.sessionId,
-        input.scope,
-        input.mode,
-        JSON.stringify(input.messageIds),
-        input.tokenEst,
-        input.modelRef ?? null,
-        input.status,
-        input.error ?? null,
-        input.noteCount ?? 0,
-        now,
-        input.droppedMessages ?? 0,
-      );
+    ).run(
+      id,
+      input.sessionId,
+      input.scope,
+      input.mode,
+      JSON.stringify(input.messageIds),
+      input.tokenEst,
+      input.modelRef ?? null,
+      input.status,
+      input.error ?? null,
+      input.noteCount ?? 0,
+      now,
+      input.droppedMessages ?? 0,
+    );
     return id;
   }
 
@@ -924,14 +1024,14 @@ export class NotesRepository {
       params.push(patch.droppedMessages);
     }
     if (fields.length === 0) return;
-    this.db.prepare(`UPDATE capture_runs SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);
+    this.prepare(`UPDATE capture_runs SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);
   }
 
   countDraftsOlderThan(cutoff: number): number {
     return (
-      this.db
-        .prepare(`SELECT COUNT(*) AS cnt FROM notes WHERE status = 'draft' AND created_at < ?`)
-        .get(cutoff) as { cnt: number }
+      this.prepare(
+        `SELECT COUNT(*) AS cnt FROM notes WHERE status = 'draft' AND created_at < ?`,
+      ).get(cutoff) as { cnt: number }
     ).cnt;
   }
 
@@ -939,9 +1039,9 @@ export class NotesRepository {
   expireDrafts(ttlDays: number, now = Date.now()): string[] {
     if (ttlDays <= 0) return [];
     const cutoff = now - ttlDays * 24 * 3600_000;
-    const rows = this.db
-      .prepare(`SELECT id FROM notes WHERE status = 'draft' AND created_at < ?`)
-      .all(cutoff) as Array<{ id: string }>;
+    const rows = this.prepare(`SELECT id FROM notes WHERE status = 'draft' AND created_at < ?`).all(
+      cutoff,
+    ) as Array<{ id: string }>;
     for (const row of rows)
       this.setStatus(row.id, 'archived', { reason: 'expired', actor: 'system' });
     return rows.map((row) => row.id);

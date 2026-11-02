@@ -65,6 +65,10 @@ import { createExitPlanModeToolDefinition } from '../../tools/builtins/session/e
 import { createEnterWorktreeToolDefinition } from '../../tools/builtins/session/enter-worktree-definition.js';
 import { createExitWorktreeToolDefinition } from '../../tools/builtins/session/exit-worktree-definition.js';
 import { createDownloadFileToolDefinition } from '../../tools/builtins/files/download-definition.js';
+import { createNotesSearchToolDefinition } from '../../tools/builtins/notes/notes-search-definition.js';
+import type { NotesSearchArgs } from '../../tools/builtins/notes/notes-search-tool.js';
+import type { ToolDefinition } from '../../tools/platform/tool-definition.js';
+import type { NotesService } from '../../notes/service-contract.js';
 import { AgentManager } from '../../agent/agent-manager.js';
 import { OrchestratorImpl } from '../../orchestrator/orchestrator.js';
 import { ComputerUseHost } from '../../computer-use/computer-host.js';
@@ -75,6 +79,26 @@ export interface ToolServices {
   toolRegistry: ToolRegistryImpl;
   toolPlatformRegistry: ToolPlatformRegistryImpl;
   memoryFilter: ReturnType<typeof createDefaultMemoryFilter>;
+}
+
+/**
+ * The notes tools this boot has (review §4 U1: the notes layer's read path back
+ * to the model).
+ *
+ * Gated on the service rather than on a config flag, because the notes composer
+ * leaves `notesService` absent exactly when `notes.enabled` is false — there is
+ * one switch, and it already lives there. Without the service the layer is a
+ * manual library, and the tool would be a schema the model pays for and cannot
+ * use (the same reason `session_search` is gated on `conversation_search`).
+ *
+ * Exported so the gate is testable without constructing the whole tool surface.
+ */
+export function createNotesToolDefinitions(input: {
+  notes?: NotesService;
+  logger: AppServices['logger'];
+}): ToolDefinition<NotesSearchArgs>[] {
+  if (!input.notes) return [];
+  return [createNotesSearchToolDefinition({ notes: input.notes, logger: input.logger })];
 }
 
 export function createToolServices(input: {
@@ -151,6 +175,8 @@ export function registerV4ToolDefinitions(input: {
   logger: AppServices['logger'];
   tools: ToolServices;
   memory: MemoryServices;
+  /** Absent when `notes.enabled` is false — see {@link createNotesToolDefinitions}. */
+  notes?: NotesService;
   policyCenter: PolicyCenterImpl;
   computerUseHost?: ComputerUseHost;
   agentManager: AgentManager;
@@ -162,6 +188,7 @@ export function registerV4ToolDefinitions(input: {
     logger,
     tools,
     memory,
+    notes,
     policyCenter,
     computerUseHost,
     agentManager,
@@ -261,6 +288,13 @@ export function registerV4ToolDefinitions(input: {
     toolPlatformRegistry.registerDefinition(
       createSessionSearchToolDefinition({ db: memory.database, logger }),
     );
+  }
+
+  // Reviewed knowledge (review §4 U1). Next to `session_search` because the two
+  // answer the same question from opposite ends: one the original conversation,
+  // the other what was distilled out of it and approved by a human.
+  for (const definition of createNotesToolDefinitions({ notes, logger })) {
+    toolPlatformRegistry.registerDefinition(definition);
   }
 
   if (computerUseHost) {

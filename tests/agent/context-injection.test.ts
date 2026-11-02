@@ -380,7 +380,7 @@ describe('per-turn injection instrumentation', () => {
     expect(joined(result[0]!.content)).toContain('<recent_conversation>');
     expect(details.messageIds).toEqual(['msg-0', 'msg-1']);
     expect(details.memoryIds).toEqual([]);
-    expect(details.itemCounts).toEqual({ memories: 0, messages: 2 });
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 2, notes: 0 });
     expect(details.estimatedTokens.messages).toBeGreaterThan(0);
     expect(details.estimatedTokens.total).toBe(details.estimatedTokens.messages);
     expect(details.latencyMs.messages).toBeGreaterThanOrEqual(0);
@@ -400,7 +400,7 @@ describe('per-turn injection instrumentation', () => {
 
     expect(joined(result[0]!.content)).toContain('<memory_context>');
     expect(details.memoryIds).toEqual(['mem-1']);
-    expect(details.itemCounts).toEqual({ memories: 1, messages: 0 });
+    expect(details.itemCounts).toEqual({ memories: 1, messages: 0, notes: 0 });
     expect(details.estimatedTokens.memories).toBeGreaterThan(0);
     expect(details.status).toBe('ok');
   });
@@ -427,7 +427,7 @@ describe('per-turn injection instrumentation', () => {
     // The episodic lane still answered; only the memory lane degraded.
     expect(joined(result[0]!.content)).toContain('<recent_conversation>');
     expect(details.messageIds).toEqual(['msg-kept']);
-    expect(details.itemCounts).toEqual({ memories: 0, messages: 1 });
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 1, notes: 0 });
     expect(details.status).toBe('degraded');
   });
 
@@ -465,7 +465,7 @@ describe('per-turn injection instrumentation', () => {
     const details = injectedDetails();
 
     expect(result).toHaveLength(3);
-    expect(details.itemCounts).toEqual({ memories: 1, messages: 1 });
+    expect(details.itemCounts).toEqual({ memories: 1, messages: 1, notes: 0 });
     expect(details.memoryIds).toEqual(['mem-1']);
     expect(details.messageIds).toEqual(['msg-prev']);
     expect(details.estimatedTokens.total).toBe(
@@ -486,6 +486,9 @@ describe('turn-end reference reading', () => {
 
   const EPISODIC_EXCERPT = '上次那个 ETL 脚本放在 /srv/etl 下，批量替换用的是 Python';
   const EPISODIC_QUOTE = '按你上次说的，批量替换用的是 Python，脚本还在 /srv/etl 里。';
+
+  const NOTES_SUMMARY = '批量替换 CSV 里的地址列时用 sed -i，不要手改每一行。';
+  const NOTES_QUOTE = '用 sed -i 批量替换地址列就行，不要手改每一行。';
 
   beforeEach(() => {
     record = vi.spyOn(memoryObservability, 'record');
@@ -546,6 +549,19 @@ describe('turn-end reference reading', () => {
     await transform([{ role: 'user', content: RECALL_QUERY }]);
   }
 
+  async function buildNotesPrompt(sessionKey: string): Promise<void> {
+    const transform = createTransformContext({
+      maxMessages: 5,
+      sessionKey,
+      agentId: 'agent-turn-end',
+      notesContextProvider: () => ({
+        mode: 'matched',
+        items: [{ id: 'note-quote', title: '批量替换用 sed', summary: NOTES_SUMMARY }],
+      }),
+    });
+    await transform([{ role: 'user', content: RECALL_QUERY }]);
+  }
+
   it('credits a memory the answer quotes', async () => {
     await buildMemoryPrompt('turn-end-memory-hit', MEMORY_CONTENT, 'mem-quote');
 
@@ -557,6 +573,7 @@ describe('turn-end reference reading', () => {
         toolName: 'assistant_message',
         memoryIds: ['mem-quote'],
         messageIds: [],
+        noteIds: [],
       },
     ]);
   });
@@ -580,6 +597,23 @@ describe('turn-end reference reading', () => {
         toolName: 'assistant_message',
         memoryIds: [],
         messageIds: ['msg-quote'],
+        noteIds: [],
+      },
+    ]);
+  });
+
+  it('credits a note the answer quotes, under the notes lane', async () => {
+    await buildNotesPrompt('turn-end-notes-hit');
+
+    readInjectionReferences({ sessionKey: 'turn-end-notes-hit', answerText: NOTES_QUOTE });
+
+    expect(referenced()).toEqual([
+      {
+        lane: 'notes',
+        toolName: 'assistant_message',
+        memoryIds: [],
+        messageIds: [],
+        noteIds: ['note-quote'],
       },
     ]);
   });
@@ -717,7 +751,7 @@ describe('memory lane inside the shared injection budget (§8 S5)', () => {
     expect(text).toContain('<memory_context>');
     // Pre-K5-4 block order is unchanged: memories first, then the other lanes.
     expect(text.indexOf('<memory_context>')).toBeLessThan(text.indexOf('<recent_conversation>'));
-    expect(details.itemCounts).toEqual({ memories: 1, messages: 1 });
+    expect(details.itemCounts).toEqual({ memories: 1, messages: 1, notes: 0 });
     expect(details.memoryIds).toEqual(['mem-0']);
     expect(details.estimatedTokens.memories).toBeGreaterThan(0);
     expect(details.estimatedTokens.total).toBe(
@@ -755,7 +789,7 @@ describe('memory lane inside the shared injection budget (§8 S5)', () => {
     // the memory block was appended regardless of any budget.
     expect(text).toContain('<recent_conversation>');
     expect(text).not.toContain('<memory_context>');
-    expect(details.itemCounts).toEqual({ memories: 0, messages: 1 });
+    expect(details.itemCounts).toEqual({ memories: 0, messages: 1, notes: 0 });
     expect(details.estimatedTokens.memories).toBe(0);
     expect(details.estimatedTokens.total).toBeLessThanOrEqual(totalTokens);
   });

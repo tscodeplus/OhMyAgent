@@ -93,6 +93,8 @@ export default function NotesFloatingBall() {
     saveDraft,
     discardDraft,
     dismissDraftCard,
+    /** The store's own error line — the sentence a refused write is refused with. */
+    error,
     ballHidden,
     setBallHidden,
     ballSize,
@@ -318,7 +320,6 @@ export default function NotesFloatingBall() {
       if (outcome.ok) {
         setCardGroup(outcome.notes.length);
         setCardScope(scopeOf(outcome));
-        setCardScope(scopeOf(outcome));
         setInstruction(null);
         setInstructionError(null);
         return;
@@ -483,10 +484,14 @@ export default function NotesFloatingBall() {
 
         {draft && !menuOpen && (
           <DraftCard
+            // Keyed by draft: a second capture replaces the draft under a mounted
+            // card, and the previous draft's "refused" line must not outlive it.
+            key={draft.id}
             draft={draft}
             groupSize={cardGroup}
             scope={cardScope}
-            onSave={() => void saveDraft(draft.id)}
+            storeError={error}
+            onSave={() => saveDraft(draft.id)}
             onEdit={() => {
               // Editing must not approve: an open editor on a draft stays a draft,
               // and the page's save path only rewrites the draft's text.
@@ -510,19 +515,23 @@ export default function NotesFloatingBall() {
                     treatment: 'distill' as const,
                   }
                 : { mode: 'conversation' as const, sessionId };
-              void capture(intent).then((outcome) => {
-                if (outcome.ok) {
-                  setCardGroup(outcome.notes.length);
-                  setCardScope(scopeOf(outcome));
-                  setCardScope(scopeOf(outcome));
-                  setCardScope(scopeOf(outcome));
-                  void discardDraft(draft.id);
-                } else {
+              void capture(intent).then(async (outcome) => {
+                if (!outcome.ok) {
                   report(outcome);
+                  return;
+                }
+                setCardGroup(outcome.notes.length);
+                setCardScope(scopeOf(outcome));
+                // The old draft retires only if the server agrees, and by now the
+                // card shows the *new* draft — so a refusal has nowhere to appear.
+                // Ignoring it left the old draft in the queue with no sign that the
+                // button's second half had failed.
+                if (!(await discardDraft(draft.id))) {
+                  setNotice({ text: t('common.submitError'), tone: 'error' });
                 }
               });
             }}
-            onDiscard={() => void discardDraft(draft.id)}
+            onDiscard={() => discardDraft(draft.id)}
             onClose={dismissDraftCard}
           />
         )}
@@ -800,6 +809,7 @@ function DraftCard({
   draft,
   groupSize,
   scope,
+  storeError,
   onSave,
   onEdit,
   onRegenerate,
@@ -815,14 +825,56 @@ function DraftCard({
    * seconds, and this is information for the decision the card is asking for.
    */
   scope: { read: number; dropped: number; head?: number } | null;
-  onSave: () => void;
+  /**
+   * The store's `error` line at render time.
+   *
+   * A refused write resolves `false` and puts its sentence there (the same line the
+   * notes page prints at the top), so the card explains the refusal with the server's
+   * own words instead of inventing a second vocabulary for it.
+   */
+  storeError: string | null;
+  /** Resolves `false` when the server refused the approval. */
+  onSave: () => Promise<boolean>;
   onEdit: () => void;
   onRegenerate: () => void;
-  onDiscard: () => void;
+  /** Resolves `false` when the server refused the rejection. */
+  onDiscard: () => Promise<boolean>;
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation('common');
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  /**
+   * A write the server refused. The card is deliberately *not* closed on it: a
+   * draft that could not be approved still exists, and closing the card over a red
+   * line the reader never saw is how "approved" and "still a draft" got confused.
+   */
+  const [refused, setRefused] = useState(false);
+
+  const approve = () => {
+    if (saving) return;
+    setRefused(false);
+    setSaving(true);
+    void onSave().then((ok) => {
+      setSaving(false);
+      if (!ok) {
+        setRefused(true);
+        return;
+      }
+      setSaved(true);
+      window.setTimeout(onClose, 600);
+    });
+  };
+
+  const discard = () => {
+    if (saving) return;
+    setRefused(false);
+    setSaving(true);
+    void onDiscard().then((ok) => {
+      setSaving(false);
+      if (!ok) setRefused(true);
+    });
+  };
 
   return (
     <div className="pointer-events-auto w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900">
@@ -888,16 +940,14 @@ function DraftCard({
         </p>
       )}
 
+      {refused && storeError && (
+        <p className="border-t border-red-100 bg-red-50/60 px-3 py-1.5 text-[10.5px] leading-snug text-red-700 dark:border-red-900/40 dark:bg-red-900/10 dark:text-red-300">
+          {storeError}
+        </p>
+      )}
+
       <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
-        <Button
-          size="sm"
-          onClick={() => {
-            onSave();
-            setSaved(true);
-            window.setTimeout(onClose, 600);
-          }}
-          className="h-7"
-        >
+        <Button size="sm" onClick={approve} loading={saving} disabled={saved} className="h-7">
           {saved ? <Check className="h-3.5 w-3.5" /> : null}
           {t('notes.draftCard.save')}
         </Button>
@@ -912,8 +962,9 @@ function DraftCard({
         </Button>
         <button
           type="button"
-          onClick={onDiscard}
-          className="ml-auto rounded-md px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+          onClick={discard}
+          disabled={saving || saved}
+          className="ml-auto rounded-md px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400"
         >
           {t('notes.draftCard.discard')}
         </button>

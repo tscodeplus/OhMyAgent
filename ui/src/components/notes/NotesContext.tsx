@@ -163,16 +163,25 @@ interface NotesContextValue {
   fetchNote: (id: string) => Promise<Note | null>;
   /** Approve a draft. Resolves `false` when the title is already taken (422). */
   saveDraft: (id: string) => Promise<boolean>;
-  discardDraft: (id: string, reason?: NoteRejectionCode) => Promise<void>;
+  /** Resolves `false` when the server refused; the caller then keeps the draft on screen. */
+  discardDraft: (id: string, reason?: NoteRejectionCode) => Promise<boolean>;
   /** Drafts near expiry and the approval rate, for the drafts header. */
   stats: NotesStatsView | null;
   dismissDraftCard: () => void;
   /** User-authored note: lands `active` immediately (plan §4.2-2). */
   createNote: (seed?: Partial<Note>) => Promise<Note | null>;
   updateNote: (note: Note, patch: Partial<Note>) => Promise<Note | null>;
-  togglePin: (id: string) => Promise<void>;
-  archiveNote: (id: string) => Promise<void>;
-  restoreNote: (id: string) => Promise<void>;
+  /**
+   * The three list-level writes resolve `false` when the server refused.
+   *
+   * A refusal is not an exception: the note may have been archived in another tab
+   * (404), and throwing that at a `void` call site left the row on screen with
+   * nothing said. The sentence lands in `error`; the boolean is what a caller needs
+   * to decide whether to close or navigate.
+   */
+  togglePin: (id: string) => Promise<boolean>;
+  archiveNote: (id: string) => Promise<boolean>;
+  restoreNote: (id: string) => Promise<boolean>;
   /** Detail-page visit, counted server-side (`view_count`). */
   markViewed: (id: string) => void;
   /**
@@ -200,7 +209,18 @@ function describeError(err: unknown): string {
 }
 
 /** Build a query string, skipping empty values so the URL stays readable. */
-function toSearchParams(query: NotesQuery, extra: Record<string, string | undefined>): string {
+/**
+ * The list query as a URL query string — the *only* spelling of it.
+ *
+ * Exported because the list's "load more" needs the same predicates with a different
+ * `offset`. It used to rebuild the keys by hand, so a facet added here would have
+ * silently paged an unfiltered list: a second spelling of the query language is the
+ * same defect as a second ranker.
+ */
+export function toSearchParams(
+  query: NotesQuery,
+  extra: Record<string, string | undefined>,
+): string {
   const params = new URLSearchParams();
   params.set('status', query.status);
   // One param per facet, comma-joined: the server accepts that or the repeated
@@ -245,11 +265,24 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   const [captured, setCaptured] = useState<Note[]>([]);
   const seq = useRef(0);
+  /**
+   * The list request currently in flight.
+   *
+   * `seq` only decides which answer may render; it cannot stop a request, so typing
+   * ten characters in the search box still left ten `/api/notes` calls running on the
+   * server. Aborting the previous one is the other half of that guard.
+   */
+  const listRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
     const ticket = (seq.current += 1);
+    listRequest.current?.abort();
+    const request = new AbortController();
+    listRequest.current = request;
     try {
-      const data = await apiRequest<NoteListResult>(`/api/notes?${toSearchParams(query, {})}`);
+      const data = await apiRequest<NoteListResult>(`/api/notes?${toSearchParams(query, {})}`, {
+        signal: request.signal,
+      });
       // A slow first response must not overwrite a fast second one.
       if (ticket !== seq.current) return;
       setResult(data);
@@ -264,6 +297,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       );
     } catch (err) {
       if (ticket !== seq.current) return;
+      // We cancelled this one on purpose. Its rejection is the cancellation, not a
+      // failure, so it must not paint an error line over a search in progress.
+      if (request.signal.aborted) return;
       setError(describeError(err));
     } finally {
       if (ticket === seq.current) setLoading(false);
@@ -283,6 +319,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A provider that unmounts mid-flight leaves nothing to render an answer into.
+  useEffect(() => () => listRequest.current?.abort(), []);
 
   /**
    * Read the ball's visibility from `config.yaml` once per page load.
@@ -454,14 +493,22 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   );
 
   const discardDraft = useCallback(
-    async (id: string, reason: NoteRejectionCode = 'other') => {
-      const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
-        method: 'POST',
-        body: JSON.stringify({ decision: 'reject', reason }),
-      });
-      applyNote(response.note);
-      setDraftCardId((current) => (current === id ? null : current));
-      await refresh();
+    async (id: string, reason: NoteRejectionCode = 'other'): Promise<boolean> => {
+      try {
+        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
+          method: 'POST',
+          body: JSON.stringify({ decision: 'reject', reason }),
+        });
+        applyNote(response.note);
+        setDraftCardId((current) => (current === id ? null : current));
+        await refresh();
+        return true;
+      } catch (err) {
+        // The card stays on screen: the draft is still a draft, and saying so beats a
+        // discard button that appears to have worked.
+        setError(describeError(err));
+        return false;
+      }
     },
     [applyNote, refresh],
   );
@@ -516,36 +563,58 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   );
 
   const togglePin = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean> => {
       const note = notes.find((item) => item.id === id);
-      const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/pin`, {
-        method: 'POST',
-        body: JSON.stringify({ pinned: !note?.pinned }),
-      });
-      applyNote(response.note);
-      await refresh();
+      try {
+        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/pin`, {
+          method: 'POST',
+          body: JSON.stringify({ pinned: !note?.pinned }),
+        });
+        applyNote(response.note);
+        await refresh();
+        return true;
+      } catch (err) {
+        // A note archived in another tab answers 404 here. Left uncaught, that
+        // rejection escaped into `void togglePin(id)` and the click did nothing.
+        setError(describeError(err));
+        return false;
+      }
     },
     [applyNote, notes, refresh],
   );
 
   const archiveNote = useCallback(
-    async (id: string) => {
-      const response = await apiRequest<{ note: Note }>(`/api/notes/${id}`, { method: 'DELETE' });
-      // The row leaves the current filter; writing the server's `archived` copy into
-      // the overlay is what makes it leave the screen too.
-      applyNote(response.note);
-      await refresh();
+    async (id: string): Promise<boolean> => {
+      try {
+        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}`, {
+          method: 'DELETE',
+        });
+        // The row leaves the current filter; writing the server's `archived` copy into
+        // the overlay is what makes it leave the screen too.
+        applyNote(response.note);
+        await refresh();
+        return true;
+      } catch (err) {
+        setError(describeError(err));
+        return false;
+      }
     },
     [applyNote, refresh],
   );
 
   const restoreNote = useCallback(
-    async (id: string) => {
-      const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/restore`, {
-        method: 'POST',
-      });
-      applyNote(response.note);
-      await refresh();
+    async (id: string): Promise<boolean> => {
+      try {
+        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/restore`, {
+          method: 'POST',
+        });
+        applyNote(response.note);
+        await refresh();
+        return true;
+      } catch (err) {
+        setError(describeError(err));
+        return false;
+      }
     },
     [applyNote, refresh],
   );
@@ -641,6 +710,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       togglePin,
       archiveNote,
       restoreNote,
+      applyNote,
       markViewed,
       ballHidden,
       setBallHidden,

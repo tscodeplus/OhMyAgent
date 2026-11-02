@@ -631,6 +631,9 @@ async function runBootstrap(): Promise<BootstrapResult> {
     logger,
     tools: toolServices,
     memory: memoryServices,
+    // The notes service is the layer's only read path back to the model; absent
+    // when `notes.enabled` is false, which is what keeps `notes_search` off.
+    notes: notesServices.notesService,
     policyCenter,
     computerUseHost,
     agentManager,

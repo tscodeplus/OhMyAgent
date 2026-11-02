@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { registerNotesRoutes } from '../../src/app/webui/notes-routes.js';
-import { createTestService, openSeededDatabase, SESSION_ID } from './fixtures.js';
+import { createTestService, openSeededDatabase, PROJECT_ID, SESSION_ID } from './fixtures.js';
 import type { NotesService } from '../../src/notes/service-contract.js';
 import type { NotesRepository } from '../../src/notes/repository.js';
 
@@ -252,6 +252,58 @@ describe('notes routes', () => {
 
     await app.inject({ method: 'POST', url: `/api/notes/${id}/view` });
     expect(service.get(id)?.viewCount).toBe(1);
+
+    // A draft is being reviewed, not read: opening it must not inflate the counter
+    // the detail page renders as "viewed N times".
+    const draft = repository.create({
+      title: 'draft one',
+      summary: '',
+      body: 'b',
+      status: 'draft',
+      origin: 'agent',
+      scope: 'user',
+      scopeKey: '',
+    });
+    if (!draft.ok) throw new Error('create failed');
+    const draftView = await app.inject({ method: 'POST', url: `/api/notes/${draft.note.id}/view` });
+    expect(draftView.statusCode).toBe(200);
+    expect(service.get(draft.note.id)?.viewCount).toBe(0);
+  });
+
+  /**
+   * The editor's scope Select sends `scope` alone. Accepting that wrote a note no
+   * project facet and no scope rule could see, so the write is refused instead.
+   */
+  it('answers 400 when a scope move arrives without a scope key', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/notes',
+      payload: { title: 't', body: 'b' },
+    });
+    const id = created.json().note.id as string;
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/api/notes/${id}`,
+      payload: { scope: 'project', expectedVersion: created.json().note.version },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('invalid_scope');
+    expect(service.get(id)?.scope).toBe('user');
+
+    // With a key the same move succeeds and shows up in the project facet.
+    const moved = await app.inject({
+      method: 'PUT',
+      url: `/api/notes/${id}`,
+      payload: {
+        scope: 'project',
+        scopeKey: PROJECT_ID,
+        expectedVersion: created.json().note.version,
+      },
+    });
+    expect(moved.statusCode).toBe(200);
+    const listed = await app.inject({ method: 'GET', url: '/api/notes' });
+    expect(listed.json().projects).toEqual([{ id: PROJECT_ID, name: 'OhMyAgent', count: 1 }]);
   });
 
   it('keeps dropped text verbatim through the capture route', async () => {

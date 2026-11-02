@@ -49,12 +49,21 @@ export async function apiRequest<T>(
   }
 
   // Apply timeout via AbortController (respects any caller-supplied signal)
+  //
+  // One controller reaches `fetch`, so the two reasons to abort compose instead of
+  // overwriting each other: the timer aborts the request this call owns, and the
+  // caller's signal is forwarded into the same controller. A caller that cancels
+  // therefore cancels the request rather than merely ignoring its answer.
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const originalSignal = options.signal;
-  if (originalSignal) {
-    originalSignal.addEventListener('abort', () => controller.abort());
+  const callerSignal = options.signal;
+  const abortFromCaller = () => controller.abort();
+  if (callerSignal) {
+    // A signal that is already aborted never fires again, so it has to be read,
+    // not waited for.
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', abortFromCaller);
   }
 
   try {
@@ -80,6 +89,9 @@ export async function apiRequest<T>(
     return response.json();
   } finally {
     clearTimeout(timeout);
+    // Otherwise the listener outlives the request: a caller that keeps one
+    // controller for a page's lifetime would collect one per request.
+    callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

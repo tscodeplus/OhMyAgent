@@ -155,7 +155,12 @@ export type ManualNoteResult =
 export interface UpdateResult {
   ok: boolean;
   note?: Note;
-  code?: 'not_found' | 'version_mismatch' | 'version_required' | 'title_conflict';
+  /**
+   * `invalid_scope` is the one the caller can fix: a scope that needs a key
+   * (`project`/`channel`/`session`) cannot be chosen without one, because the note
+   * would land in a scope nothing can read it back from.
+   */
+  code?: 'not_found' | 'version_mismatch' | 'version_required' | 'title_conflict' | 'invalid_scope';
   currentVersion?: number;
   currentBody?: string;
   existingId?: string;

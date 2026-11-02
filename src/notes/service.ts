@@ -172,7 +172,10 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
     },
 
     stats(): NotesStats {
-      const counts = repository.list({ status: 'active', limit: 1 }).counts;
+      // Only the tallies: this used to call `list({ limit: 1 })` and drop the note,
+      // so answering "how many drafts" opened a whole list page (facets, sources,
+      // relations and their probes) to read three numbers.
+      const counts = repository.counts();
       const config = deps.getConfig();
       const due =
         config.ttlDays > 0

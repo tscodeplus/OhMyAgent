@@ -3,10 +3,13 @@
  *
  * A composer of its own rather than another branch inside `memory-services.ts`,
  * for one reason: notes are **not** part of memory. They share the database and
- * the aux model chain and nothing else — no injection, no retrieval lane, no
- * memory linkage (§8). Building it separately keeps "which switch turns this off"
- * answerable by reading one file, and keeps a notes failure from being able to
- * break memory construction.
+ * the aux model chain and nothing else — no memory linkage (§8), no shared schema,
+ * no shared ranking. Since the review's §4 U1 the layer does have its own read
+ * paths (`notes_search` and the `<notes_context>` block), but they are wired
+ * through the service this file returns, which is also the switch: when
+ * `notes.enabled` is false nothing is constructed and both go away. Building it
+ * separately keeps "which switch turns this off" answerable by reading one file,
+ * and keeps a notes failure from being able to break memory construction.
  *
  * Only `notes.enabled` is read here: the numeric knobs (`capture.*`, `draft.*`)
  * are hot-reloadable, so they are read through `getConfig()` on every call rather

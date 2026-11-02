@@ -1629,7 +1629,6 @@
     "open": "Open notes",
     "copy": "Copy",
     "ballLabel": "Capture a note",
-    "viewCount": "Viewed {{count}}×",
     "sourceCount": "{{count}} sources",
     "traceTitle": "Source",
     "traceFrom": "From {{where}}",
@@ -1706,7 +1705,15 @@
       "modeEdit": "Edit",
       "modePreview": "Preview",
       "emptyPreview": "The body is still empty",
-      "saveAndApprove": "Save & approve"
+      "saveAndApprove": "Save & approve",
+      "fieldsTitle": "Fields",
+      "fieldsEmpty": "No fields yet (optional)",
+      "addField": "Add field",
+      "fieldKey": "Name",
+      "fieldValue": "Value",
+      "fieldMono": "Copyable",
+      "fieldMonoHint": "Adds a copy button next to the value — for commands and paths",
+      "removeField": "Remove this field"
     },
     "field": {
       "command": "Command",
@@ -1750,6 +1757,17 @@
       "duplicate": "Duplicate",
       "private": "Should not be kept",
       "other": "Other"
+    },
+    "loadMore": "Load more",
+    "loadMoreError": "Could not load more — try again",
+    "endOfList": "That is everything",
+    "toast": {
+      "archived": "Archived",
+      "discarded": "Discarded",
+      "restored": "Restored",
+      "undo": "Undo",
+      "undoFailed": "Undo failed — try again",
+      "failed": "That did not work — try again"
     },
     "draftsStats": "{{due}} expiring tomorrow · {{rate}}% approved"
   },

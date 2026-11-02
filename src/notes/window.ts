@@ -210,6 +210,13 @@ export function scopeCharsIds(messages: readonly WindowMessage[], chars: number)
 /**
  * Trim from the oldest end until the character cap is met, but never below one turn.
  *
+ * "One turn" is a user message plus everything after it, so the floor is where that
+ * user message starts — not "the last two entries". In a tool-calling exchange the
+ * tail is `assistant (call)` + `assistant (summary)`, and keeping two messages started
+ * the window on a reply whose question had been cut, which is a turn entered from the
+ * middle. When the window holds no user message there is no boundary to protect, so
+ * the cap still applies down to the newest message.
+ *
  * The dropped count is returned rather than discarded: `capture.ts` puts it on the
  * result and the reply says "read the last N (the earlier M did not fit)". A cap that
  * trims without saying so is how a note about the end of a conversation gets mistaken
@@ -220,9 +227,15 @@ function trimToChars(
   charBudget: number,
 ): { messages: WindowMessage[]; dropped: number } {
   let chars = messages.reduce((sum, message) => sum + message.content.length, 0);
+  let floor = messages.length > 0 ? messages.length - 1 : 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'user') {
+      floor = index;
+      break;
+    }
+  }
   let start = 0;
-  // Keep at least the last two entries (the last user + assistant exchange).
-  while (chars > charBudget && messages.length - start > 2) {
+  while (chars > charBudget && start < floor) {
     chars -= messages[start].content.length;
     start += 1;
   }

@@ -121,6 +121,51 @@ describe('isToolVisibleForIntent', () => {
     expect(isToolVisibleForIntent('shell', 'memory')).toBe(false);
   });
 
+  it('keeps the retrieval tools on a back-reference that narrows to memory', () => {
+    // The defect this guards: 「还记得 / 记一下」 are memory-domain keywords, so the
+    // turn that most needs "did I write this down" narrowed the surface to the
+    // memory family — `notes_search` and `session_search` vanished from the
+    // visible tools *and* from the tool_search catalog built out of them.
+    const domain = detectIntentDomain('还记得上次那个命令吗')?.domain;
+    expect(domain).toBe('memory');
+    expect(isToolVisibleForIntent('notes_search', domain!)).toBe(true);
+    expect(isToolVisibleForIntent('session_search', domain!)).toBe(true);
+
+    const surface = [
+      'memory_recall',
+      'session_summarize',
+      'notes_search',
+      'session_search',
+      'shell',
+      'web_search',
+    ];
+    expect(surface.filter((name) => isToolVisibleForIntent(name, domain!))).toEqual([
+      'memory_recall',
+      'session_summarize',
+      'notes_search',
+      'session_search',
+    ]);
+  });
+
+  it('keeps them whatever domain a back-reference happens to narrow to', () => {
+    // A back-reference does not always land on `memory`: 「上次那个 web 搜索为什么
+    // 失败」 is a `web` turn. An exemption written into one domain's patterns would
+    // cover only the first case, and the next retrieval tool would have to be
+    // remembered in every list.
+    expect(detectIntentDomain('上次那个 web 搜索为什么失败了')?.domain).toBe('web');
+    for (const domain of [
+      'bare-chat',
+      'code',
+      'web',
+      'multimedia',
+      'memory',
+      'project-management',
+    ] as IntentDomain[]) {
+      expect(isToolVisibleForIntent('notes_search', domain)).toBe(true);
+      expect(isToolVisibleForIntent('session_search', domain)).toBe(true);
+    }
+  });
+
   it('project-management keeps task/todo/cron/brief family', () => {
     expect(isToolVisibleForIntent('task_create', 'project-management')).toBe(true);
     expect(isToolVisibleForIntent('task_get', 'project-management')).toBe(true);

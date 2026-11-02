@@ -19,8 +19,13 @@ import type {
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getDefaultModel } from '../provider/pi-ai-setup.js';
 import { createTransformContext } from './context-transform.js';
-import type { EpisodicContextItem } from './context-transform.js';
+import type { EpisodicContextItem, NotesContextOffer } from './context-transform.js';
+import { stripBackReferencePhrases } from './context-transform.js';
 import { searchMessages } from '../memory/conversation-search.js';
+import { buildFtsQuery } from '../memory/fts-tokenizer.js';
+import { channelScopeKey } from '../notes/scope.js';
+import type { NoteScopeContext } from '../notes/types.js';
+import type { NotesService } from '../notes/service-contract.js';
 import type Database from 'better-sqlite3';
 import { estimateStaticContextTokens } from './compress.js';
 import { convertToLlm } from './convert-to-llm.js';
@@ -487,6 +492,66 @@ export function searchEpisodicContext(params: EpisodicSearchParams): EpisodicCon
   return items.filter((item) => item.createdAt > 0 && item.createdAt <= lastPastInstant);
 }
 
+// ─── Notes injection retrieval (§4 U1) ───
+
+/**
+ * Notes per injection. The transform re-caps at its own default, so asking for
+ * more here would only cost a wider query.
+ */
+const NOTES_CONTEXT_ITEMS = 2;
+
+export interface NotesSearchContextParams {
+  notes: NotesService;
+  /** The turn's user text, already gated on being a back-reference by the transform. */
+  query: string;
+  /** The turn's read rule: project / chat / session, the same shape `notes_search` uses. */
+  context: NoteScopeContext;
+}
+
+/**
+ * The notes lane's retrieval: approved notes for a back-reference, best first.
+ *
+ * Two things separate this from `list({ q })`:
+ *
+ * - **The back-reference words are not search terms.** 「上次那个命令」 has no
+ *   subject: 上次 and 那个 are conversational deixis, and a BM25 query built from
+ *   them matches whatever else happens to share those words. They are stripped
+ *   first (by the same module that decides the block's trigger, so the two can
+ *   never disagree) and only the remainder is searched.
+ * - **Nothing left is an answer, not a failure.** 「还记得吗」 strips to nothing;
+ *   searching it would return an empty list, when what the turn actually asks is
+ *   "what have I written down at all". That case falls back to the newest
+ *   approved notes and reports `mode: 'recent'`, so the block can say it is a
+ *   shelf rather than a match — a model handed the same list under a "relevant
+ *   notes" header will answer last week's question with this week's note.
+ *
+ * Exported because the fallback is a property of this function rather than of the
+ * wiring: a test with a stub provider cannot see which of the two modes a real
+ * query takes.
+ */
+export function searchNotesContext(
+  params: NotesSearchContextParams,
+): NotesContextOffer | undefined {
+  const remainder = stripBackReferencePhrases(params.query);
+  // The same predicate the repository uses to decide "a search that matches
+  // nothing" (`noteSearchClause`): a remainder with no indexable term is not a
+  // query, so passing it would turn the fallback into an empty result.
+  const matched = buildFtsQuery(remainder) !== null;
+  const listed = params.notes.list({
+    status: 'active',
+    ...(matched ? { q: remainder } : {}),
+    limit: NOTES_CONTEXT_ITEMS,
+    context: params.context,
+  });
+  const items = listed.notes.map((note) => ({
+    id: note.id,
+    title: note.title,
+    summary: note.summary,
+  }));
+  if (items.length === 0) return undefined;
+  return { mode: matched ? 'matched' : 'recent', items };
+}
+
 // ─── Factory ───
 
 export function createAgentFactory(
@@ -937,6 +1002,23 @@ export function createAgentFactory(
       // (in transformContext) also needs it.
       const bridgeRegistry = getServices?.()?.desktopBridgeRegistry;
 
+      // The notes lane's source, and its read rule. Both are resolved once per
+      // runtime rather than inside the provider: `notes.enabled` false leaves
+      // `notesService` absent, and the honest provider in that case is none at all
+      // — not one that runs, asks, and finds nothing (the layer stays off until a
+      // restart, exactly like its routes).
+      //
+      // The scope shape is `notes_search`'s (`notesScopeContext`), built from the
+      // same three turn facts: a note that the tool could read must be a note the
+      // injection can read, or the block would answer "nothing written down" for a
+      // chat whose notes exist.
+      const notesService = getServices?.()?.notesService;
+      const notesScope: NoteScopeContext = {
+        projectId: options?.projectId ?? null,
+        channelKey: options?.channel && chatId ? channelScopeKey(options.channel, chatId) : null,
+        sessionId: sessionId ?? null,
+      };
+
       const toolPipelineResult = assembleAgentTools({
         explicitTools: options?.tools,
         toolRegistry,
@@ -1115,6 +1197,13 @@ export function createAgentFactory(
               turnStart: options?.turnContext?.turnStartedAt,
             });
           },
+          // §4 U1: the notes leg. Triggered and capped by the transform (a
+          // back-reference, ≤2 notes, 400 tokens); this provider only answers the
+          // query it is handed.
+          notesContextProvider: notesService
+            ? (query: string) =>
+                searchNotesContext({ notes: notesService, query, context: notesScope })
+            : undefined,
           desktopBridgeReminderProvider: bridgeRegistry
             ? (sKey?: string) => {
                 if (!sKey || !bridgeRegistry.hasBridge(sKey)) return undefined;

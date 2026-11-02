@@ -1629,7 +1629,6 @@
     "open": "打开笔记",
     "copy": "复制",
     "ballLabel": "记一条笔记",
-    "viewCount": "看过 {{count}} 次",
     "sourceCount": "{{count}} 条来源",
     "traceTitle": "来源",
     "traceFrom": "来自 {{where}}",
@@ -1706,7 +1705,15 @@
       "modeEdit": "编辑",
       "modePreview": "预览",
       "emptyPreview": "正文还是空的",
-      "saveAndApprove": "保存并批准"
+      "saveAndApprove": "保存并批准",
+      "fieldsTitle": "字段",
+      "fieldsEmpty": "还没有结构化字段（可选）",
+      "addField": "添加字段",
+      "fieldKey": "名称",
+      "fieldValue": "内容",
+      "fieldMono": "可复制",
+      "fieldMonoHint": "勾选后内容旁会出现复制按钮，适合命令和路径",
+      "removeField": "删除这个字段"
     },
     "field": {
       "command": "命令",
@@ -1750,6 +1757,17 @@
       "duplicate": "重复",
       "private": "不该留（隐私）",
       "other": "其他"
+    },
+    "loadMore": "加载更多",
+    "loadMoreError": "加载失败，请重试",
+    "endOfList": "没有更多了",
+    "toast": {
+      "archived": "已归档",
+      "discarded": "已丢弃",
+      "restored": "已恢复",
+      "undo": "撤销",
+      "undoFailed": "撤销失败，请重试",
+      "failed": "操作失败，请重试"
     },
     "draftsStats": "{{due}} 条明天到期 · 批准率 {{rate}}%"
   },

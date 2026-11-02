@@ -93,12 +93,25 @@ export interface CaptureDeps {
   }) => Promise<DistillOutcome>;
 }
 
-/** Both platform-agnostic and channel-specific "is this a shared room" checks. */
-function isGroupChat(chatType: string | undefined, channel: string | null): boolean {
-  if (chatType) return chatType === 'group' || chatType === 'supergroup';
-  // Telegram supergroups have negative chat ids; QQ/WeChat put group markers in
-  // the id. Feishu reports `p2p`/`group` explicitly, so it is never guessed here.
-  return channel === 'telegram' || channel === 'qq' || channel === 'wechat' ? false : false;
+/**
+ * Is this room shared with other people?
+ *
+ * `chatType` is the only source, because it is the only one the channels actually
+ * report: every extension passes the platform's own field to `/note` (Feishu
+ * `p2p`/`group`, Telegram `chat.type` = `private`/`group`/`supergroup`, QQ
+ * `group`/`c2c`, WeChat `p2p`) and `CaptureRequest.chatType` is the documented seam.
+ * The version before this one also guessed from the channel — "Telegram supergroups
+ * have negative chat ids, QQ/WeChat put group markers in the id" — and returned
+ * `false` in both branches, i.e. a fallback that inferred nothing while reading like
+ * one, so a group's `/note` silently landed in the user's own library.
+ *
+ * The limits, stated instead of hidden: a caller that omits `chatType` is treated as
+ * 1:1, and a Telegram broadcast `channel` is neither `group` nor `supergroup`, so it
+ * also defaults to `user`. Recovering either from an id shape would be a guess, and
+ * `defaultScope` exists precisely to keep guesses out of the leak decision.
+ */
+function isGroupChat(chatType: string | undefined): boolean {
+  return chatType === 'group' || chatType === 'supergroup';
 }
 
 export class CapturePipeline {
@@ -139,6 +152,25 @@ export class CapturePipeline {
           ORDER BY created_at DESC, rowid DESC LIMIT ?`,
       )
       .all(sessionId, limit) as Message[];
+  }
+
+  /**
+   * Messages by id, still bounded to the session they were selected from.
+   *
+   * `selection` knows exactly which rows it wants, so "the newest N rows" is the wrong
+   * proxy: a message picked from an hour ago sits past that limit and was reported as
+   * `selection_outside_session` although it is right there in the session. The
+   * `session_id = ?` predicate stays, because a cross-session id must keep being
+   * rejected — that guard is the reason the mode reads by id rather than by trust.
+   */
+  private readMessagesByIds(sessionId: string, ids: readonly string[]): Message[] {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return [];
+    // The WebUI route caps a selection at 50 ids, well inside SQLite's variable limit.
+    const placeholders = unique.map(() => '?').join(',');
+    return this.deps.db
+      .prepare(`SELECT * FROM messages WHERE session_id = ? AND id IN (${placeholders})`)
+      .all(sessionId, ...unique) as Message[];
   }
 
   /** Oldest `limit` messages — the head sample of an over-cap `session` window. */
@@ -192,7 +224,8 @@ export class CapturePipeline {
      * How much history to load depends on the mode. `session` is bounded only by
      * `notes.capture.sessionRows` — there is no token budget, because a token guess
      * about a model's capacity is invisible when it is wrong. `recent` needs turns × 2
-     * plus tool rows, `turn` needs the tail, `selection` needs ids only.
+     * plus tool rows, `turn` needs the tail (60 rows — a turn plus the tool traffic
+     * around it), `selection` reads the ids it was given, nothing else.
      *
      * An over-cap `session` is **never silently cut to its tail**: the loader keeps a
      * head sample (cap/10 — the opening usually carries the session's subject and
@@ -227,6 +260,8 @@ export class CapturePipeline {
       }
     } else if (mode === 'recent') {
       history = this.readMessages(session.id, Math.min(turns * 8, 200));
+    } else if (mode === 'selection') {
+      history = this.readMessagesByIds(session.id, request.messageIds ?? []);
     } else {
       history = this.readMessages(session.id, 60);
     }
@@ -506,7 +541,7 @@ export class CapturePipeline {
     if (request.scope) return { scope: request.scope, scopeKey: request.scopeKey ?? '' };
     return defaultScope({
       channel: session.channel,
-      isGroupChat: isGroupChat(request.chatType, session.channel),
+      isGroupChat: isGroupChat(request.chatType),
       chatId: session.chatId,
       projectId: session.projectId,
     });

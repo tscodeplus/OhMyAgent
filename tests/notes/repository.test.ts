@@ -308,7 +308,7 @@ describe('NotesRepository', () => {
   });
 
   it('resolves a message source to its conversation, and drops it when gone', () => {
-    // The repository is enough here: this test is about what `decorate` resolves.
+    // The repository is enough here: this test is about what hydration resolves.
     const repository = new NotesRepository(db);
     const created = repository.create({
       title: 'source session',
@@ -336,5 +336,165 @@ describe('NotesRepository', () => {
     const gone = note?.sources.find((item) => item.id === 'msg-deleted');
     expect(gone?.available).toBe(false);
     expect(gone?.sessionId ?? null).toBeNull();
+  });
+
+  /**
+   * A scope that needs a key cannot be chosen without one.
+   *
+   * The editor's scope Select sends `scope` alone, which used to write
+   * `scope_key = ''`: the note was saved, reported as saved, and then invisible to
+   * every project facet and every scope read rule. Refusing is the only answer that
+   * cannot lose the user's intent silently.
+   */
+  it('refuses a scope that needs a key when the key is missing', () => {
+    const created = repository.create(baseInput());
+    if (!created.ok) throw new Error('create failed');
+
+    for (const scope of ['project', 'channel', 'session'] as const) {
+      const moved = repository.update(created.note.id, {
+        scope,
+        expectedVersion: created.note.version,
+      });
+      expect(moved.ok).toBe(false);
+      if (moved.ok) return;
+      expect(moved.code).toBe('invalid_scope');
+    }
+
+    // A refused write leaves the row where it was.
+    expect(repository.get(created.note.id)?.scope).toBe('user');
+  });
+
+  /**
+   * A row already keyless from the old path stays editable.
+   *
+   * Refusing the *move* is what prevents new orphans; refusing an unrelated edit on
+   * an existing one would freeze the note as well as hide it.
+   */
+  it('still edits a note that an older write left with an empty scope key', () => {
+    const legacy = repository.create(baseInput({ scope: 'project', scopeKey: '' }));
+    if (!legacy.ok) throw new Error('create failed');
+
+    const edited = repository.update(legacy.note.id, {
+      body: 'typo fixed',
+      expectedVersion: legacy.note.version,
+    });
+    expect(edited.ok).toBe(true);
+    expect(repository.get(legacy.note.id)?.body).toBe('typo fixed');
+  });
+
+  it('keeps the scope key when a patch re-sends the scope it already has', () => {
+    const created = repository.create(baseInput({ scope: 'project', scopeKey: PROJECT_ID }));
+    if (!created.ok) throw new Error('create failed');
+
+    const edited = repository.update(created.note.id, {
+      scope: 'project',
+      body: 'edited body',
+      expectedVersion: created.note.version,
+    });
+    expect(edited.ok).toBe(true);
+    if (!edited.ok) return;
+    // `scope` without `scopeKey` on an unchanged scope is a no-op, not a reset.
+    expect(edited.note.scopeKey).toBe(PROJECT_ID);
+    // And it is still offered by the project filter, which reads `scope_key`.
+    expect(repository.list({ status: 'active' }).projects.map((project) => project.id)).toEqual([
+      PROJECT_ID,
+    ]);
+  });
+
+  it('moves a note to a project when the key comes with the scope', () => {
+    const created = repository.create(baseInput());
+    if (!created.ok) throw new Error('create failed');
+
+    const moved = repository.update(created.note.id, {
+      scope: 'project',
+      scopeKey: PROJECT_ID,
+      expectedVersion: created.note.version,
+    });
+    expect(moved.ok).toBe(true);
+    expect(repository.list({ status: 'active' }).projects.map((project) => project.id)).toEqual([
+      PROJECT_ID,
+    ]);
+  });
+
+  /**
+   * A key-only patch is still an unmergeable write: it changes which library the
+   * note lives in, so it needs the version the editor read.
+   */
+  it('requires the version for a scope key change', () => {
+    const created = repository.create(baseInput({ scope: 'project', scopeKey: PROJECT_ID }));
+    if (!created.ok) throw new Error('create failed');
+
+    const missing = repository.update(created.note.id, { scopeKey: 'proj-elsewhere' });
+    expect(missing.ok).toBe(false);
+    if (missing.ok) return;
+    expect(missing.code).toBe('version_required');
+  });
+
+  /**
+   * The editor sends title, tags and scope on every save, so a rebuild gated on "was
+   * the key present" fired on a typo fix. The gate compares values instead, and the
+   * observation is the relation rows' `created_at`: a rebuild rewrites them.
+   */
+  it('rebuilds relations only when a relation input changed value', () => {
+    const first = repository.create(baseInput({ title: '第一条', now: 1_000 }));
+    const second = repository.create(baseInput({ title: '第二条', now: 1_000 }));
+    if (!first.ok || !second.ok) throw new Error('create failed');
+
+    const relationRows = () =>
+      db
+        .prepare(
+          `SELECT note_id, related_id, basis, created_at FROM note_relations
+            ORDER BY note_id, related_id`,
+        )
+        .all();
+    const before = relationRows();
+    // Both cite the same conversation, so there is something to observe.
+    expect(before.length).toBeGreaterThan(0);
+
+    // A full patch that changes no relation input (the editor's shape).
+    const unchanged = repository.update(first.note.id, {
+      title: '第一条',
+      tags: [],
+      scope: 'user',
+      body: '只改了一个错字',
+      expectedVersion: first.note.version,
+      now: 2_000,
+    });
+    expect(unchanged.ok).toBe(true);
+    expect(relationRows()).toEqual(before);
+
+    // Retitling *is* a relation input: the row is rebuilt (new `created_at`).
+    const retitled = repository.update(first.note.id, {
+      title: '改名后的第一条',
+      expectedVersion: first.note.version + 1,
+      now: 3_000,
+    });
+    expect(retitled.ok).toBe(true);
+    expect(relationRows()).not.toEqual(before);
+  });
+
+  /**
+   * A draft has never been read as a note; it is being reviewed. Counting those
+   * made the detail page's "viewed N times" mean two different things.
+   */
+  it('does not count review glances as views of a draft', () => {
+    const draft = repository.create(baseInput({ status: 'draft', origin: 'agent' }));
+    if (!draft.ok) throw new Error('create failed');
+
+    repository.recordView(draft.note.id);
+    expect(repository.get(draft.note.id)?.viewCount).toBe(0);
+    // The log follows the counter: no view event for a view that was not counted.
+    const viewEvents = () =>
+      (
+        db
+          .prepare(`SELECT COUNT(*) AS cnt FROM note_events WHERE note_id = ? AND action = 'view'`)
+          .get(draft.note.id) as { cnt: number }
+      ).cnt;
+    expect(viewEvents()).toBe(0);
+
+    repository.setStatus(draft.note.id, 'active', { actor: 'user' });
+    repository.recordView(draft.note.id);
+    expect(repository.get(draft.note.id)?.viewCount).toBe(1);
+    expect(viewEvents()).toBe(1);
   });
 });

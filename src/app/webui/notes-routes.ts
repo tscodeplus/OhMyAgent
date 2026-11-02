@@ -360,6 +360,14 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
         return reply.status(404).send({ error: 'not found' });
       case 'title_conflict':
         return reply.status(422).send({ error: 'title_conflict', existingId: result.existingId });
+      case 'invalid_scope':
+        // `project` / `channel` / `session` need to say *which* one. A body that sends
+        // only the scope asked for a note nothing can read back, so it is a caller
+        // error, not a conflict.
+        return reply.status(400).send({
+          error: 'invalid_scope',
+          detail: 'scope requires a scopeKey (or the note keeps the key it has)',
+        });
       default:
         // Both version codes are a 409 with the same remedy: re-read, re-merge.
         return reply.status(409).send({

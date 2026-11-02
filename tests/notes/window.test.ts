@@ -81,12 +81,56 @@ describe('resolveWindow / session', () => {
     expect(window.droppedMessages).toBeGreaterThan(0);
   });
 
-  it('never trims below the last exchange, even under an impossible character cap', () => {
+  it('never trims below the last turn, even under an impossible character cap', () => {
     const rows = conversation(3, 4000);
     const window = resolveWindow(rows, { sessionId: 's1', mode: 'session', charBudget: 10 });
 
+    // The last turn starts at its user message, so the window is that turn and not
+    // "the last two entries".
     expect(window.messages.length).toBe(2);
     expect(window.droppedMessages).toBe(4);
+  });
+
+  it('does not start the window in the middle of a turn', () => {
+    // A tool-calling exchange ends `assistant (call)` + `assistant (summary)`: keeping
+    // "the last two messages" kept a reply whose question had been cut, which is a
+    // turn entered from the middle. The floor is the last `user` message.
+    const rows = [
+      message('user', 'x'.repeat(4000)),
+      message('assistant', 'y'.repeat(4000)),
+      message('user', '短问题'),
+      message('assistant', '[tool] shell({"command":"lsof -i :9191"})'),
+      message('assistant', '结论：端口被 9191 上的旧进程占着。'),
+    ];
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session', charBudget: 10 });
+
+    expect(window.messageIds).toEqual([rows[2].id, rows[3].id, rows[4].id]);
+    expect(window.droppedMessages).toBe(2);
+  });
+
+  it('keeps a lone last user message when the cap cannot fit it either', () => {
+    const rows = [
+      message('user', 'x'.repeat(4000)),
+      message('assistant', 'y'.repeat(4000)),
+      message('user', '短问题'),
+    ];
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session', charBudget: 10 });
+
+    // The last turn is one message here: the cap loses to the accuracy of what the
+    // note is about, and the reply reports that it read one message.
+    expect(window.messageIds).toEqual([rows[2].id]);
+    expect(window.droppedMessages).toBe(2);
+  });
+
+  it('keeps the newest message when the window holds no turn boundary', () => {
+    // No `user` row means there is no turn to protect, so the cap still applies — a
+    // guard that fell back to "keep everything" would make an assistant-only session
+    // read whole no matter what the user typed.
+    const rows = [message('assistant', 'a'.repeat(4000)), message('assistant', 'b'.repeat(4000))];
+    const window = resolveWindow(rows, { sessionId: 's1', mode: 'session', charBudget: 10 });
+
+    expect(window.messageIds).toEqual([rows[1].id]);
+    expect(window.droppedMessages).toBe(1);
   });
 
   it('keeps `turn` and `selection` unchanged', () => {

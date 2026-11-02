@@ -259,6 +259,7 @@ describe('AgentService', () => {
         toolName: 'assistant_message',
         memoryIds: ['mem-quoted'],
         messageIds: [],
+        noteIds: [],
       });
     } finally {
       record.mockRestore();

@@ -782,4 +782,191 @@ describe('notes service', () => {
       expect(result.ok).toBe(false);
     });
   });
+
+  /**
+   * `selection` names the exact messages it wants, so it cannot be served by "the
+   * newest N rows": a message picked from earlier in the session is inside the
+   * session even when it sits past that limit.
+   */
+  describe('selection', () => {
+    /** 70 exchanges after the fixture's, so the fixture's own ids are past 60 rows. */
+    function appendTurns(count: number): void {
+      const insert = db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      const after = 1_780_000_002_000;
+      for (let index = 0; index < count; index += 1) {
+        insert.run(
+          `msg-sel-u${index}`,
+          SESSION_ID,
+          'user',
+          `第 ${index} 个追问`,
+          String(after + index * 2),
+        );
+        insert.run(
+          `msg-sel-a${index}`,
+          SESSION_ID,
+          'assistant',
+          `第 ${index} 个回答`,
+          String(after + 1 + index * 2),
+        );
+      }
+    }
+
+    function seedOtherSession(sessionId: string, messageId: string): void {
+      db.prepare(
+        `INSERT INTO sessions (id, chat_id, user_id, channel, project_id, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+      ).run(
+        sessionId,
+        'oc_other',
+        'user-notes',
+        'webui',
+        '另一个会话',
+        '1780000002000',
+        '1780000002000',
+      );
+      db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      ).run(messageId, sessionId, 'user', '另一个会话里的一句话', '1780000002001');
+    }
+
+    it('captures a selected message older than the newest 60 rows', async () => {
+      appendTurns(70);
+      const { service, distillationCalls } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), evidence: [MESSAGE_ASSISTANT] }],
+      });
+
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'selection',
+        messageIds: [MESSAGE_ASSISTANT],
+      });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+
+      // The window is the selection itself, not a slice of recent history: 140 rows
+      // sit after it, and "not among the newest 60" used to be reported as
+      // `selection_outside_session`.
+      expect(distillationCalls[0].windowIds).toEqual([MESSAGE_ASSISTANT]);
+      expect(result.readMessages).toBe(1);
+    });
+
+    it('still refuses a selection from another session', async () => {
+      seedOtherSession('session-other', 'msg-other-1');
+      const { service, distillationCalls } = createTestService(db);
+
+      const result = await service.capture({
+        sessionId: SESSION_ID,
+        mode: 'selection',
+        messageIds: ['msg-other-1'],
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+
+      // Reading by id keeps the `session_id` predicate: a row that exists but belongs
+      // to someone else's conversation is exactly what this error is for.
+      expect(result.code).toBe('empty_window');
+      expect(result.message).toBe('selection_outside_session');
+      expect(distillationCalls).toHaveLength(0);
+    });
+  });
+
+  /**
+   * Scope defaults (§4.5, §5.7): a shared room's note must not land in the person's
+   * library. `chatType` is the only thing that can distinguish a group from a DM here
+   * — the channel name cannot, and neither can the id shape.
+   */
+  describe('default scope', () => {
+    function seedChannelSession(sessionId: string, channel: string, chatId: string): void {
+      db.prepare(
+        `INSERT INTO sessions (id, chat_id, user_id, channel, project_id, title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+      ).run(sessionId, chatId, 'user-notes', channel, '群聊', '1780000002000', '1780000002000');
+      const insert = db.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      insert.run(
+        `${sessionId}-u`,
+        sessionId,
+        'user',
+        '群里问：端口被占用怎么查？',
+        '1780000002001',
+      );
+      insert.run(
+        `${sessionId}-a`,
+        sessionId,
+        'assistant',
+        'lsof -i :9191 然后 kill 掉那个 PID。',
+        '1780000002002',
+      );
+    }
+
+    it('puts a group chat’s note in the channel scope', async () => {
+      seedChannelSession('session-tg-group', 'telegram', '-100123456');
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), evidence: ['session-tg-group-a'] }],
+      });
+
+      const result = await service.capture({
+        sessionId: 'session-tg-group',
+        mode: 'turn',
+        chatType: 'supergroup',
+      });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+
+      // A group's note belongs to that chat: other people are in the room, so it must
+      // not default to `user` (§4.5).
+      expect(result.notes[0].scope).toBe('channel');
+      expect(result.notes[0].scopeKey).toBe('telegram:-100123456');
+    });
+
+    it('reads QQ’s bare `group` as a shared room too', async () => {
+      seedChannelSession('session-qq-group', 'qq', 'GROUP-OPENID-1');
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), evidence: ['session-qq-group-a'] }],
+      });
+
+      const result = await service.capture({
+        sessionId: 'session-qq-group',
+        mode: 'turn',
+        chatType: 'group',
+      });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+
+      expect(result.notes[0].scope).toBe('channel');
+      expect(result.notes[0].scopeKey).toBe('qq:GROUP-OPENID-1');
+    });
+
+    it('keeps a 1:1 note on the same channel personal', async () => {
+      seedChannelSession('session-tg-dm', 'telegram', '7654321');
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), evidence: ['session-tg-dm-a'] }],
+      });
+
+      const result = await service.capture({
+        sessionId: 'session-tg-dm',
+        mode: 'turn',
+        chatType: 'private',
+      });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+
+      expect(result.notes[0].scope).toBe('user');
+      expect(result.notes[0].scopeKey).toBe('');
+    });
+
+    it('treats a chat that reports no chatType as 1:1', async () => {
+      // The stated limit of the chatType-only rule: no field, no group inference. It is
+      // the behaviour that was already in effect, now written down instead of hidden
+      // behind a channel branch that returned `false` either way.
+      seedChannelSession('session-tg-unknown', 'telegram', '-100999');
+      const { service } = createTestService(db, {
+        distillNotes: [{ ...defaultDistilled(), evidence: ['session-tg-unknown-a'] }],
+      });
+
+      const result = await service.capture({ sessionId: 'session-tg-unknown', mode: 'turn' });
+      if (!result.ok) throw new Error('capture failed: ' + result.message);
+
+      expect(result.notes[0].scope).toBe('user');
+    });
+  });
 });

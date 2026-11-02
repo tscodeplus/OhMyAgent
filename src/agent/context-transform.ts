@@ -24,6 +24,13 @@
  *       query ("上次那个方案叫什么"), from conversation search. Conditional on
  *       intent: a turn that asks for new work never pays for it.
  *
+ *   <notes_context> — up to 2 approved notes (title + summary, never the body)
+ *       for the same kind of query, from the notes library
+ *       (MyDocs/NOTES_LAYER_REVIEW_2026-11-02.md §4 U1). The review gate is what
+ *       makes this block cheap to trust: every note in it was approved by a
+ *       human. Its own ceiling is 400 tokens — smaller than the pool — because
+ *       a note is a distilled answer and two of them are the whole point.
+ *
  * It is budgeted (together with the memory block, the ≤800-token pool,
  * configurable through `injectionBudget`) and a no-op when its provider throws —
  * retrieval must never be a reason a turn fails.
@@ -207,6 +214,7 @@ const autoRecalledSessions = new LRUCache<string, true>({ max: 2000 });
 interface InjectedOffer {
   memories: InjectionOfferItem[];
   messages: InjectionOfferItem[];
+  notes: InjectionOfferItem[];
 }
 const injectedOfferBySession = new LRUCache<string, InjectedOffer>({
   max: 2000,
@@ -492,6 +500,35 @@ export interface EpisodicContextItem {
   messageId?: string;
 }
 
+/**
+ * One approved note offered to the `<notes_context>` block.
+ *
+ * Title and summary only, and the omission is the design: the reviewer approved
+ * the summary as the reusable one-liner, `body` is what `notes_search` exists
+ * for, and a model reading two full bodies to answer one back-reference spends
+ * the turn's context on the notes it is not going to use.
+ */
+export interface NotesContextItem {
+  id: string;
+  title: string;
+  summary: string;
+}
+
+/**
+ * What the notes lane returns for one turn.
+ *
+ * `mode` is not decoration. A back-reference usually leaves no searchable words
+ * of its own (「还记得吗」, 「上次那个」), so the lane falls back to the notes that
+ * were updated most recently — and a model handed that list under the same header
+ * as a real match will answer from it. The block therefore says which of the two
+ * it is, in words, because the difference is invisible in the entries.
+ */
+export interface NotesContextOffer {
+  /** `matched` — the query's own words found these; `recent` — newest approved notes. */
+  mode: 'matched' | 'recent';
+  items: NotesContextItem[];
+}
+
 // ── Per-turn injection budget (plan §4 principle 5 / §6 G4, §6 K5 item 4) ───
 // The whole automatic injection may add ≤800 tokens per turn, as ONE pool
 // allocated by one ranking pass; the lanes' item and line caps are what bound
@@ -512,6 +549,31 @@ const EPISODIC_MAX_ITEMS = 2;
 const EPISODIC_EXCERPT_MAX_CHARS = 200;
 /** Header (date · channel · title) is metadata, not content — keep it short. */
 const INJECTION_HEADER_MAX_CHARS = 60;
+/**
+ * Notes per turn, and the notes lane's own ceiling inside the pool.
+ *
+ * 400 tokens for at most 2 × (80-char title + 200-char summary) plus the framing
+ * line: a note is already distilled prose, so two of them are what answers a
+ * back-reference, and the pool's remaining ~400 stays available to the other two
+ * lanes. The line cap is per entry, so one long note cannot take the whole lane.
+ */
+const NOTES_MAX_ITEMS = 2;
+const NOTES_BLOCK_TOKEN_BUDGET = 400;
+const NOTES_TITLE_MAX_CHARS = 80;
+const NOTES_SUMMARY_MAX_CHARS = 200;
+
+/**
+ * The framing line each `<notes_context>` mode opens with.
+ *
+ * It exists because the entries themselves cannot tell a match from a fallback,
+ * and a model that reads "recent" as "relevant" answers a question about last
+ * week's script with this afternoon's unrelated note.
+ */
+const NOTES_BLOCK_HEADER: Record<NotesContextOffer['mode'], string> = {
+  matched: 'Approved notes relevant to this message:',
+  recent:
+    'No searchable words in this message: these are the most recently updated approved notes (pinned ones first), not search results. Use one only if it actually answers the question.',
+};
 
 /**
  * Token budgets for the injected blocks, as configuration rather than
@@ -522,7 +584,7 @@ const INJECTION_HEADER_MAX_CHARS = 60;
  * to reserve the other lanes' share.
  */
 export interface InjectionBudgetConfig {
-  /** Ceiling for `<memory_context>` + `<recent_conversation>`, in tokens. */
+  /** Ceiling for every injected block together, in tokens. */
   totalTokens?: number;
   /** Optional ceiling for the memory block alone. */
   memoryTokens?: number;
@@ -530,6 +592,10 @@ export interface InjectionBudgetConfig {
   episodicTokens?: number;
   /** Episodic entries per turn (the provider may return more; the tail is cut). */
   episodicMaxItems?: number;
+  /** Optional ceiling for the notes block alone. */
+  notesTokens?: number;
+  /** Notes per turn (the provider may return more; the tail is cut). */
+  notesMaxItems?: number;
 }
 
 interface ResolvedInjectionBudget {
@@ -537,6 +603,8 @@ interface ResolvedInjectionBudget {
   memoryTokens?: number;
   episodicTokens?: number;
   episodicMaxItems: number;
+  notesTokens?: number;
+  notesMaxItems: number;
 }
 
 function resolveInjectionBudget(config?: InjectionBudgetConfig): ResolvedInjectionBudget {
@@ -545,6 +613,8 @@ function resolveInjectionBudget(config?: InjectionBudgetConfig): ResolvedInjecti
     memoryTokens: config?.memoryTokens,
     episodicTokens: config?.episodicTokens,
     episodicMaxItems: config?.episodicMaxItems ?? EPISODIC_MAX_ITEMS,
+    notesTokens: config?.notesTokens ?? NOTES_BLOCK_TOKEN_BUDGET,
+    notesMaxItems: config?.notesMaxItems ?? NOTES_MAX_ITEMS,
   };
 }
 
@@ -616,8 +686,19 @@ export interface TransformOptions {
    */
   episodicContextProvider?: (query: string) => EpisodicContextItem[] | undefined;
   /**
-   * Token budgets for the two injected blocks. Defaults to 400 tokens shared by
-   * both, with each lane bounded by its item and line caps.
+   * Optional notes provider (review §4 U1): approved notes for a back-reference
+   * turn, best first. Receives the turn's user text.
+   *
+   * The transform owns the block (`<notes_context>`), the 2-item cap, the 400-token
+   * lane ceiling and the mode line; the provider owns retrieval and any turn-level
+   * gating it wants (e.g. `notes.enabled`). Returning `[]`/`undefined` means
+   * "nothing to offer", not an error. Undefined provider = no block — the notes
+   * layer is off, or its service was never constructed.
+   */
+  notesContextProvider?: (query: string) => NotesContextOffer | undefined;
+  /**
+   * Token budgets for the injected blocks. Defaults to 800 tokens shared by all
+   * of them, with each lane bounded by its item and line caps.
    */
   injectionBudget?: InjectionBudgetConfig;
   /**
@@ -690,6 +771,52 @@ function isEpisodicRelevantRequest(text: string): boolean {
   );
 }
 
+/**
+ * Does this turn refer back to something said or written earlier?
+ *
+ * The notes lane's trigger, and narrower than {@link isEpisodicRelevantRequest} by
+ * design: “记一下这条” is about writing, while the notes block answers “did I write
+ * this down”. Only the deictic and temporal patterns say that.
+ */
+function isBackReferenceQuery(text: string): boolean {
+  return RECALL_QUERY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * The words a back-reference must be stripped of before it can be searched.
+ *
+ * `RECALL_QUERY_PATTERNS` above is a *trigger* list, not a query: every pattern in
+ * it is a phrase about the conversation (「上次」, "we discussed"), so searching with
+ * it can only match a note that happens to contain 「上次」 — never the note the
+ * turn is asking about. The deictic filler goes with them for the same reason:
+ * 「那个」 means nothing except next to a back-reference, and it is the word that
+ * makes two unrelated notes look alike.
+ *
+ * Exported because the notes lane's provider lives in agent-factory and must strip
+ * exactly the phrases this module triggers on: two lists would let one strip a
+ * phrase the other never fires on, and the block would fall back to "recent" for a
+ * query that had searchable words all along.
+ */
+const BACK_REFERENCE_STRIP_PATTERNS: RegExp[] = [
+  /上次|上回|那次|当时|刚才|刚刚|前几天|前阵子|之前|以前/g,
+  /我们(?:说过|聊过|提过|讨论过)|说过|聊过|讨论过/g,
+  /\b(?:last time|earlier|previously|the other day|we (?:discussed|talked|said)|before that)\b/gi,
+  /那个|这个|那些|这些|那件事|这件事|件事|东西|呢|吗|吧|啊|嘛/g,
+];
+
+/**
+ * The query a back-reference should actually search with.
+ *
+ * Empty (or unsearchable) output is a real answer here, not a failure: “还记得吗”
+ * has nothing to look up, and the caller falls back to the newest approved notes
+ * rather than searching for the sentence it was handed.
+ */
+export function stripBackReferencePhrases(text: string): string {
+  let rest = text;
+  for (const pattern of BACK_REFERENCE_STRIP_PATTERNS) rest = rest.replace(pattern, ' ');
+  return rest.replace(/\s+/g, ' ').trim();
+}
+
 /** `YYYY-MM-DD` in local time; empty when the timestamp is unreadable. */
 function formatInjectionDate(epochMs: number): string {
   if (!Number.isFinite(epochMs) || epochMs <= 0) return '';
@@ -735,19 +862,54 @@ function formatEpisodicEntry(item: EpisodicContextItem): string {
 }
 
 /**
+ * Render one `<notes_context>` entry: the note as a reviewer approved it, one line.
+ *
+ * Title and summary, truncated on the lane's own char caps — not on the token
+ * estimate — because a note's summary is prose and a mid-sentence cut is what
+ * makes a model answer from half a claim. Neutralised like every other injected
+ * string: notes are written by a model (capture) and approved by a human, which
+ * is a review of the content, not a guarantee about tags.
+ */
+function formatNotesEntry(item: NotesContextItem): string {
+  const title = truncate(
+    neutralizePromptTags(flattenInjectedText(item.title)),
+    NOTES_TITLE_MAX_CHARS,
+  );
+  const summary = truncate(
+    neutralizePromptTags(flattenInjectedText(item.summary ?? '')),
+    NOTES_SUMMARY_MAX_CHARS,
+  );
+  return summary ? `- ${title} — ${summary}` : `- ${title}`;
+}
+
+/**
  * Render a tagged block from entries, or `null` for an empty lane.
  *
+ * `preamble` is the lane's one framing line, when it has one that is not an entry:
+ * the notes block's says whether its entries are matches or merely the newest
+ * notes, and that sentence may not live inside an entry — the budget can drop the
+ * first entry while keeping the second, and a list of matches with no header
+ * reads as a list of answers.
+ *
  * Budgets are not enforced here: `allocateInjectionCandidates` owns that, because
- * the two blocks share one pool and a block is only cheap to rebuild while
- * deciding what fits. An empty tag is never rendered — it is pure cost.
+ * every block shares one pool and a block is only cheap to rebuild while deciding
+ * what fits. An empty tag is never rendered — it is pure cost.
  */
-function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string | null {
+function renderInjectedBlock(
+  lane: InjectedBlockLane,
+  entries: string[],
+  preamble?: string,
+): string | null {
   if (entries.length === 0) return null;
   const body = entries.join('\n');
-  if (lane === 'memories') {
-    return `\n\n<memory_context>\nRelevant remembered information:\n${body}\n</memory_context>`;
+  switch (lane) {
+    case 'memories':
+      return `\n\n<memory_context>\nRelevant remembered information:\n${body}\n</memory_context>`;
+    case 'notes':
+      return `\n\n<notes_context>\n${preamble ? `${preamble}\n` : ''}${body}\n</notes_context>`;
+    default:
+      return `\n\n<recent_conversation>\n${body}\n</recent_conversation>`;
   }
-  return `\n\n<recent_conversation>\n${body}\n</recent_conversation>`;
 }
 
 /**
@@ -757,8 +919,15 @@ function renderInjectedBlock(lane: InjectedBlockLane, entries: string[]): string
  * first before K5-4 and still do, so an unscored tie never silently demotes the
  * lane the model has always seen first.
  */
-type InjectedBlockLane = 'memories' | 'messages';
-const INJECTION_LANES: readonly InjectedBlockLane[] = ['memories', 'messages'];
+type InjectedBlockLane = 'memories' | 'messages' | 'notes';
+const INJECTION_LANES: readonly InjectedBlockLane[] = ['memories', 'messages', 'notes'];
+
+/** The debug line each lane logs when its block is appended. */
+const LANE_INJECTION_LOG: Record<InjectedBlockLane, string> = {
+  memories: 'Memories injected into context',
+  messages: 'Episodic conversation injected into context',
+  notes: 'Reviewed notes injected into context',
+};
 
 /** One entry competing for the shared injection budget (plan §6 K5 item 4). */
 interface InjectionCandidate {
@@ -783,7 +952,7 @@ interface InjectionCandidate {
  * Allocation weight for one candidate: bounded, and comparable across lanes.
  *
  * A provider that reports `score` is taken at its word — the value is relevance
- * in (0, 1], which both in-tree providers normalise raw BM25 into, so the two
+ * in (0, 1], which the search-backed providers normalise raw BM25 into, so those
  * lanes land on one curve instead of two magnitudes. A provider that reports
  * nothing is ordered by position, the only information it gave: `1/(rank+1)`
  * puts its best hit at parity with the other lane's best and its second entry at
@@ -825,6 +994,7 @@ function compareInjectionCandidates(a: InjectionCandidate, b: InjectionCandidate
 function allocateInjectionCandidates(
   candidates: InjectionCandidate[],
   budget: ResolvedInjectionBudget,
+  preambles?: Partial<Record<InjectedBlockLane, string>>,
 ): {
   kept: Record<InjectedBlockLane, InjectionCandidate[]>;
   blocks: Record<InjectedBlockLane, string | null>;
@@ -832,14 +1002,17 @@ function allocateInjectionCandidates(
   const kept: Record<InjectedBlockLane, InjectionCandidate[]> = {
     memories: [],
     messages: [],
+    notes: [],
   };
   const blocks: Record<InjectedBlockLane, string | null> = {
     memories: null,
     messages: null,
+    notes: null,
   };
   const laneCeiling: Record<InjectedBlockLane, number> = {
     memories: budget.memoryTokens ?? budget.totalTokens,
     messages: budget.episodicTokens ?? budget.totalTokens,
+    notes: budget.notesTokens ?? budget.totalTokens,
   };
 
   /** Rebuild every block from what is currently kept, and measure the total. */
@@ -847,6 +1020,7 @@ function allocateInjectionCandidates(
     const rendered: Record<InjectedBlockLane, string | null> = {
       memories: null,
       messages: null,
+      notes: null,
     };
     let total = 0;
     for (const lane of INJECTION_LANES) {
@@ -855,6 +1029,7 @@ function allocateInjectionCandidates(
       const block = renderInjectedBlock(
         lane,
         [...withExtra].sort((a, b) => a.rank - b.rank).map((entry) => entry.text),
+        preambles?.[lane],
       );
       rendered[lane] = block;
       if (block) total += estimateTokensForText(block);
@@ -864,7 +1039,7 @@ function allocateInjectionCandidates(
 
   for (const candidate of [...candidates].sort(compareInjectionCandidates)) {
     const lane = candidate.lane;
-    // Rebuilt from scratch per candidate (≤7 candidates × 2 short blocks): the
+    // Rebuilt from scratch per candidate (≤9 candidates × 3 short blocks): the
     // rendered block is what the token estimate is measured on, so deciding on
     // anything else would be measuring a different object than the one injected.
     const { rendered, total } = renderKept({ lane, candidate });
@@ -888,17 +1063,15 @@ function allocateInjectionCandidates(
 // stays silent, because one row per empty turn is noise on a phone.
 
 /** The lanes whose blocks are counted; persona/date/canvas are not. */
-type InjectionLane = 'memories' | 'messages';
-
 interface TurnInjection {
   /** What this build offered, per lane, as the reference check sees it. */
-  offer: Record<InjectionLane, InjectionOfferItem[]>;
+  offer: Record<InjectedBlockLane, InjectionOfferItem[]>;
   /** Items rendered into the block; `offer` is shorter when an item carries no id. */
-  itemCounts: Record<InjectionLane, number>;
+  itemCounts: Record<InjectedBlockLane, number>;
   /** Estimated tokens per lane, measured on the block as built. */
-  tokens: Record<InjectionLane, number>;
+  tokens: Record<InjectedBlockLane, number>;
   /** Provider + block-build time per lane, in milliseconds. */
-  latencyMs: Record<InjectionLane, number>;
+  latencyMs: Record<InjectedBlockLane, number>;
   /** Blocks actually appended; 0 means the turn injected nothing. */
   blocks: number;
   /** A lane's provider threw and its block was skipped. */
@@ -907,10 +1080,10 @@ interface TurnInjection {
 
 function newTurnInjection(): TurnInjection {
   return {
-    offer: { memories: [], messages: [] },
-    itemCounts: { memories: 0, messages: 0 },
-    tokens: { memories: 0, messages: 0 },
-    latencyMs: { memories: 0, messages: 0 },
+    offer: { memories: [], messages: [], notes: [] },
+    itemCounts: { memories: 0, messages: 0, notes: 0 },
+    tokens: { memories: 0, messages: 0, notes: 0 },
+    latencyMs: { memories: 0, messages: 0, notes: 0 },
     blocks: 0,
     degraded: false,
   };
@@ -918,7 +1091,7 @@ function newTurnInjection(): TurnInjection {
 
 function recordInjectedLane(
   injection: TurnInjection,
-  lane: InjectionLane,
+  lane: InjectedBlockLane,
   injected: {
     offer: InjectionOfferItem[];
     itemCount: number;
@@ -954,30 +1127,36 @@ function reportTurnInjection(
   const offer: InjectedOffer = {
     memories: injection.offer.memories,
     messages: injection.offer.messages,
+    notes: injection.offer.notes,
   };
-  if (offer.memories.length + offer.messages.length > 0) {
+  if (offer.memories.length + offer.messages.length + offer.notes.length > 0) {
     injectedOfferBySession.set(scopeKey, offer);
     publishedInjectionScope.set(sessionKey || 'default', scopeKey);
   } else {
     injectedOfferBySession.delete(scopeKey);
   }
   if (injection.blocks === 0) return;
-  const totalTokens = injection.tokens.memories + injection.tokens.messages;
+  const totalTokens =
+    injection.tokens.memories + injection.tokens.messages + injection.tokens.notes;
   memoryObservability.record('memory.injection', {
     memoryIds: offer.memories.map((item) => item.id),
     messageIds: offer.messages.map((item) => item.id),
+    noteIds: offer.notes.map((item) => item.id),
     itemCounts: {
       memories: injection.itemCounts.memories,
       messages: injection.itemCounts.messages,
+      notes: injection.itemCounts.notes,
     },
     estimatedTokens: {
       memories: injection.tokens.memories,
       messages: injection.tokens.messages,
+      notes: injection.tokens.notes,
       total: totalTokens,
     },
     latencyMs: {
       memories: injection.latencyMs.memories,
       messages: injection.latencyMs.messages,
+      notes: injection.latencyMs.notes,
     },
     status: injection.degraded ? 'degraded' : 'ok',
   });
@@ -1003,7 +1182,7 @@ export function recordInjectionReference(params: {
   toolName: string;
   refs: string[];
   /** Which lane's offer these refs may match. */
-  lane?: InjectionLane;
+  lane?: InjectedBlockLane;
 }): void {
   const lane = params.lane ?? 'messages';
   const scopeKey = injectionScopeKey(params.agentId, params.sessionKey);
@@ -1035,7 +1214,7 @@ export function recordInjectionReference(params: {
 function recordReferencedIds(
   scopeKey: string,
   offer: InjectedOffer,
-  lane: InjectionLane,
+  lane: InjectedBlockLane,
   toolName: string,
   ids: string[],
 ): void {
@@ -1054,14 +1233,16 @@ function recordReferencedIds(
 /**
  * The one place a `memory.injection.referenced` row is written.
  *
- * The `lane` field is what separates a memory id from a message id in the row.
+ * The `lane` field is what separates a memory id from a message id from a note id
+ * in the row.
  */
-function emitInjectionReference(lane: InjectionLane, toolName: string, ids: string[]): void {
+function emitInjectionReference(lane: InjectedBlockLane, toolName: string, ids: string[]): void {
   memoryObservability.record('memory.injection.referenced', {
     lane,
     toolName,
     memoryIds: lane === 'memories' ? ids : [],
     messageIds: lane === 'messages' ? ids : [],
+    noteIds: lane === 'notes' ? ids : [],
   });
 }
 
@@ -1084,12 +1265,11 @@ function resolveOfferScope(agentId: string | undefined, sessionKey: string | und
 }
 
 /**
- * Turn-end reader: was an injected memory or excerpt actually used (plan §6 K0
- * item 3, ②「是否被引用」)?
+ * Turn-end reader: was an injected memory, excerpt or note actually used (plan
+ * §6 K0 item 3, ②「是否被引用」)?
  *
- * The transform returns before the answer exists, so the two lanes that have no
- * tool to read them back can only be checked
- * after generation. The evidence is literal: an item counts when a fragment of
+ * The transform returns before the answer exists, so the lanes that the answer
+ * may have read can only be checked after generation. The evidence is literal: an item counts when a fragment of
  * the text that was injected appears in the answer, matched through the same
  * normalisation `referenceFragments` applied at build time. Nothing else — not
  * a topic word, not a paraphrase — is evidence, and the rule is intentionally
@@ -1122,7 +1302,7 @@ export function readInjectionReferences(params: {
     // A lane is deliberately absent here when its reference is an id the model
     // asked for by name, which is proof, not a likeness
     // test.
-    for (const lane of ['memories', 'messages'] as const) {
+    for (const lane of INJECTION_LANES) {
       const matched = offer[lane]
         .slice(0, REFERENCE_MAX_ITEMS_PER_LANE)
         .filter((item) => isReferenced(item, haystack))
@@ -1380,6 +1560,10 @@ export function createTransformContext(options?: TransformOptions) {
     //
     // The episodic lane is still gated on a recall-shaped turn: "上次那个方案叫什么"
     // needs the original wording, while "写一个排序函数" must not pay for it.
+    // The notes lane shares that gate — a back-reference is the one question that
+    // can be answered from a note — but not the memory-relevant half of it: "记一下
+    // 这条" is about writing, and a block of existing notes would be an answer to a
+    // question nobody asked.
     {
       const lastUserMsg = [...result].reverse().find((m: any) => m.role === 'user');
       const query = lastUserMsg?.content ? getUserQueryText(lastUserMsg.content) : '';
@@ -1387,7 +1571,9 @@ export function createTransformContext(options?: TransformOptions) {
       const laneLatencyMs: Record<InjectedBlockLane, number> = {
         memories: memoryLane.latencyMs,
         messages: 0,
+        notes: 0,
       };
+      const preambles: Partial<Record<InjectedBlockLane, string>> = {};
 
       if (
         options?.episodicContextProvider &&
@@ -1419,8 +1605,38 @@ export function createTransformContext(options?: TransformOptions) {
         laneLatencyMs.messages = performance.now() - laneStarted;
       }
 
+      if (options?.notesContextProvider && query.trim() !== '' && isBackReferenceQuery(query)) {
+        const laneStarted = performance.now();
+        try {
+          const offer = options.notesContextProvider(query);
+          const items = (offer?.items ?? [])
+            .filter((item) => typeof item?.title === 'string' && item.title.trim() !== '')
+            .slice(0, injectionBudget.notesMaxItems);
+          if (items.length > 0) {
+            // The mode line is the lane's, not an entry's: it has to survive the
+            // budget dropping the first entry.
+            preambles.notes = NOTES_BLOCK_HEADER[offer?.mode ?? 'matched'];
+            items.forEach((item, rank) => {
+              candidates.push({
+                lane: 'notes',
+                rank,
+                text: formatNotesEntry(item),
+                ids: [item.id],
+                // Title + summary, never the framing line: the header is not
+                // something the model can quote back.
+                referenceText: `${item.title} ${item.summary}`,
+              });
+            });
+          }
+        } catch {
+          injection.degraded = true;
+          options?.logger?.debug('Notes context injection failed — continuing without it');
+        }
+        laneLatencyMs.notes = performance.now() - laneStarted;
+      }
+
       if (lastUserMsg?.content && candidates.length > 0) {
-        const allocation = allocateInjectionCandidates(candidates, injectionBudget);
+        const allocation = allocateInjectionCandidates(candidates, injectionBudget, preambles);
         const appendedBlocks: any[] = [];
         for (const lane of INJECTION_LANES) {
           const block = allocation.blocks[lane];
@@ -1444,9 +1660,7 @@ export function createTransformContext(options?: TransformOptions) {
           });
           options?.logger?.debug(
             { count: kept.length, tokens: Math.ceil(estimateTokensForText(block)) },
-            lane === 'messages'
-              ? 'Episodic conversation injected into context'
-              : 'Memories injected into context',
+            LANE_INJECTION_LOG[lane],
           );
         }
         // Only once the lane survived the pool: caching the signature of a block

@@ -25,6 +25,8 @@ import { ToolVisibilityPolicyImpl, PROFILE_TOOLS } from '../../src/policy/tool-v
 import { getCapabilityForTool } from '../../src/policy/tool-capability-registry.js';
 import type { AgentPolicyScope } from '../../src/policy/types.js';
 import { createSessionSearchToolDefinition } from '../../src/tools/builtins/session/session-search-definition.js';
+import { createNotesSearchToolDefinition } from '../../src/tools/builtins/notes/notes-search-definition.js';
+import type { NotesService } from '../../src/notes/service-contract.js';
 import type Database from 'better-sqlite3';
 
 /**
@@ -34,7 +36,12 @@ import type Database from 'better-sqlite3';
  */
 function buildRegisteredDefinitions(): ToolDefinition<any>[] {
   const db = {} as Database.Database;
-  return [createSessionSearchToolDefinition({ db })];
+  return [
+    createSessionSearchToolDefinition({ db }),
+    // `notes_search` is registered only when the notes service exists; the gate
+    // itself is covered in tests/tools/notes-search.test.ts.
+    createNotesSearchToolDefinition({ notes: {} as NotesService }),
+  ];
 }
 
 function scopeFor(toolsProfile: AgentPolicyScope['toolsProfile']): AgentPolicyScope {
@@ -122,11 +129,29 @@ describe('tool registration gates (plan §8.1)', () => {
 
   it('new tools use a single spelling — no invented kebab aliases', () => {
     const all = [...PROFILE_TOOLS.restricted, ...PROFILE_TOOLS.standard];
-    for (const name of ['session_search']) {
+    for (const name of ['session_search', 'notes_search']) {
       expect(all.filter((entry) => entry.replace(/_/g, '-') === name.replace(/_/g, '-'))).toEqual([
         name,
         name,
       ]);
     }
+  });
+
+  it('notes_search is a read-only knowledge lookup in the static table', () => {
+    // Pinned rather than derived: the point is that a human sees the descriptor
+    // the approval gate will read, in the same place as the other retrieval
+    // tools. It must stay read-only — a search that could mutate a note would
+    // silently reopen the review gate.
+    expect(getCapabilityForTool('notes_search')).toEqual({
+      category: 'memory',
+      readOnly: true,
+      readsFiles: false,
+      writesFiles: false,
+      usesShell: false,
+      usesNetwork: false,
+      usesComputerUse: false,
+      pathAccess: 'none',
+      approvalDefault: 'none',
+    });
   });
 });
