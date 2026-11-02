@@ -12,6 +12,7 @@ import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import type { AgentEvent, AgentMessage } from '../pi-mono/agent/types.js';
 import { setSessionAgent, clearSessionAgent, setTurnTaskHint } from './agent-context.js';
+import { MAX_CONTEXT_MESSAGES } from './context-transform.js';
 import { resetTurnDrift } from '../judge/decisions/turn-drift.js';
 import {
   TURN_COMPLETION_POINT_ID,
@@ -29,11 +30,13 @@ import type { ReplyDispatcher, FooterConfig, AppServices } from '../app/types.js
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
 import type { EpisodeRepository } from '../memory/repositories/episode-repository.js';
-import type { ToolRunRepository } from '../memory/repositories/tool-run-repository.js';
+import type { ToolRun, ToolRunRepository } from '../memory/repositories/tool-run-repository.js';
 import type { MemorySummarizer } from '../memory/memory-summarizer.js';
+import type { SessionContextSummaryRepository } from '../memory/repositories/session-context-summary-repository.js';
 import type { Logger } from 'pino';
 import { generateId } from '../shared/ids.js';
-import { estimateTokensForText } from '../shared/token-estimate.js';
+import { parseEpochMs } from '../shared/timestamp.js';
+import { OffloadStore } from '../runtime-artifacts/offload-store.js';
 import { EventBridge } from './event-bridge.js';
 import type { ImageContent } from '../pi-mono/ai/types.js';
 import type { VisionBridgeService } from '../vision-bridge/vision-bridge-service.js';
@@ -126,22 +129,187 @@ export interface AgentServicePersistenceOptions {
   memorySummarizer: MemorySummarizer;
   /** Summarize every N messages per session (default: 10). */
   summarizeInterval?: number;
-  /** Load up to N recent messages from DB when creating a new runtime after restart. 0 disables. */
-  historyLoadCount?: number;
-  /** Max estimated tokens for loaded history messages. 0 = no limit. */
-  historyMaxTokens?: number;
+  /** Stored compression summaries — the source a cold session resumes from. */
+  contextSummaryRepository?: SessionContextSummaryRepository;
+  /**
+   * Root dir of the tool-result offload ledger (`data/offload`). Set only when
+   * `memory.offloading.enabled`; a cold session replays the same archive index
+   * a warm one injects, since the full outputs live here and not in the rows.
+   */
+  offloadDir?: string;
   logger: Logger;
 }
 
+interface HistoryItem {
+  role: string;
+  content: string | Array<{ type: string; text?: string }>;
+  timestamp: number;
+}
+
 /**
- * Rough token count for the history budget. Delegates to the same estimator the
- * compression trigger uses (src/shared/token-estimate.ts) — two copies of the
- * weighting drifted once already, which made the history cap and the
- * compression threshold disagree about the size of the same transcript.
+ * Tool traces per restored assistant message. A persisted row keeps only the
+ * assistant's final text, so without this the model cannot see that anything
+ * was called at all — but replaying every call of a tool-heavy turn would cost
+ * more context than the answer it produced.
  */
-function estimateTokens(content: string | Array<{ type: string; text?: string }>): number {
-  const text = typeof content === 'string' ? content : content.map((b) => b.text ?? '').join('');
-  return Math.ceil(estimateTokensForText(text));
+const MAX_TOOL_TRACES_PER_MESSAGE = 12;
+/** One-line trace budget: name + argument digest, not the payload. */
+const TOOL_TRACE_ARG_CHARS = 160;
+/** Result digest per call — enough to say what came back, not to replay it. */
+const TOOL_TRACE_RESULT_CHARS = 160;
+/** Same cap the transform uses for its archived-results index. */
+const ARCHIVED_REF_LINES = 10;
+/** Upper bound on the tool-run rows a cold reload reads for one session. */
+const TOOL_RUN_RELOAD_LIMIT = 400;
+
+function formatToolTrace(call: { name?: string; arguments?: unknown }, run?: ToolRun): string {
+  const name = call.name ?? run?.tool_name ?? 'tool';
+  let args = '';
+  try {
+    args = JSON.stringify(call.arguments ?? run?.input ?? {}).replace(/\s+/g, ' ');
+  } catch {
+    args = '';
+  }
+  if (args.length > TOOL_TRACE_ARG_CHARS) args = `${args.slice(0, TOOL_TRACE_ARG_CHARS)}…`;
+  const head = `[tool] ${name}${args && args !== '{}' ? `(${args})` : ''}`;
+  if (!run) return head;
+  const result = run.status === 'error' ? (run.error ?? 'failed') : (run.output ?? '');
+  const digest = String(result).replace(/\s+/g, ' ').slice(0, TOOL_TRACE_RESULT_CHARS);
+  return digest ? `${head} → ${digest}${run.status === 'error' ? ' [失败]' : ''}` : head;
+}
+
+/**
+ * Rebuild one persisted row as a history message.
+ *
+ * The `messages` table stores assistant turns as final text only — the tool
+ * calls that produced it live in `metadata.tool_calls`/`segments`. A warm
+ * session hands the model the real `toolCall`/`toolResult` blocks, so a reload
+ * that drops them turns "I read three files and then answered" into an answer
+ * with no visible provenance. Replaying them as text lines (name + argument
+ * digest) restores the shape without inventing results we did not persist.
+ */
+function historyRowToItem(
+  row: {
+    role: string;
+    content: string;
+    created_at: string;
+    metadata?: string | null;
+  },
+  /** Tool runs executed inside this row's turn, oldest first — the audit rows
+   *  carry the result digest the persisted text does not (`tool_runs.output`). */
+  turnRuns: ToolRun[] = [],
+): HistoryItem {
+  const timestamp = parseEpochMs(row.created_at);
+  if (row.role !== 'assistant') return { role: row.role, content: row.content, timestamp };
+
+  const fallback: HistoryItem = {
+    role: 'assistant',
+    content: [{ type: 'text', text: row.content }],
+    timestamp,
+  };
+
+  let meta: Record<string, any> = {};
+  try {
+    meta = row.metadata ? JSON.parse(row.metadata) : {};
+  } catch {
+    return fallback;
+  }
+  const segments = meta.segments;
+  const calls = meta.tool_calls;
+  if (!Array.isArray(segments) || !Array.isArray(calls) || calls.length === 0) return fallback;
+
+  const callsById = new Map<string, { name?: string; arguments?: unknown }>(
+    calls.filter((c: any) => c && typeof c.id === 'string').map((c: any) => [c.id, c]),
+  );
+  const blocks: Array<{ type: 'text'; text: string }> = [];
+  let traces = 0;
+  let runIndex = 0;
+  for (const seg of segments as any[]) {
+    if (seg?.type === 'text') {
+      if (typeof seg.content === 'string' && seg.content.trim()) {
+        blocks.push({ type: 'text', text: seg.content });
+      }
+      continue;
+    }
+    if (seg?.type === 'tool_call') {
+      if (traces >= MAX_TOOL_TRACES_PER_MESSAGE) continue;
+      const call = callsById.get(seg.id);
+      if (call) {
+        traces++;
+        // Same-turn runs are already in execution order, so position — not id —
+        // pairs a call with its audit row; `tool_runs` has no call id.
+        blocks.push({ type: 'text', text: formatToolTrace(call, turnRuns[runIndex++]) });
+      }
+      continue;
+    }
+    if (seg?.type === 'skill' && typeof seg.name === 'string') {
+      blocks.push({ type: 'text', text: `[skill] 已激活技能：${seg.name}` });
+    }
+  }
+  // Runs this turn executed without surviving as a segment (a call-only row, or
+  // a segment dropped by the per-message cap) still belong to this turn.
+  for (; runIndex < turnRuns.length && traces < MAX_TOOL_TRACES_PER_MESSAGE; runIndex++) {
+    traces++;
+    blocks.push({ type: 'text', text: formatToolTrace({}, turnRuns[runIndex]) });
+  }
+  return blocks.length > 0 ? { role: 'assistant', content: blocks, timestamp } : fallback;
+}
+
+/**
+ * The archived-results index a warm session injects when it trims its context —
+ * reproduced here because a cold reload starts below the trim line and would
+ * otherwise never see that archived outputs exist.
+ */
+function archivedResultsBlock(lines: string[]): { type: 'text'; text: string } {
+  return {
+    type: 'text',
+    text: `\n\n<archived_tool_results>\n[已归档的工具结果（用 file_read 取回全文）]\n${lines.join('\n')}\n</archived_tool_results>`,
+  };
+}
+
+/**
+ * Prepend the offload index to the first restored user message, exactly where
+ * the transform puts it on the warm path.
+ */
+function attachArchivedToolResults(items: HistoryItem[], sessionId: string, baseDir: string): void {
+  const firstUser = items.find((item) => item.role === 'user');
+  if (!firstUser) return;
+  try {
+    const records = new OffloadStore(baseDir).getSessionRecords(sessionId);
+    if (records.length === 0) return;
+    const sessionDir = new OffloadStore(baseDir).getSessionDirPath(sessionId);
+    const lines = records
+      .slice(-ARCHIVED_REF_LINES)
+      .map(
+        (r) =>
+          `${r.status === 'error' ? '❌' : '✅'} [${r.nodeId}] ${r.summary || r.toolName} | ${sessionDir}/${r.refPath}`,
+      );
+    const blocks =
+      typeof firstUser.content === 'string'
+        ? [{ type: 'text' as const, text: firstUser.content }]
+        : firstUser.content;
+    firstUser.content = [archivedResultsBlock(lines), ...blocks];
+  } catch {
+    // A missing or unreadable ledger only costs the index, never the turn.
+  }
+}
+
+/**
+ * The stored compression summary as a history message — same shape the live
+ * compression path produces (src/agent/compress.ts), so the model sees one
+ * continuation whether the summary came from this process or the last one.
+ */
+function contextSummaryMessage(summary: string, coveredThroughMs: number): HistoryItem {
+  return {
+    role: 'user',
+    content: [
+      {
+        type: 'text',
+        text: `\n\n---\n[Context Compression — Earlier Conversation Summary]\n${summary}\n---\n`,
+      },
+    ],
+    timestamp: coveredThroughMs,
+  };
 }
 
 /** P1 M6: default wall-clock cap for a single agent turn (5 minutes). */
@@ -409,48 +577,75 @@ export class AgentService {
         setSessionAgent(sessionId, agentIdFromSession);
       }
 
-      // Load recent message history from DB on restart so the agent retains
-      // conversation continuity across service restarts. Skip when the caller
-      // already provided historyMessages explicitly, when the feature is
-      // disabled (historyLoadCount: 0), or when the session was explicitly
-      // cleared by /new or /clear.
+      // Rebuild context for a cold session. "Cold" is not only a restart: the
+      // runtime is also gone after an idle/TTL eviction, LRU eviction, a turn
+      // error on an unresumable transcript, or `invalidateRuntimes()` sweeping
+      // idle sessions when the MCP tool set changed. Skip when the caller already
+      // provided historyMessages explicitly, or when the session was cleared by
+      // /new or /clear.
+      //
+      // The row cap is the transform's own message trim (MAX_CONTEXT_MESSAGES),
+      // not a second budget: a cold session is bounded by exactly what bounds a
+      // warm one — that trim, and compression against the context window. The
+      // separate rows/tokens knobs are gone because a reload that disagreed with
+      // the live path only made the difference invisible.
       let historyMessages = options?.historyMessages;
       const wasCleared = this.clearedSessions.has(sessionId);
       if (wasCleared) this.clearedSessions.delete(sessionId);
       if (!historyMessages && this.persistence && sessionId !== 'default' && !wasCleared) {
-        const limit = this.persistence.historyLoadCount ?? 0;
-        const maxTokens = this.persistence.historyMaxTokens ?? 0;
-        if (limit > 0) {
-          try {
-            const rows = this.persistence.messageRepository.findBySessionIdDesc(sessionId, limit);
-            const parsed = rows.reverse().map((m) => ({
-              role: m.role,
-              content:
-                m.role === 'assistant' ? [{ type: 'text' as const, text: m.content }] : m.content,
-              timestamp: new Date(m.created_at).getTime(),
-            }));
-            // Apply token cap: keep newest messages that fit within maxTokens.
-            // Walk from newest to oldest, stop when budget is exceeded.
-            if (maxTokens > 0) {
-              let used = 0;
-              const capped: typeof parsed = [];
-              for (let i = parsed.length - 1; i >= 0; i--) {
-                const tokens = estimateTokens(parsed[i].content);
-                if (used + tokens > maxTokens) break;
-                used += tokens;
-                capped.unshift(parsed[i]);
-              }
-              historyMessages = capped;
-            } else {
-              historyMessages = parsed;
+        try {
+          // A stored compression summary already speaks for everything before
+          // it, so read only the rows written after it — otherwise the reload
+          // would replay material the summary replaced.
+          const summary = this.persistence.contextSummaryRepository?.find(
+            sessionId,
+            agentIdFromSession ?? options?.agentId ?? 'default',
+          );
+          const rows = summary
+            ? this.persistence.messageRepository.findBySessionIdSince(
+                sessionId,
+                summary.covered_through_ms,
+                MAX_CONTEXT_MESSAGES,
+              )
+            : this.persistence.messageRepository
+                .findBySessionIdDesc(sessionId, MAX_CONTEXT_MESSAGES)
+                .reverse();
+
+          // created_at is a TEXT epoch-ms digit string — new Date() yields NaN
+          // for it, which poisoned every downstream timestamp compare.
+          const runs =
+            this.persistence.toolRunRepository?.findBySessionId(sessionId, TOOL_RUN_RELOAD_LIMIT) ??
+            [];
+          let runCursor = 0;
+          const parsed: HistoryItem[] = rows.map((m) => {
+            const rowTs = parseEpochMs(m.created_at);
+            const turnRuns: typeof runs = [];
+            while (
+              runCursor < runs.length &&
+              parseEpochMs((runs[runCursor] as { created_at?: string }).created_at) <= rowTs
+            ) {
+              turnRuns.push(runs[runCursor++]!);
             }
-          } catch {
-            // Non-fatal — start with empty history if the DB read fails
-            this.persistence?.logger?.debug(
-              { sessionId },
-              'History load failed — starting with empty history',
-            );
+            return historyRowToItem(m, turnRuns);
+          });
+          if (this.persistence.offloadDir) {
+            attachArchivedToolResults(parsed, sessionId, this.persistence.offloadDir);
           }
+
+          historyMessages = summary
+            ? [contextSummaryMessage(summary.summary, summary.covered_through_ms), ...parsed]
+            : parsed;
+
+          this.persistence.logger.debug(
+            { sessionId, loaded: parsed.length, fromSummary: Boolean(summary) },
+            'History reloaded for a cold session',
+          );
+        } catch {
+          // Non-fatal — start with empty history if the DB read fails
+          this.persistence?.logger?.debug(
+            { sessionId },
+            'History load failed — starting with empty history',
+          );
         }
       }
 
@@ -1299,6 +1494,9 @@ export class AgentService {
     this.sessionAgentMap.delete(sessionId);
     clearSessionAgent(sessionId);
     this.clearedSessions.add(sessionId);
+    // A cleared conversation has no compressed past either: keeping the stored
+    // summary would hand the next cold reload everything the clear just dropped.
+    this.persistence?.contextSummaryRepository?.deleteBySession(sessionId);
     return true;
   }
 

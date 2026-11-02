@@ -510,9 +510,10 @@ const configSchema = z.object({
         durable_only: z.boolean().default(true),
       })
       .default({}),
-    historyLoadCount: z.coerce.number().int().nonnegative().default(5),
-    /** Max estimated tokens for loaded history. 0 = no limit. @default 1000 */
-    historyMaxTokens: z.coerce.number().int().nonnegative().default(1000),
+    // No history-load knobs: a cold session reloads the same material the warm
+    // path keeps, bounded by the same two mechanisms (the transform's message
+    // trim and auto-compression against the context window). A separate
+    // rows/tokens budget here only made the two paths disagree.
     summarizeInterval: z.coerce.number().int().positive().default(20),
     outputLanguage: z.string().default('Auto'),
     // Temporal decay: half-life in days. 0 disables decay.
@@ -1236,8 +1237,6 @@ function buildRawFromEnv(env: Record<string, string | undefined>): Record<string
       recallTopK: env.MEMORY_RECALL_TOP_K,
       recallMinScore: env.MEMORY_RECALL_MIN_SCORE,
       captureMaxChars: env.MEMORY_CAPTURE_MAX_CHARS,
-      historyLoadCount: env.MEMORY_HISTORY_LOAD_COUNT,
-      historyMaxTokens: env.MEMORY_HISTORY_MAX_TOKENS,
       summarizeInterval: env.MEMORY_SUMMARIZE_INTERVAL,
       outputLanguage: normalizeMemoryOutputLanguage(env.MEMORY_OUTPUT_LANGUAGE),
       decayHalfLifeDays: env.MEMORY_DECAY_HALF_LIFE_DAYS,
@@ -1523,8 +1522,6 @@ function applyEnvOverrides(
     { env: env.MEMORY_RECALL_TOP_K, field: 'recallTopK' },
     { env: env.MEMORY_RECALL_MIN_SCORE, field: 'recallMinScore' },
     { env: env.MEMORY_CAPTURE_MAX_CHARS, field: 'captureMaxChars' },
-    { env: env.MEMORY_HISTORY_LOAD_COUNT, field: 'historyLoadCount' },
-    { env: env.MEMORY_HISTORY_MAX_TOKENS, field: 'historyMaxTokens' },
     { env: env.MEMORY_SUMMARIZE_INTERVAL, field: 'summarizeInterval' },
     { env: env.MEMORY_OUTPUT_LANGUAGE, field: 'outputLanguage' },
     { env: env.MEMORY_DECAY_HALF_LIFE_DAYS, field: 'decayHalfLifeDays' },

@@ -26,6 +26,7 @@ import { estimateStaticContextTokens } from './compress.js';
 import { convertToLlm } from './convert-to-llm.js';
 import type { ApprovalDecisionType } from '../app/types.js';
 import type { ApprovalRequestRepository } from '../memory/repositories/approval-request-repository.js';
+import type { SessionContextSummaryRepository } from '../memory/repositories/session-context-summary-repository.js';
 import type { ApprovalUiPort } from './approval-ui-port.js';
 import type { AgentManager } from './agent-manager.js';
 import type { ResolvedAgentConfig } from './config-types.js';
@@ -292,6 +293,9 @@ export interface AgentFactoryOptions {
   approvalTimeoutAction?: 'deny' | 'allow';
   shellEnabled?: boolean;
   approvalRequestRepo?: ApprovalRequestRepository;
+  /** Cold-session resume source: the latest compression summary per session.
+   *  Absent (tests, child agents) means summaries stay in memory only. */
+  contextSummaryRepository?: SessionContextSummaryRepository;
   /** Channel-agnostic approval UI port (Feishu impl injected at bootstrap). */
   approvalPort?: ApprovalUiPort;
   cronServiceFactory?: () => any;
@@ -506,6 +510,7 @@ export function createAgentFactory(
     approvalTimeoutAction = 'deny',
     shellEnabled = true,
     approvalRequestRepo,
+    contextSummaryRepository,
     approvalPort,
     policyCenter,
     orchestratorFactory,
@@ -1059,6 +1064,28 @@ export function createAgentFactory(
           autoRecallFrequency: configRef.current.memory.autoRecallFrequency as 'first' | 'every',
           sessionKey: sessionId,
           agentId: runtimeAgentId,
+          // Persist compression summaries so a cold session (restart, idle/TTL
+          // eviction, MCP tool-set invalidation) resumes from the summary plus
+          // the uncovered tail instead of a bare row count. The write is a
+          // single upsert per compression and must never fail a turn.
+          persistContextSummary:
+            contextSummaryRepository && sessionId && sessionId !== 'default'
+              ? ({ summary, coveredThroughMs }) => {
+                  try {
+                    contextSummaryRepository.upsert({
+                      sessionId,
+                      agentId: runtimeAgentId ?? 'default',
+                      summary,
+                      coveredThroughMs,
+                    });
+                  } catch (err) {
+                    logger?.warn(
+                      { sessionId, err: err instanceof Error ? err.message : String(err) },
+                      'Compression summary persistence failed',
+                    );
+                  }
+                }
+              : undefined,
           dateLanguage: configRef.current.uiLanguage,
           offloadConfig: configRef.current.memory.offloading,
           offloadStore: offloadStore,

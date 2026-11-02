@@ -19,6 +19,7 @@ import { migrateV31 } from './migration-v31.js';
 import { migrateV32 } from './migration-v32.js';
 import { migrateV33 } from './migration-v33.js';
 import { migrateV34 } from './migration-v34.js';
+import { migrateV35 } from './migration-v35.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -263,6 +264,11 @@ export function openDatabase(dbPath: string): Database.Database {
   // many messages its budget dropped. `session` mode is the first window that can
   // lose material, and a loss the review card cannot see is a loss nobody audits.
   migrateV34(db);
+
+  // v35: the summary a cold session resumes from. Compression summaries used to
+  // live only in memory, so a restarted (or evicted) session fell back to raw
+  // rows and lost everything its own compaction had already distilled.
+  migrateV35(db);
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:

@@ -259,8 +259,8 @@ channels:
 #   # recall_top_k: 3
 #   # recall_min_score: 0.01
 #   # capture_max_chars: 500
-#   # history_load_count: 5
-#   # history_max_tokens: 1000       # 0 = no limit
+#   # No history-load knobs: a cold session resumes with what a warm session keeps,
+#   # bounded by the transcript trim and auto-compression (MAX_CONTEXT_MESSAGES).
 #   # decay_half_life_days: 30       # 0 disables temporal decay
 #   # embedding_cache_max_entries: 10000
 #   # query_embedding_timeout_ms: 10000

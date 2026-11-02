@@ -205,10 +205,6 @@ export interface AppConfig {
       durable_only: boolean;
     };
     summarizeInterval: number;
-    /** Number of recent messages loaded from DB when creating a new runtime after restart. 0 disables. */
-    historyLoadCount: number;
-    /** Max estimated tokens for loaded history messages. 0 = no limit. */
-    historyMaxTokens: number;
     outputLanguage: string;
     /** Temporal decay half-life in days. 0 = disabled. */
     decayHalfLifeDays: number;

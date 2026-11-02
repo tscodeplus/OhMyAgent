@@ -83,8 +83,6 @@ function createMockConfig(overrides?: Partial<AppConfig>): AppConfig {
       summarizeInterval: 20,
       outputLanguage: 'Auto',
       decayHalfLifeDays: 0,
-      historyLoadCount: 0,
-      historyMaxTokens: 0,
       queryEmbeddingTimeoutMs: 10000,
       queryPlanner: {
         enabled: false,

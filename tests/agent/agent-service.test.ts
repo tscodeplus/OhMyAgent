@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AgentService } from '../../src/agent/agent-service.js';
 import type { AgentFactory } from '../../src/agent/agent-factory.js';
@@ -725,6 +728,8 @@ describe('AgentService', () => {
     const messageRepository = {
       create: vi.fn(),
       countBySessionId: vi.fn(() => 0),
+      findBySessionIdDesc: vi.fn(() => []),
+      findBySessionIdSince: vi.fn(() => []),
     };
     const sessionRepository = {
       // execute() clears the archive flag at turn start: a new message means the
@@ -744,6 +749,7 @@ describe('AgentService', () => {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
     };
 
     const agent = createMockAgent();
@@ -792,6 +798,8 @@ describe('AgentService', () => {
     const messageRepository = {
       create: vi.fn(),
       countBySessionId: vi.fn(() => 0),
+      findBySessionIdDesc: vi.fn(() => []),
+      findBySessionIdSince: vi.fn(() => []),
     };
     const sessionRepository = {
       // execute() clears the archive flag at turn start: a new message means the
@@ -811,6 +819,7 @@ describe('AgentService', () => {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
     };
 
     const agent = createMockAgent();
@@ -848,6 +857,8 @@ describe('AgentService', () => {
     const messageRepository = {
       create: vi.fn(),
       countBySessionId: vi.fn(() => 0),
+      findBySessionIdDesc: vi.fn(() => []),
+      findBySessionIdSince: vi.fn(() => []),
     };
     const sessionRepository = {
       // execute() clears the archive flag at turn start: a new message means the
@@ -871,6 +882,7 @@ describe('AgentService', () => {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
     };
 
     const agent = createMockAgent();
@@ -938,6 +950,8 @@ describe('AgentService', () => {
     const messageRepository = {
       create: vi.fn(),
       countBySessionId: vi.fn(() => 0),
+      findBySessionIdDesc: vi.fn(() => []),
+      findBySessionIdSince: vi.fn(() => []),
     };
     const sessionRepository = {
       findById: vi.fn(() => ({ id: 'session-1', channel: 'feishu', metadata: null })),
@@ -991,6 +1005,8 @@ describe('AgentService', () => {
     const messageRepository = {
       create: vi.fn(),
       countBySessionId: vi.fn(() => 0),
+      findBySessionIdDesc: vi.fn(() => []),
+      findBySessionIdSince: vi.fn(() => []),
     };
     const sessionRepository = {
       // execute() clears the archive flag at turn start: a new message means the
@@ -1020,6 +1036,7 @@ describe('AgentService', () => {
       info: vi.fn(),
       warn: vi.fn(),
       error: vi.fn(),
+      debug: vi.fn(),
     };
 
     const agent = createMockAgent();
@@ -1347,6 +1364,235 @@ describe('AgentService', () => {
       // runtime stayed cached forever and the next turn reused the tool array
       // frozen before the MCP tool set changed.
       expect(service.destroyRuntime('s1')).toBe(false);
+    });
+  });
+
+  // ------------------------------------------- cold-session context rebuild
+
+  describe('cold-session history rebuild', () => {
+    function buildService(opts: {
+      rows?: Array<{ role: string; content: string; created_at: string; metadata?: string }>;
+      summary?: { summary: string; covered_through_ms: number } | undefined;
+      offloadDir?: string;
+      runs?: Array<Record<string, unknown>>;
+    }) {
+      const messageRepository = {
+        create: vi.fn(),
+        countBySessionId: vi.fn(() => 0),
+        findBySessionIdDesc: vi.fn(() => (opts.rows ?? []).slice().reverse()),
+        findBySessionIdSince: vi.fn(() =>
+          (opts.rows ?? []).filter(
+            (r) => Number(r.created_at) > (opts.summary?.covered_through_ms ?? 0),
+          ),
+        ),
+      };
+      const contextSummaryRepository = {
+        find: vi.fn(() => opts.summary),
+        upsert: vi.fn(),
+      };
+      const persistence = {
+        sessionRepository: {
+          clearArchive: vi.fn(),
+          findById: vi.fn(() => undefined),
+          create: vi.fn(),
+          touch: vi.fn(),
+        },
+        messageRepository,
+        episodeRepository: { findBySessionId: vi.fn(() => []) },
+        memorySummarizer: { summarizeSession: vi.fn(async () => {}) },
+        toolRunRepository: { findBySessionId: vi.fn(() => opts.runs ?? []) },
+        contextSummaryRepository,
+        offloadDir: opts.offloadDir,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      };
+      const factory = createMockFactory();
+      const svc = new AgentService(
+        factory as unknown as AgentFactory,
+        () => createMockDispatcher(),
+        persistence as any,
+      );
+      return { svc, factory, persistence };
+    }
+
+    it('seeds the runtime with the stored summary plus the uncovered tail', async () => {
+      const { svc, factory } = buildService({
+        summary: { summary: 'we built a migration', covered_through_ms: 1000 },
+        rows: [
+          { role: 'user', content: 'old question', created_at: '500' },
+          { role: 'assistant', content: 'old answer', created_at: '600' },
+          { role: 'user', content: 'new question', created_at: '2000' },
+        ],
+      });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded[0].role).toBe('user');
+      expect(seeded[0].content[0].text).toContain('we built a migration');
+      // Rows already covered by the summary are not replayed under it.
+      expect(seeded.slice(1).map((m) => m.content)).toEqual(['new question']);
+    });
+
+    it('parses epoch-ms created_at (new Date() yields NaN for it)', async () => {
+      const { svc, factory } = buildService({
+        rows: [{ role: 'user', content: 'earlier turn', created_at: '1720000000000' }],
+      });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded[0].timestamp).toBe(1720000000000);
+    });
+
+    it('rebuilds from the newest rows when no summary was stored', async () => {
+      const { svc, factory } = buildService({
+        rows: [
+          { role: 'user', content: 'q1', created_at: '500' },
+          { role: 'assistant', content: 'a1', created_at: '600' },
+        ],
+      });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded.map((m: any) => m.content)).toEqual(['q1', [{ type: 'text', text: 'a1' }]]);
+    });
+
+    it('starts empty for a session cleared by /new', async () => {
+      const { svc, factory } = buildService({
+        rows: [{ role: 'user', content: 'q1', created_at: '500' }],
+      });
+      await svc.execute('hello', { sessionId: 'session-1' });
+      // destroyRuntime() records the clear, exactly as /new and /clear do.
+      svc.destroyRuntime('session-1');
+
+      await svc.execute('hello again', { sessionId: 'session-1' });
+
+      const second = (factory.create as any).mock.calls[1][0].historyMessages;
+      expect(second).toBeUndefined();
+    });
+
+    it('restores tool traces from assistant metadata, in segment order', async () => {
+      const rows = [
+        { role: 'user', content: '查一下天气', created_at: '500' },
+        {
+          role: 'assistant',
+          content: '北京周末多云。',
+          created_at: '600',
+          metadata: JSON.stringify({
+            segments: [
+              { type: 'text', content: '我先查一下。' },
+              { type: 'tool_call', id: 'call-1' },
+              { type: 'tool_call', id: 'call-999' },
+              { type: 'text', content: '北京周末多云。' },
+            ],
+            tool_calls: [
+              { id: 'call-1', name: 'web_search', arguments: { query: 'beijing weather' } },
+            ],
+          }),
+        },
+      ];
+      const { svc, factory } = buildService({ rows });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      const assistant = seeded[1];
+      expect(assistant.content.map((b: any) => b.text)).toEqual([
+        '我先查一下。',
+        '[tool] web_search({"query":"beijing weather"})',
+        '北京周末多云。',
+      ]);
+    });
+
+    it('keeps the plain text when a row carries no tool metadata', async () => {
+      const { svc, factory } = buildService({
+        rows: [{ role: 'assistant', content: 'just an answer', created_at: '500' }],
+      });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded[0].content).toEqual([{ type: 'text', text: 'just an answer' }]);
+    });
+
+    it('replays the archived-results index when an offload ledger exists', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oma-offload-'));
+      try {
+        const sessionDir = path.join(dir, 'offload', 'session-1');
+        fs.mkdirSync(sessionDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(sessionDir, 'offload.jsonl'),
+          JSON.stringify({
+            seq: 1,
+            toolName: 'shell',
+            toolArgs: { command: 'ls' },
+            refPath: '001-shell.md',
+            timestamp: Date.now(),
+            nodeId: 'node-001',
+            summary: 'listed the offload dir',
+            status: 'success',
+          }) + String.fromCharCode(10),
+        );
+
+        const { svc, factory } = buildService({
+          rows: [{ role: 'user', content: '跑个命令', created_at: '500' }],
+          offloadDir: dir,
+        });
+
+        await svc.execute('hello', { sessionId: 'session-1' });
+
+        const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+        const blocks = seeded[0].content as Array<{ type: string; text: string }>;
+        expect(blocks[0].text).toContain('<archived_tool_results>');
+        expect(blocks[0].text).toContain('node-001');
+        expect(blocks[0].text).toContain('001-shell.md');
+        expect(blocks[1].text).toBe('跑个命令');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('attaches the tool_runs result digest to a call that ran in that turn', async () => {
+      const rows = [
+        { role: 'user', content: '查一下天气', created_at: String(Date.now() - 5000) },
+        {
+          role: 'assistant',
+          content: '北京多云。',
+          created_at: String(Date.now() - 1000),
+          metadata: JSON.stringify({
+            segments: [
+              { type: 'tool_call', id: 'call-1' },
+              { type: 'text', content: '多云。' },
+            ],
+            tool_calls: [{ id: 'call-1', name: 'web_search', arguments: { query: 'beijing' } }],
+          }),
+        },
+      ];
+      const run = (at: number) => [
+        {
+          id: 'r1',
+          session_id: 'session-1',
+          tool_name: 'web_search',
+          input: '{}',
+          output: 'Beijing: cloudy 18C',
+          status: 'success',
+          created_at: String(at),
+        },
+      ];
+
+      const inTurn = buildService({ rows, runs: run(Date.now() - 2000) });
+      await inTurn.svc.execute('hello', { sessionId: 'session-1' });
+      const seeded = (inTurn.factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded[1].content[0].text).toBe(
+        '[tool] web_search({"query":"beijing"}) → Beijing: cloudy 18C',
+      );
+
+      // A run created after the row was persisted belongs to a later turn.
+      const later = buildService({ rows, runs: run(Date.now() + 60_000) });
+      await later.svc.execute('hello', { sessionId: 'session-1' });
+      const laterSeeded = (later.factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(laterSeeded[1].content[0].text).toBe('[tool] web_search({"query":"beijing"})');
     });
   });
 });

@@ -23,10 +23,12 @@ import { InMemoryTaskRunStore } from '../../orchestrator/task-run-store.js';
 import { PermissionInheritanceServiceImpl } from '../../orchestrator/permission-inheritance.js';
 import { ApprovalStateSyncImpl } from '../../orchestrator/approval-state-sync.js';
 import { PendingApprovalStore } from '../../agent/approval-store.js';
+import { SessionContextSummaryRepository } from '../../memory/repositories/session-context-summary-repository.js';
 import { UserQuestionStore } from '../../agent/user-question-store.js';
 import { configEventBus } from '../config-event-bus.js';
 import type { AppServices } from '../types.js';
 import type { Logger } from 'pino';
+import path from 'node:path';
 
 // ─── Types ───
 
@@ -114,6 +116,11 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
 
   // ── Agent factory ──
 
+  // Compression summaries survive restarts here: a cold session resumes from
+  // the stored summary plus the rows written after it, instead of rebuilding
+  // context from a bare tail it cannot know was already summarized.
+  const contextSummaryRepository = new SessionContextSummaryRepository(db);
+
   const approvalPort = createFeishuApprovalUiPort({
     feishuClient: feishuClient as {
       sendApprovalCard(chatId: string, card: Record<string, unknown>): Promise<string>;
@@ -145,6 +152,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
       approvalTimeoutAction: config.tools.shellApprovalTimeoutAction,
       shellEnabled: config.tools.shellEnabled,
       approvalRequestRepo,
+      contextSummaryRepository,
       approvalPort,
       cronServiceFactory: () => cronServiceRef.current,
       policyCenter,
@@ -216,11 +224,10 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
   );
   configEventBus.onReload((c) => {
     agentFactory.updateConfig(c);
-    // Keep persistence options in sync so fields like historyLoadCount
-    // take effect immediately without restart.
+    // Keep persistence options in sync so config edits take effect
+    // immediately without restart.
     if (persistenceOpts) {
-      persistenceOpts.historyLoadCount = c.memory.historyLoadCount;
-      persistenceOpts.historyMaxTokens = c.memory.historyMaxTokens;
+      persistenceOpts.summarizeInterval = c.memory.summarizeInterval;
     }
   });
 
@@ -303,7 +310,7 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
   };
 
   // v10: extracted to variable so config-event handler can update fields
-  // (e.g. historyLoadCount) at runtime without restart.
+  // (e.g. summarizeInterval) at runtime without restart.
   const persistenceOpts = {
     sessionRepository,
     messageRepository,
@@ -311,8 +318,12 @@ export function createAgentServices(input: AgentServicesInput): AgentServicesRes
     toolRunRepository,
     memorySummarizer,
     summarizeInterval: config.memory.summarizeInterval,
-    historyLoadCount: config.memory.historyLoadCount,
-    historyMaxTokens: config.memory.historyMaxTokens,
+    contextSummaryRepository,
+    // A cold session replays the same archived-results index the transform
+    // injects on a trim; same default directory the factory gives OffloadStore.
+    offloadDir: config.memory.offloading?.enabled
+      ? config.memory.offloading.refDir || path.dirname(config.database.path)
+      : undefined,
     logger,
   };
 

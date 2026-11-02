@@ -78,6 +78,29 @@ export class MessageRepository {
     return stmt.all(sessionId, limit, offset) as Message[];
   }
 
+  /**
+   * Rows written after `sinceMs`, oldest first — the part of a session that a
+   * stored compression summary cannot already speak for.
+   *
+   * `created_at` is TEXT holding epoch millis (see src/shared/timestamp.ts), so
+   * the comparison has to be numeric: a string compare would order `"9"` above
+   * `"1000"`.
+   */
+  findBySessionIdSince(sessionId: string, sinceMs: number, limit: number = 50): Message[] {
+    const stmt = this.db.prepare(
+      'SELECT * FROM messages WHERE session_id = ? AND CAST(created_at AS INTEGER) > ? ' +
+        'ORDER BY created_at ASC LIMIT ?',
+    );
+    return stmt.all(sessionId, sinceMs, limit) as Message[];
+  }
+
+  countBySession(sessionId: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS c FROM messages WHERE session_id = ?')
+      .get(sessionId) as { c: number };
+    return row?.c ?? 0;
+  }
+
   update(id: string, input: UpdateMessageInput): Message | undefined {
     const fields: string[] = [];
     const values: Record<string, unknown> = { id };

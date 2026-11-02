@@ -233,8 +233,6 @@ function buildMemorySection(memCfg: YamlNode): Record<string, unknown> {
     capture: {
       durable_only: yamlBool(captureCfg?.durable_only, true, 'memCfg.capture.durable_only'),
     },
-    historyLoadCount: num(memCfg?.history_load_count, 5, 'memCfg?.history_load_count'),
-    historyMaxTokens: num(memCfg?.history_max_tokens, 1000, 'memCfg?.history_max_tokens'),
     summarizeInterval: num(memCfg?.summarize_interval, 20, 'memCfg?.summarize_interval'),
     outputLanguage: str(memCfg?.output_language, 'Auto', 'memCfg?.output_language'),
     decayHalfLifeDays: num(memCfg?.decay_half_life_days, 30, 'memCfg?.decay_half_life_days'),
@@ -1919,8 +1917,6 @@ export function jsConfigToYaml(
           captureMaxChars: 'capture_max_chars',
           summarizeInterval: 'summarize_interval',
           outputLanguage: 'output_language',
-          historyLoadCount: 'history_load_count',
-          historyMaxTokens: 'history_max_tokens',
           decayHalfLifeDays: 'decay_half_life_days',
           embeddingCacheMaxEntries: 'embedding_cache_max_entries',
           queryEmbeddingTimeoutMs: 'query_embedding_timeout_ms',

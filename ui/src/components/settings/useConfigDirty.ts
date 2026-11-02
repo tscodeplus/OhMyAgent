@@ -128,8 +128,6 @@ export function useConfigDirty(
           'memory.maxCaptureChars',
           'memory.summarizeInterval',
           'memory.decayHalfLife',
-          'memory.historyLoadCount',
-          'memory.historyMaxTokens',
           'memory.cacheMaxEntries',
           'memory.queryTimeoutMs',
           'memory.retentionDays',

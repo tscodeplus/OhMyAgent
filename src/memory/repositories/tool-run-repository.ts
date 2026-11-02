@@ -65,7 +65,21 @@ export class ToolRunRepository {
     return row ?? undefined;
   }
 
-  findBySessionId(sessionId: string): ToolRun[] {
+  /**
+   * Runs of one session, oldest first.
+   *
+   * `limit` bounds the read for callers that only need a recent window (the
+   * cold-session reload); omitting it keeps the historical behaviour of taking
+   * every row. Rows are ordered ASC so a caller can walk them alongside the
+   * message rows of the same session.
+   */
+  findBySessionId(sessionId: string, limit?: number): ToolRun[] {
+    if (limit !== undefined) {
+      const stmt = this.db.prepare(
+        'SELECT * FROM (SELECT * FROM tool_runs WHERE session_id = ? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC',
+      );
+      return stmt.all(sessionId, limit) as ToolRun[];
+    }
     const stmt = this.db.prepare(
       'SELECT * FROM tool_runs WHERE session_id = ? ORDER BY created_at ASC',
     );

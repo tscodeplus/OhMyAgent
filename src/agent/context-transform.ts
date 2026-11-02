@@ -657,6 +657,16 @@ export interface TransformOptions {
    * resolves to a JudgeEngine and the respective point mode is not 'off'.
    */
   judgeGet?: () => import('../judge/engine.js').JudgeEngine | undefined;
+  /**
+   * Persist a successful compression summary so the session can resume from it
+   * when it next goes cold (restart, runtime eviction, MCP tool-set change).
+   *
+   * The summary used to live only in a module-level map, so a cold session
+   * rebuilt context from raw rows and silently lost everything its own
+   * compaction had already distilled. `coveredThroughMs` is the instant the
+   * summary was produced: rows created after it are the uncovered tail.
+   */
+  persistContextSummary?: (info: { summary: string; coveredThroughMs: number }) => void;
 }
 
 /**
@@ -1171,10 +1181,18 @@ function hasPreciseTimePrefix(blocks: any[]): boolean {
 }
 
 /**
+ * Messages kept for one request: the transcript trim every path shares. Exported
+ * so the cold-session reload bounds itself with the same number — a reload with
+ * its own cap was one conversation bounded twice, with the smaller bound
+ * invisible to everyone using it.
+ */
+export const MAX_CONTEXT_MESSAGES = 100;
+
+/**
  * Create a context transform function.
  */
 export function createTransformContext(options?: TransformOptions) {
-  const maxMessages = options?.maxMessages ?? 100;
+  const maxMessages = options?.maxMessages ?? MAX_CONTEXT_MESSAGES;
   const memoryRetriever = options?.memoryRetriever;
   const autoRecall = options?.autoRecall ?? false;
   const autoRecallFrequency = options?.autoRecallFrequency ?? 'first';
@@ -1759,6 +1777,20 @@ export function createTransformContext(options?: TransformOptions) {
               lastCompressedIndexBySession.set(nsSessionKey, result.length);
               if (compressResult.summary) {
                 lastCompressionSummaryBySession.set(nsSessionKey, compressResult.summary);
+                // The summary replaces everything at or before this instant; only
+                // rows written after it are missing from it.
+                const coveredThroughMs = Date.now();
+                try {
+                  options?.persistContextSummary?.({
+                    summary: compressResult.summary,
+                    coveredThroughMs,
+                  });
+                } catch (err) {
+                  options?.logger?.warn(
+                    { sessionKey, err: err instanceof Error ? err.message : String(err) },
+                    'Compression summary persistence failed — in-memory summary still applies',
+                  );
+                }
               }
               options?.logger?.info(
                 {
