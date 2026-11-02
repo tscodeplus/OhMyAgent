@@ -1567,16 +1567,6 @@
     "searchPlaceholder": "Search notes, commands, pitfalls…",
     "clear": "Clear",
     "clearFilters": "Clear filters",
-    "kind": {
-      "command": "Command",
-      "workflow": "Workflow",
-      "pitfall": "Pitfall",
-      "insight": "Insight",
-      "opinion": "Opinion",
-      "reference": "Reference",
-      "decision": "Decision",
-      "other": "Other"
-    },
     "filter": {
       "originAll": "Author: all",
       "originUser": "Author: me",

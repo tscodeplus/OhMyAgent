@@ -69,7 +69,9 @@ const NOTES_INDEXES = [
      ON notes(normalized_title, scope, scope_key) WHERE status = 'active'`,
   `CREATE INDEX IF NOT EXISTS idx_notes_status_updated ON notes(status, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_notes_scope ON notes(scope, scope_key, status)`,
-  `CREATE INDEX IF NOT EXISTS idx_notes_kind ON notes(kind)`,
+  // v36 dropped the `kind` column (aspect moved into tags); the index that named
+  // it is not created any more — a replay of this migration on a database the
+  // v36 migration already cleaned would throw `no such column: kind` at boot.
 ];
 
 /**

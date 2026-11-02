@@ -32,7 +32,6 @@ import type { CreateNoteInput } from '../../src/notes/types.js';
 
 function note(overrides: Partial<CreateNoteInput> = {}): CreateNoteInput {
   return {
-    kind: 'reference',
     title: '标题',
     summary: '',
     body: '正文',
@@ -112,6 +111,35 @@ describe('note relations — rules', () => {
     );
     expect(hit).toBeNull();
   });
+
+  it('drops an excluded tag from both sides before the Jaccard', () => {
+    // The aspect dimension lives in tags now: `pitfall` on both notes is 1 of 3
+    // shared and would relate two notes with nothing else in common. Excluded, the
+    // same pair has nothing left to score.
+    const a = ['pitfall', 'feishu', 'card'];
+    const b = ['pitfall', 'termux', 'boot'];
+    expect(tagJaccard(a, b)).toBeCloseTo(0.2); // 1 shared of 5
+    expect(tagJaccard(a, b, new Set(['pitfall']))).toBe(0);
+    expect(
+      scorePair(
+        { id: 'a', sessionId: null, title: '甲', tags: a },
+        { id: 'b', sessionId: null, title: '乙', tags: b },
+        new Set(['pitfall']),
+      ),
+    ).toBeNull();
+  });
+
+  it('still scores subject tags an exclusion set does not name', () => {
+    // The exclusion removes a *filter tag*, not the rule: two notes sharing a
+    // low-frequency subject keep their edge even while an aspect tag is excluded.
+    const a = ['pitfall', 'sqlite', 'migrate'];
+    const b = ['pitfall', 'sqlite', 'boot'];
+    const excluded = new Set(['pitfall']);
+    expect(tagJaccard(a, b, excluded)).toBeCloseTo(1 / 3);
+    // But `sqlite` at this coverage would be excluded too, so the same pair scores
+    // 0 once both tags are filters — which is the rule working, not failing.
+    expect(tagJaccard(a, b, new Set(['pitfall', 'sqlite']))).toBe(0);
+  });
 });
 
 describe('note relations — persistence', () => {
@@ -180,6 +208,58 @@ describe('note relations — persistence', () => {
     expect(repository.get(a)?.related.map((item) => item.id)).toEqual([b]);
   });
 
+  it('does not link notes that share only a high-frequency aspect tag', () => {
+    // `kind` moved into tags (v36), so four pitfalls about four different tools
+    // share `pitfall` — 4 of 4 live notes, far past FILTER_TAG_RATIO. Scoring over
+    // it would give every note three "related" entries that are only "also a
+    // pitfall", the same failure the facet exclusion exists to prevent.
+    const ids = [
+      create({ title: 'sqlite 迁移丢列', tags: ['sqlite', 'pitfall'] }),
+      create({ title: 'vitest 并行卡死', tags: ['vitest', 'pitfall'] }),
+      create({ title: 'termux 后台被杀', tags: ['termux', 'pitfall'] }),
+      create({ title: 'feishu 卡片限流', tags: ['feishu', 'pitfall'] }),
+    ];
+    for (const id of ids) {
+      expect(repository.get(id)?.related).toEqual([]);
+    }
+    expect(rows()).toEqual([]);
+  });
+
+  it('links two lone notes sharing a tag — the FILTER_TAG_MIN_LIVE guard', () => {
+    // With only two notes in a scope a shared tag is 100% by arithmetic; excluding
+    // it would refuse the one relation the scope has. The guard keeps small scopes
+    // scoring, and the exclusion only bites once there are three or more notes.
+    const a = create({ title: 'sqlite 迁移丢列', tags: ['sqlite'] });
+    const b = create({ title: 'sqlite 锁等待', tags: ['sqlite'] });
+    expect(repository.get(a)?.related.map((item) => item.id)).toEqual([b]);
+    expect(repository.get(b)?.related.map((item) => item.id)).toEqual([a]);
+  });
+
+  it('excludes a subject tag most of a small scope shares', () => {
+    // 2 of 3 live notes carry `sqlite` (0.67 ≥ 1/3): at that coverage the tag
+    // links most of the scope to most of the scope, which is what a filter does —
+    // so it loses relation duty even though it is a subject, not an aspect. The
+    // rule is deliberately about behaviour, never about where a tag came from.
+    const a = create({ title: 'sqlite 迁移丢列', tags: ['sqlite'] });
+    const b = create({ title: 'sqlite 锁等待', tags: ['sqlite'] });
+    create({ title: '不相干主题', tags: ['other'] });
+    expect(repository.get(a)?.related).toEqual([]);
+    expect(repository.get(b)?.related).toEqual([]);
+  });
+
+  it('links through a subject tag once the scope is big enough that it is rare', () => {
+    // Seven notes, `sqlite` on two of them = 2/7 < 1/3: now it is a subject again,
+    // and the pair links. A tag can cross the line in either direction as notes
+    // arrive, which is why the set is recomputed per write rather than stored.
+    const a = create({ title: 'sqlite 迁移丢列', tags: ['sqlite'] });
+    const b = create({ title: 'sqlite 锁等待', tags: ['sqlite'] });
+    for (let index = 0; index < 5; index += 1) {
+      create({ title: `不相干主题 ${index}`, tags: [`topic-${index}`] });
+    }
+    expect(repository.get(a)?.related.map((item) => item.id)).toEqual([b]);
+    expect(repository.get(b)?.related.map((item) => item.id)).toEqual([a]);
+  });
+
   it('recomputes on retitle so a stale relation disappears', () => {
     const a = create({ title: 'Ubuntu 26.04 LTS', sessionId: null });
     const b = create({ title: 'Ubuntu 26.04 LTS 升级记录', sessionId: null });
@@ -198,18 +278,22 @@ describe('note relations — persistence', () => {
     expect(rows()).toEqual([]);
   });
 
-  it('writes nothing for an archived note and drops its rows when it is archived', () => {
+  it("keeps an archived note's rows on rebuild — restore stays free", () => {
     const a = create({ title: '男单世界排名前3', sessionId: SESSION_ID });
     const b = create({ title: '女单世界排名前3', sessionId: SESSION_ID });
 
-    // Archiving does not delete on its own (a restore must be free)...
+    // Archiving does not delete on its own, and a scope rebuild does not either:
+    // only the live↔live block is replaced, so rows touching an archived note
+    // survive and un-archiving brings the list back for free. They are hidden at
+    // read, so the cost of keeping them is rows, not wrong UI.
     repository.setStatus(a, 'archived');
     expect(rows()).toHaveLength(2);
-
-    // ...but a rebuild of the archived note clears both sides.
     new NoteRelations(db).rebuild(a);
-    expect(rows()).toEqual([]);
+    expect(rows()).toHaveLength(2);
     expect(repository.get(b)?.related).toEqual([]);
+
+    repository.setStatus(a, 'active');
+    expect(repository.get(b)?.related.map((item) => item.id)).toEqual([a]);
   });
 
   it(`caps each note at ${MAX_RELATIONS} relations and keeps the strongest`, () => {

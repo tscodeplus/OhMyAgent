@@ -1567,16 +1567,6 @@
     "searchPlaceholder": "搜索笔记、命令、坑…",
     "clear": "清空",
     "clearFilters": "清除筛选",
-    "kind": {
-      "command": "命令",
-      "workflow": "流程",
-      "pitfall": "踩坑",
-      "insight": "洞见",
-      "opinion": "观点",
-      "reference": "参考",
-      "decision": "决策",
-      "other": "其他"
-    },
     "filter": {
       "originAll": "作者：全部",
       "originUser": "作者：我",

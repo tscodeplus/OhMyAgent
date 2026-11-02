@@ -226,8 +226,8 @@ describe('notes service', () => {
 
   it('reports the counts the review UI shows', () => {
     const { service } = createTestService(db);
-    service.createManual({ title: 'a', body: 'b', kind: 'command' });
-    service.createManual({ title: 'c', body: 'd', kind: 'pitfall' });
+    service.createManual({ title: 'a', body: 'b' });
+    service.createManual({ title: 'c', body: 'd' });
     const stats = service.stats();
     expect(stats.byStatus.active).toBe(2);
     // The kind histogram was removed with its last reader: `/api/notes` stopped
@@ -314,7 +314,6 @@ describe('notes service', () => {
       ],
     });
     repository.create({
-      kind: 'command',
       title: 'already here',
       summary: '',
       body: 'b',
@@ -345,7 +344,6 @@ describe('notes service', () => {
       ],
     });
     repository.create({
-      kind: 'command',
       title: 'already here',
       summary: '',
       body: 'b',
@@ -455,7 +453,6 @@ describe('notes service', () => {
     // left the draft unapprovable forever.
     const { service, repository } = createTestService(db);
     const base = {
-      kind: 'command' as const,
       summary: '',
       body: 'b',
       status: 'draft' as const,
@@ -479,7 +476,6 @@ describe('notes service', () => {
   it('expires stale drafts through the repository, as hygiene will', () => {
     const { repository } = createTestService(db);
     repository.create({
-      kind: 'other',
       title: 'old draft',
       summary: '',
       body: 'b',
@@ -513,23 +509,10 @@ describe('notes service', () => {
       expect(note.body).toBe(text);
       expect(note.status).toBe('draft');
       expect(note.origin).toBe('user');
-      expect(note.kind).toBe('other');
       // Provenance is the conversation, not a message: the sentence may be a
       // tidy-up of what was said, so citing a message would claim a quote.
       expect(note.sources).toEqual([expect.objectContaining({ kind: 'session', id: SESSION_ID })]);
       expect(service.list({ status: 'draft' }).total).toBe(1);
-    });
-
-    it('honours an explicit kind', async () => {
-      const { service } = createTestService(db);
-      const result = await service.capture({
-        sessionId: SESSION_ID,
-        mode: 'text',
-        text: 'npx vitest run tests/notes',
-        kind: 'command',
-      });
-      if (!result.ok) throw new Error('capture failed');
-      expect(result.notes[0].kind).toBe('command');
     });
 
     it('refuses empty text as an empty capture, not a note', async () => {

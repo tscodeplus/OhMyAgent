@@ -9,7 +9,6 @@ import type {
   Note,
   NoteEventActor,
   NoteField,
-  NoteKind,
   NoteListQuery,
   NoteListResult,
   NoteRejectionCode,
@@ -60,8 +59,6 @@ export interface CaptureRequest {
    * instruction is not.
    */
   instruction?: string;
-  /** Overrides the inferred kind (a `--kind pitfall` style hint). */
-  kind?: NoteKind;
   /** Overrides the inferred scope. `session` can only arrive this way (§5.7). */
   scope?: NoteScope;
   scopeKey?: string;
@@ -143,7 +140,6 @@ export interface ManualNoteInput {
   title: string;
   summary?: string;
   body: string;
-  kind?: NoteKind;
   fields?: NoteField[];
   tags?: string[];
   scope?: NoteScope;
@@ -194,7 +190,6 @@ export interface NotesService {
     id: string,
     patch: {
       title?: string;
-      kind?: NoteKind;
       summary?: string;
       body?: string;
       fields?: NoteField[];

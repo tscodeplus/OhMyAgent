@@ -23,10 +23,8 @@ import type { NotesRepository } from './repository.js';
 import type { CapturePipeline } from './capture.js';
 import { normalizeTags } from './canonical.js';
 import {
-  isNoteKind,
   isNoteStatus,
   type Note,
-  type NoteKind,
   type NoteListQuery,
   type NoteListResult,
   type NoteStatus,
@@ -61,7 +59,6 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
     createManual(input: ManualNoteInput): ManualNoteResult {
       const tags = normalizeTags(input.tags);
       const created = repository.create({
-        kind: isNoteKind(input.kind) ? input.kind : 'other',
         title: input.title.trim(),
         summary: (input.summary ?? '').trim(),
         body: input.body,
@@ -92,7 +89,6 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       id: string,
       patch: {
         title?: string;
-        kind?: NoteKind;
         summary?: string;
         body?: string;
         fields?: Note['fields'];

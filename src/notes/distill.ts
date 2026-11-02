@@ -22,18 +22,19 @@ import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { extractJson } from '../memory/json-utils.js';
 import { normalizeTags } from './canonical.js';
 import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT, WINDOW_TURNS_MAX } from './output-budget.js';
-import { NOTE_FIELDS, isNoteKind, type NoteField, type NoteKind } from './types.js';
+import type { NoteField } from './types.js';
 
 /** Caps from the plan §5.3 validation table. `bodyMax` is configurable, see output-budget.ts. */
 const LIMITS = {
   titleMax: 60,
   summaryMax: 120,
   tagsMax: 6,
+  fieldsMax: 6,
+  fieldKeyMax: 32,
   fieldsValueMax: 400,
 } as const;
 
 export interface DistilledNote {
-  kind: NoteKind;
   title: string;
   summary: string;
   body: string;
@@ -74,15 +75,6 @@ export interface ReportedScope {
 export interface DistillOutcome {
   notes: DistilledNote[];
   rejected: DistillRejection[];
-  /**
-   * Labels the model used that are not in `NOTE_KINDS`, with the note they landed on.
-   *
-   * Such a note is kept as `other` — a wrong label is not a reason to lose a good
-   * note — but the label is worth reporting: a run of them says the prompt's
-   * vocabulary is not the vocabulary this model reaches for, which is a prompt bug
-   * rather than a model bug.
-   */
-  kindFallbacks: Array<{ label: string; title: string }>;
   /** Raw model output length, for the diagnostic log. */
   rawChars: number;
   /** What the brief said about how much to cover, when the model reported it. */
@@ -108,14 +100,15 @@ export function buildDistillSystemPrompt(options: {
 
   return `You are the note distiller. The user has just finished a piece of work and wants whatever will be reusable later extracted from it.
 
-Produce only the kind of knowledge that will be needed again:
+Produce only knowledge that will be needed again. The shapes it usually takes:
 - command   one concrete command, flag set or one-liner, copy-pasteable as-is
 - workflow  an ordered set of steps, including the checkpoints that tell you it worked
 - pitfall   what went wrong: symptom -> root cause -> fix -> how to avoid it
-- insight   a principle worth knowing: one assertion plus why it holds
-- opinion   a judgement worth keeping, attributed to whoever said it
 - reference how a model, API or config is set up, what its parameters mean, its limits
 - decision  the decision, its background, and the options that were dropped
+- opinion   a principle or judgement worth keeping (an insight is this too), attributed to whoever said it
+
+These shapes guide what you extract. They are not stored as a category: the note's tags carry the aspect (rule 14).
 
 Hard rules:
 1. Default to **one** note. A human reviews every draft, so every extra note costs them a read and a
@@ -134,8 +127,11 @@ Hard rules:
    sections when the note covers more than one aspect of its subject.
 8. When authoritative detail is missing, leave it out. Do not guess a flag, a version or a path.
 9. Never include secrets, cookies or personal data. Anything that looks like a credential stays out of the body.
-10. The kinds and slots above are hints, not a form. If a slot has nothing to say, write the body alone.
-    A note that fits no template but is worth keeping gets kind="other" - never drop content to fit a template.
+10. The shapes and slots above are hints, not a form. If a slot has nothing to say, write the body alone.
+    A note that fits no shape but is worth keeping needs no aspect tag - never drop content to fit a template.
+    "fields" is a list of optional slots, each {"key":"...","value":"...","mono":true}: key is a short
+    lowercase word you choose (command, symptom, fix, when...); mono is true only for a value a person
+    would copy-paste verbatim (a command, a path, a config key), never for prose.
 11. Record conclusions, not the process. Do not add a conclusion the material does not support.
 12. When a "brief from the user" is present it outranks the rules above: it may relax rule 11 (for example
     "turn today's chat into notes") or narrow the scope (for example "only that one command").
@@ -147,12 +143,14 @@ Hard rules:
     "only the last 3 exchanges" gives "scope":{"turns":3} and no evidence from earlier entries.
 13. Write title, summary and body in the language the material is written in - this prompt being English
     is not an instruction to translate. Commands, paths, flags and identifiers stay exactly as written.
-14. Tag the subject, not the aspect: one fixed kebab-case tag per project, tool or person (the same
-    spelling every time), and let the title carry the aspect. This is what keeps notes about one subject
-    linked to each other later, and it only works if the tag is spelled the same way twice.
+14. Tags: one or two subject tags (the project, tool or person the note is about, kebab-case, the same
+    spelling every time - this is what keeps notes about one subject linked to each other later), plus
+    optionally exactly one aspect tag from this fixed list, spelled exactly as written:
+    command, workflow, pitfall, reference, decision, opinion.
+    The aspect tag is a filter ("show me every pitfall"), not a second title: when no aspect fits, omit it.
 
 Output strict JSON:
-{"scope":{"turns":3},"notes":[{"kind":"command","title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":{"command":"...","when":"..."},"tags":["kebab-case"],"evidence":["<id from the material>"],"confidence":0.8}]}
+{"scope":{"turns":3},"notes":[{"title":"<=60 chars","summary":"<=120 chars, one line","body":"markdown","fields":[{"key":"command","value":"...","mono":true}],"tags":["kebab-case","pitfall"],"evidence":["<id from the material>"],"confidence":0.8}]}
 The "scope" key is optional and may instead be {"chars":2000}; omit it entirely when the brief states no amount.`;
 }
 
@@ -181,17 +179,40 @@ function normalizeFieldValue(value: unknown): string {
   return '';
 }
 
-/** Which slots are copied, and in which order the UI renders them. */
-function buildFields(kind: NoteKind, raw: unknown): NoteField[] {
-  if (!raw || typeof raw !== 'object') return [];
-  const allowed = NOTE_FIELDS[kind];
-  const record = raw as Record<string, unknown>;
+/**
+ * Which slots are kept. Free-form keys — the only guard is shape and size, the
+ * same contract the HTTP layer applies to a human's editor input, so a model
+ * draft and a manual note cannot disagree about what a field is.
+ *
+ * Accepts the array form the prompt asks for (`[{key, value, mono}]`) and,
+ * forgivingly, the legacy object form (`{command: "..."}`), which older models
+ * reach for; object entries become slots with `mono: false`.
+ */
+function buildFields(raw: unknown): NoteField[] {
+  const entries: Array<{ key: unknown; value: unknown; mono: unknown }> = [];
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (item && typeof item === 'object') {
+        const record = item as Record<string, unknown>;
+        entries.push({ key: record.key, value: record.value, mono: record.mono });
+      }
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (const [key, value] of Object.entries(raw)) {
+      entries.push({ key, value, mono: undefined });
+    }
+  }
   const fields: NoteField[] = [];
-  for (const key of allowed) {
-    const value = normalizeFieldValue(record[key]);
+  for (const entry of entries) {
+    if (typeof entry.key !== 'string' || !entry.key.trim()) continue;
+    const value = normalizeFieldValue(entry.value);
     if (!value) continue;
-    // `command`/`usage`/`subject` are things people copy; the rest is prose.
-    fields.push({ key, value, mono: key === 'command' || key === 'usage' || key === 'subject' });
+    fields.push({
+      key: entry.key.trim().toLowerCase().slice(0, LIMITS.fieldKeyMax),
+      value,
+      mono: entry.mono === true,
+    });
+    if (fields.length >= LIMITS.fieldsMax) break;
   }
   return fields;
 }
@@ -204,7 +225,6 @@ function validateNote(
   raw: unknown,
   allowedEvidence: Set<string>,
   rejected: DistillRejection[],
-  kindFallbacks: Array<{ label: string; title: string }>,
   bodyMaxChars: number,
   /** Present only when the model reported a scope: the ids that scope permits. */
   scopedEvidence?: Set<string>,
@@ -216,17 +236,6 @@ function validateNote(
   const candidate = raw as Record<string, unknown>;
 
   const title = clampText(candidate.title, LIMITS.titleMax);
-
-  // A label outside the closed set becomes `other`, never a rejection. The plan's
-  // invariant is that `kind` is a suggestion and cannot refuse a note, and a model
-  // given Chinese material may answer `"命令"` — discarding the note for that would
-  // lose content over a label. Reported instead, so a prompt whose vocabulary the
-  // model will not use is visible rather than silently degrading every note to
-  // `other` (which also drops the per-kind slot whitelist, see `buildFields`).
-  const kind: NoteKind = isNoteKind(candidate.kind) ? candidate.kind : 'other';
-  if (kind === 'other' && candidate.kind !== 'other') {
-    kindFallbacks.push({ label: String(candidate.kind ?? 'missing').slice(0, 40), title });
-  }
 
   const body = candidate.body;
   const bodyText = typeof body === 'string' ? body.trim() : '';
@@ -290,11 +299,10 @@ function validateNote(
   if (tooLong) rejected.push({ reason: 'too_long', detail: 'trimmed to limits' });
 
   return {
-    kind,
     title,
     summary,
     body: trimmedBody,
-    fields: buildFields(kind, candidate.fields),
+    fields: buildFields(candidate.fields),
     tags,
     evidence: Array.from(new Set(evidence)),
     confidence,
@@ -354,13 +362,11 @@ export function parseDistillResponse(
   scopeIds?: (scope: ReportedScope) => Set<string>,
 ): DistillOutcome {
   const rejected: DistillRejection[] = [];
-  const kindFallbacks: Array<{ label: string; title: string }> = [];
   const json = extractJson(raw);
   if (!json) {
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'no JSON object in response' }],
-      kindFallbacks,
       rawChars: raw.length,
     };
   }
@@ -372,7 +378,6 @@ export function parseDistillResponse(
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'JSON.parse failed' }],
-      kindFallbacks,
       rawChars: raw.length,
     };
   }
@@ -382,7 +387,6 @@ export function parseDistillResponse(
     return {
       notes: [],
       rejected: [{ reason: 'invalid_json', detail: 'missing notes array' }],
-      kindFallbacks,
       rawChars: raw.length,
     };
   }
@@ -396,7 +400,6 @@ export function parseDistillResponse(
         candidate,
         allowed,
         rejected,
-        kindFallbacks,
         bodyMaxChars,
         // A scope can only ever narrow: an id outside the window is already an
         // invention, and an id inside the scope is not automatically in the window.
@@ -405,7 +408,7 @@ export function parseDistillResponse(
     )
     .filter((note): note is DistilledNote => note !== null);
 
-  return { notes, rejected, kindFallbacks, rawChars: raw.length, scope };
+  return { notes, rejected, rawChars: raw.length, scope };
 }
 
 export interface DistillOptions {
@@ -434,8 +437,6 @@ export interface DistillOptions {
    * guess. Sent as its own block so the model can tell the two apart.
    */
   instruction?: string;
-  /** Narrow hint from the caller (e.g. "the user asked for a pitfall"). */
-  hint?: string;
   /**
    * Sampling temperature for the first attempt (`notes.capture.temperature`). The
    * repair retry halves it: a second attempt at the same temperature tends to
@@ -480,7 +481,6 @@ export async function distillNotes(options: DistillOptions): Promise<DistillOutc
     '',
     options.windowText,
     '',
-    options.hint ? `Extra requirement: ${options.hint}` : '',
   ]
     .filter(Boolean)
     .join('\n');

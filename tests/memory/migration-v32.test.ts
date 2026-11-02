@@ -87,9 +87,9 @@ describe('migration v32', () => {
       ).run();
       db.prepare(
         `INSERT INTO notes
-           (id, kind, title, normalized_title, summary, body, status, origin, scope, scope_key,
+           (id, title, normalized_title, summary, body, status, origin, scope, scope_key,
             created_at, updated_at)
-         VALUES ('n1','other','A note','a note','summary','body','active','user','user','u1',
+         VALUES ('n1','A note','a note','summary','body','active','user','user','u1',
                 1, 1)`,
       ).run();
 

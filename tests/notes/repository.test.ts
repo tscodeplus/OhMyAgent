@@ -16,7 +16,6 @@ import type { CreateNoteInput } from '../../src/notes/types.js';
 
 function baseInput(overrides: Partial<CreateNoteInput> = {}): CreateNoteInput {
   return {
-    kind: 'command',
     title: 'vitest 单文件迭代',
     summary: '改哪个文件就跑哪个',
     body: 'npx vitest run tests/agent',
@@ -312,7 +311,6 @@ describe('NotesRepository', () => {
     // The repository is enough here: this test is about what `decorate` resolves.
     const repository = new NotesRepository(db);
     const created = repository.create({
-      kind: 'pitfall',
       title: 'source session',
       summary: '',
       body: 'b',

@@ -8,20 +8,11 @@
  * `tests/notes/routes.test.ts` pins the payload; this file mirrors it.
  */
 
-export const NOTE_KINDS = [
-  'command',
-  'workflow',
-  'pitfall',
-  'insight',
-  'opinion',
-  'reference',
-  'decision',
-  'other',
-] as const;
-
-export type NoteKind = (typeof NOTE_KINDS)[number];
-
-/** Where a note is visible (plan §4.2-5). Mirrors `memories.scope` plus `channel`. */
+/**
+ * Where a note is visible (plan §4.2-5). Mirrors `memories.scope` plus `channel`.
+ * There is no kind: the aspect dimension is one optional tag (`pitfall`, `command`,
+ * …) — see the server's `src/notes/types.ts`.
+ */
 export const NOTE_SCOPES = ['user', 'project', 'channel', 'session'] as const;
 
 export type NoteScope = (typeof NOTE_SCOPES)[number];
@@ -76,16 +67,15 @@ export type NoteRelationBasis = 'session' | 'title' | 'tags';
 export interface NoteRelated {
   id: string;
   title: string;
-  kind: NoteKind;
   basis: NoteRelationBasis;
 }
 
 /**
  * One optional structured slot; the body stays authoritative (plan §4.3).
  *
- * `key` is a slot name (`command`, `when`, `gotcha`…), not a translated label: the
- * label is `notes.field.<key>` in this app's dictionaries, so the same note reads
- * in the user's language instead of the language of whoever wrote the row.
+ * `key` is a free-form slot name (`command`, `symptom`, `fix`…), not a translated
+ * label: the UI shows the key itself, with `notes.field.<key>` from this app's
+ * dictionaries as a translation when one exists.
  */
 export interface NoteField {
   key: string;
@@ -96,7 +86,6 @@ export interface NoteField {
 
 export interface Note {
   id: string;
-  kind: NoteKind;
   title: string;
   summary: string;
   body: string;

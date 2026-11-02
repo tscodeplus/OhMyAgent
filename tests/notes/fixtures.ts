@@ -82,7 +82,6 @@ export interface DistillationCall {
   windowIds: string[];
   maxNotes: number;
   instruction?: string;
-  hint?: string;
   /** What a model-reported scope permits — the real validator runs it. */
   scopeIds?: (scope: { turns?: number; chars?: number }) => Set<string>;
 }
@@ -94,7 +93,7 @@ export function cannedDistill(
 ): (input: DistillationCall) => Promise<DistillOutcome> {
   return async (input) => {
     calls.push(input);
-    return { notes, rejected: [], kindFallbacks: [], rawChars: 0, scope };
+    return { notes, rejected: [], rawChars: 0, scope };
   };
 }
 
@@ -147,7 +146,6 @@ export function createTestService(
 /** The one draft the canned distiller returns, citing both messages of the fixture. */
 export function defaultDistilled(): DistillOutcome['notes'][number] {
   return {
-    kind: 'command',
     title: 'vitest 单文件迭代',
     summary: '改哪个文件就跑哪个',
     body: '改动少于 3 个文件时只跑改动的那个：\n\n```bash\nnpx vitest run tests/agent\n```\n\n并发跑会互相拖慢。',

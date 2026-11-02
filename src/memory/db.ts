@@ -20,6 +20,7 @@ import { migrateV32 } from './migration-v32.js';
 import { migrateV33 } from './migration-v33.js';
 import { migrateV34 } from './migration-v34.js';
 import { migrateV35 } from './migration-v35.js';
+import { migrateV36 } from './migration-v36.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -269,6 +270,16 @@ export function openDatabase(dbPath: string): Database.Database {
   // live only in memory, so a restarted (or evicted) session fell back to raw
   // rows and lost everything its own compaction had already distilled.
   migrateV35(db);
+
+  // v36: drop notes.kind. The aspect dimension moved into tags (backfill + FTS
+  // re-index + relations rebuild), where the facet filter, search and counts
+  // actually consume it. Runs after v31/v33 (which create the tables it touches)
+  // and is replay-safe: everything is guarded on the column existing.
+  try {
+    migrateV36(db);
+  } catch (err) {
+    logger.warn({ err }, '[V36] notes.kind drop failed — continuing');
+  }
 
   // Backfill FTS index for memories that are missing from it (first-time
   // migration for existing databases, plus partial corruption self-heal:

@@ -40,7 +40,6 @@ describe('notes routes', () => {
   it('lists active notes by default and separates drafts', async () => {
     service.createManual({ title: 'a', body: 'b' });
     repository.create({
-      kind: 'other',
       title: 'draft one',
       summary: '',
       body: 'b',
@@ -99,7 +98,6 @@ describe('notes routes', () => {
 
   it('ships the facet lists with the rows', async () => {
     repository.create({
-      kind: 'other',
       title: 'a',
       summary: '',
       body: 'b',

@@ -31,7 +31,6 @@ import { indexNote, searchNoteIds } from './indexer.js';
 import { readableScopeSql } from './scope.js';
 import {
   isNoteChannel,
-  isNoteKind,
   isNoteOrigin,
   isNoteScope,
   isNoteStatus,
@@ -125,7 +124,6 @@ export class NotesRepository {
     );
     return {
       id: row.id,
-      kind: isNoteKind(row.kind) ? row.kind : 'other',
       title: row.title,
       summary: row.summary,
       body: row.body,
@@ -241,16 +239,15 @@ export class NotesRepository {
   private relatedFor(noteId: string): Note['related'] {
     const rows = this.db
       .prepare(
-        `SELECT r.related_id AS id, n.title AS title, n.kind AS kind, r.basis AS basis
+        `SELECT r.related_id AS id, n.title AS title, r.basis AS basis
            FROM note_relations r JOIN notes n ON n.id = r.related_id
           WHERE r.note_id = ? AND n.status = 'active'
           ORDER BY r.score DESC, r.related_id ASC LIMIT 5`,
       )
-      .all(noteId) as Array<{ id: string; title: string; kind: string; basis: string }>;
+      .all(noteId) as Array<{ id: string; title: string; basis: string }>;
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
-      kind: isNoteKind(row.kind) ? row.kind : 'other',
       basis: isRelationBasis(row.basis) ? row.basis : 'tags',
     }));
   }
@@ -309,10 +306,6 @@ export class NotesRepository {
 
     const where: string[] = ['n.status = ?'];
     const params: unknown[] = [query.status];
-    if (query.kind) {
-      where.push('n.kind = ?');
-      params.push(query.kind);
-    }
     if (query.origins?.length) {
       where.push(`n.origin IN (${placeholders(query.origins.length)})`);
       params.push(...query.origins);
@@ -524,14 +517,13 @@ export class NotesRepository {
       this.db
         .prepare(
           `INSERT INTO notes (
-             id, kind, title, normalized_title, summary, body, fields, tags, status,
+             id, title, normalized_title, summary, body, fields, tags, status,
              status_reason, origin, scope, scope_key, session_id, channel, pinned,
              confidence, version, capture_id, created_at, updated_at, reviewed_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?)`,
         )
         .run(
           id,
-          input.kind,
           input.title,
           normalizedTitle,
           input.summary,
@@ -618,7 +610,6 @@ export class NotesRepository {
       input.body !== undefined ||
       input.fields !== undefined ||
       input.tags !== undefined ||
-      input.kind !== undefined ||
       input.scope !== undefined;
 
     if (touchesContent && input.expectedVersion === undefined) {
@@ -642,7 +633,6 @@ export class NotesRepository {
     const nextTitle = input.title ?? row.title;
     const nextSummary = input.summary ?? row.summary;
     const nextBody = input.body ?? row.body;
-    const nextKind = isNoteKind(input.kind) ? input.kind : (row.kind as CreateNoteInput['kind']);
     const nextTags = input.tags ? normalizeTags(input.tags) : parseJsonArray<string>(row.tags);
     const nextFields =
       input.fields !== undefined
@@ -670,12 +660,11 @@ export class NotesRepository {
       this.db
         .prepare(
           `UPDATE notes SET
-             kind = ?, title = ?, normalized_title = ?, summary = ?, body = ?, fields = ?,
+             title = ?, normalized_title = ?, summary = ?, body = ?, fields = ?,
              tags = ?, scope = ?, scope_key = ?, version = version + 1, updated_at = ?
            WHERE id = ?`,
         )
         .run(
-          nextKind,
           nextTitle,
           nextNormalized,
           nextSummary,
@@ -709,7 +698,22 @@ export class NotesRepository {
       // and destroy edges, while editing the body cannot. Recomputing on every save
       // would make the neighbours flicker for no change.
       if (input.title !== undefined || input.tags !== undefined || input.scope !== undefined) {
+        // A scope move clears the note's own rows first (neither scope's rebuild
+        // lists cross-scope rows) and recomputes the scope it *left* as well —
+        // its tag ratios shifted too, and `rebuild(id)` only sees the new one.
+        if (
+          input.scope !== undefined &&
+          (input.scope !== row.scope || nextScopeKey !== row.scope_key)
+        ) {
+          this.relations.dropFor(id);
+        }
         this.relations.rebuild(id, now);
+        if (
+          input.scope !== undefined &&
+          (input.scope !== row.scope || nextScopeKey !== row.scope_key)
+        ) {
+          this.relations.rebuildScope(row.scope, row.scope_key, now);
+        }
       }
     })();
 

@@ -44,7 +44,6 @@ function completion(): Response {
           content: JSON.stringify({
             notes: [
               {
-                kind: 'command',
                 title: 'vitest 单文件迭代',
                 summary: '改哪个文件就跑哪个',
                 body: '只跑改动的测试：\n\n```bash\nnpx vitest run tests/agent\n```',

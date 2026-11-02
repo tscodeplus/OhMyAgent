@@ -41,8 +41,6 @@ import {
   CopyableValue,
   DraftBadge,
   FacetRow,
-  KindChip,
-  KindDot,
   NoteBody,
   relativeTime,
   SourceChip,
@@ -53,11 +51,9 @@ import MarkdownEditor from './MarkdownEditor';
 import SearchContextPanel from '../search/SearchContextPanel';
 import type { SearchResult } from '../../types/search';
 import {
-  NOTE_KINDS,
   NOTE_REJECTION_CODES,
   NOTE_SCOPES,
   type Note,
-  type NoteKind,
   type NoteRejectionCode,
   type NoteSource,
   type NoteStatus,
@@ -149,7 +145,6 @@ export default function NotesView() {
   const blank = useMemo<Note>(
     () => ({
       id: 'new',
-      kind: 'other',
       title: '',
       summary: '',
       body: '',
@@ -848,7 +843,6 @@ function differsFromNote(note: Note, draft: Partial<Note>): boolean {
   if (draft.title !== undefined && draft.title !== note.title) return true;
   if (draft.summary !== undefined && draft.summary !== note.summary) return true;
   if (draft.body !== undefined && draft.body !== note.body) return true;
-  if (draft.kind !== undefined && draft.kind !== note.kind) return true;
   if (draft.scope !== undefined && draft.scope !== note.scope) return true;
   if (draft.tags) {
     if (draft.tags.length !== note.tags.length) return true;
@@ -1034,12 +1028,6 @@ function NoteRow({
         />
       )}
       <div className="flex items-center gap-1.5">
-        {/* Hollow for a draft — the kind's hue survives, the weight does not. */}
-        <KindDot
-          kind={note.kind}
-          hollow={note.status === 'draft'}
-          title={t(`notes.kind.${note.kind}`)}
-        />
         <span
           className={cn(
             'truncate text-[13px] font-medium leading-snug',
@@ -1228,11 +1216,9 @@ function NoteDetail({
               <h2 className="text-[19px] font-semibold leading-[1.35] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50">
                 {note.title}
               </h2>
-              {/* Kind first, then the facets: the chip is the legend for the list's
-                  coloured dot, and without it a note's kind was invisible in the one
-                  place you go to read the note. */}
+              {/* Facets only: the aspect a note carries is a tag (`#pitfall`), not a
+                  category chip — the tag row and search both consume it. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-1">
-                <KindChip kind={note.kind} />
                 <FacetRow note={note} />
               </div>
 
@@ -1386,16 +1372,13 @@ function NoteDetail({
                         onClick={() => onOpenNote(item.id)}
                         className="flex items-start gap-2 rounded-xl border border-neutral-200/80 px-3 py-2 text-left transition-colors hover:border-neutral-300 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:border-neutral-700 dark:hover:bg-neutral-900"
                       >
-                        <KindDot kind={item.kind} className="mt-1.5" />
                         <span className="min-w-0">
                           <span className="block truncate text-[12px] text-neutral-700 dark:text-neutral-200">
                             {item.title}
                           </span>
                           <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                            {t(`notes.kind.${item.kind}`)}
                             {/* Why, not just that: a bare 「相关」 list is the part
                                 people stop trusting. One word is enough. */}
-                            <span className="text-neutral-300 dark:text-neutral-600"> · </span>
                             {t(`notes.related.${item.basis}`)}
                           </span>
                         </span>
@@ -1445,7 +1428,7 @@ function IconAction({
 }
 
 /**
- * Editor. Deliberately plain: title, kind, summary, tags, scope, body. Facets
+ * Editor. Deliberately plain: title, summary, tags, scope, body. Facets
  * (author, channel) are absent because they are facts, not settings (§4.6).
  *
  * It has no back button of its own: leaving is the header's job (the arrow sits
@@ -1480,7 +1463,6 @@ function NoteEditor({
 }) {
   const { t } = useTranslation('common');
   const [title, setTitle] = useState(note.title);
-  const [kind, setKind] = useState<NoteKind>(note.kind);
   const [summary, setSummary] = useState(note.summary);
   const [body, setBody] = useState(note.body);
   const [tags, setTags] = useState(note.tags.join(', '));
@@ -1505,7 +1487,7 @@ function NoteEditor({
         .filter(Boolean)
         .slice(0, 6),
     }),
-    [body, kind, scope, summary, t, tags, title],
+    [body, scope, summary, tags, title],
   );
 
   useEffect(() => {
@@ -1521,12 +1503,6 @@ function NoteEditor({
         className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 pb-2 text-[19px] font-semibold leading-snug tracking-[-0.01em] text-neutral-900 placeholder:font-normal placeholder:text-neutral-300 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:text-neutral-50 dark:placeholder:text-neutral-600"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          compact
-          value={kind}
-          onChange={(event) => setKind(event.target.value as NoteKind)}
-          options={NOTE_KINDS.map((value) => ({ value, label: t(`notes.kind.${value}`) }))}
-        />
         <Select
           compact
           value={scope}

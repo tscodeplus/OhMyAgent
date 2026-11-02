@@ -90,7 +90,6 @@ export interface CaptureDeps {
     bodyMaxChars: number;
     maxOutputTokens?: number;
     instruction?: string;
-    hint?: string;
   }) => Promise<DistillOutcome>;
 }
 
@@ -291,9 +290,6 @@ export class CapturePipeline {
      */
     const citableIds = window.messages.map((message) => message.id);
     const instruction = (request.instruction ?? '').trim() || undefined;
-    const kindHint = request.kind
-      ? `If it really is that category, use kind="${request.kind}".`
-      : undefined;
 
     /**
      * What the brief's scope covers, in ids, once the model reports it.
@@ -321,7 +317,6 @@ export class CapturePipeline {
         bodyMaxChars: config.bodyMaxChars,
         maxOutputTokens: config.maxOutputTokens,
         instruction,
-        hint: kindHint,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -350,20 +345,6 @@ export class CapturePipeline {
         captureId,
         message: 'nothing worth keeping in this window',
       };
-    }
-
-    if (outcome.kindFallbacks.length > 0) {
-      // Kept as `other` (a label never rejects a note) but counted: a run of these
-      // means the prompt's vocabulary is not the one the model reaches for, and the
-      // side effect is invisible — `other` also has no slot whitelist.
-      this.deps.logger.warn(
-        {
-          captureId,
-          labels: outcome.kindFallbacks.map((item) => item.label),
-          notes: outcome.kindFallbacks.length,
-        },
-        'Note distiller used a kind outside NOTE_KINDS; kept as other',
-      );
     }
 
     const finalScope = this.resolveScope(request, session);
@@ -429,7 +410,6 @@ export class CapturePipeline {
       }
 
       const created = this.deps.repository.create({
-        kind: candidate.kind,
         title: candidate.title,
         summary: candidate.summary,
         body: candidate.body,
@@ -617,7 +597,6 @@ export class CapturePipeline {
       };
     }
     const created = this.deps.repository.create({
-      kind: request.kind ?? 'other',
       title,
       summary: '',
       body,
@@ -674,7 +653,6 @@ export class CapturePipeline {
     bodyMaxChars: number;
     maxOutputTokens?: number;
     instruction?: string;
-    hint?: string;
   }): Promise<DistillOutcome> {
     if (this.deps.distill) return this.deps.distill(input);
     /**

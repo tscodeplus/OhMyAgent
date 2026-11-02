@@ -17,7 +17,7 @@
  * The second entry point is the drop. Selecting words in a conversation and
  * dragging them onto the ball is "keep these words", so the drop handler stores
  * them verbatim and opens the same review card a capture does — the card is where
- * a pile of words becomes a note (title, kind, and, if the user wants it, an agent
+ * a pile of words becomes a note (title, and, if the user wants it, an agent
  * rewrite). Dropping is a direct manipulation, so the hover state is a static ring
  * and a one-line hint rather than an animation: the ball only moves when work is
  * actually in flight.
@@ -72,7 +72,7 @@ import {
 import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import { useNotes } from './NotesContext';
-import { FacetRow, KIND_META, KindChip, relativeTime } from './NoteBits';
+import { FacetRow, relativeTime } from './NoteBits';
 import { useBallPlacement } from './useBallPlacement';
 
 /** The draft card retracts after this long; the draft itself never expires here. */
@@ -830,7 +830,6 @@ function DraftCard({
         <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
           {t('notes.draftCard.title')}
         </span>
-        <KindChip kind={draft.kind} />
         <span className="ml-auto text-[10px] text-neutral-400">
           {/* The card can only show one draft, and a capture routinely produces two or
               three. One card with no count reads as "one note was kept". */}

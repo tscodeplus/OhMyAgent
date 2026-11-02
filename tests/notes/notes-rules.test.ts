@@ -268,12 +268,11 @@ describe('distill validation', () => {
       JSON.stringify({
         notes: [
           {
-            kind: 'command',
             title: 'vitest 单文件迭代',
             summary: '只跑改动的文件',
             body: 'npx vitest run tests/agent',
-            fields: { command: 'npx vitest run tests/agent', unknown: 'dropped' },
-            tags: ['#Testing'],
+            fields: [{ key: 'command', value: 'npx vitest run tests/agent', mono: true }],
+            tags: ['#Testing', 'pitfall'],
             evidence: ['m2'],
             confidence: 1.7,
           },
@@ -282,16 +281,86 @@ describe('distill validation', () => {
       allowed,
     );
     expect(outcome.notes).toHaveLength(1);
-    expect(outcome.notes[0].tags).toEqual(['testing']);
-    expect(outcome.notes[0].fields.map((field) => field.key)).toEqual(['command']);
+    expect(outcome.notes[0].tags).toEqual(['testing', 'pitfall']);
+    expect(outcome.notes[0].fields).toEqual([
+      { key: 'command', value: 'npx vitest run tests/agent', mono: true },
+    ]);
     expect(outcome.notes[0].confidence).toBe(1);
+  });
+
+  it('keeps free-form field keys with the mono flag the model chose', () => {
+    // The per-kind slot whitelist is gone (v36): a slot nobody whitelisted — the
+    // model's own `symptom` — used to be dropped at validation, stored never,
+    // shown never. Keys are free now; `mono` is the model's call, not a key list.
+    const outcome = parseDistillResponse(
+      JSON.stringify({
+        notes: [
+          {
+            title: 't',
+            summary: 's',
+            body: 'b',
+            evidence: ['m1'],
+            fields: [
+              { key: 'Symptom', value: '端口被占用' },
+              { key: 'fix', value: 'fuser -k 9191/tcp', mono: true },
+            ],
+          },
+        ],
+      }),
+      allowed,
+    );
+    expect(outcome.notes[0].fields).toEqual([
+      { key: 'symptom', value: '端口被占用', mono: false },
+      { key: 'fix', value: 'fuser -k 9191/tcp', mono: true },
+    ]);
+  });
+
+  it('accepts the legacy object fields form as non-mono slots', () => {
+    // A model that saw an older prompt may still answer `"fields":{"command":...}`.
+    // Tolerated rather than rejected: content over shape, same as it always was.
+    const outcome = parseDistillResponse(
+      JSON.stringify({
+        notes: [
+          {
+            title: 't',
+            summary: 's',
+            body: 'b',
+            evidence: ['m1'],
+            fields: { command: 'pnpm test' },
+          },
+        ],
+      }),
+      allowed,
+    );
+    expect(outcome.notes[0].fields).toEqual([{ key: 'command', value: 'pnpm test', mono: false }]);
+  });
+
+  it('caps fields at six and drops empty slots', () => {
+    const fields = Array.from({ length: 9 }, (_, index) => ({
+      key: `k${index}`,
+      value: index === 3 ? '   ' : `v${index}`,
+    }));
+    const outcome = parseDistillResponse(
+      JSON.stringify({
+        notes: [{ title: 't', summary: 's', body: 'b', evidence: ['m1'], fields }],
+      }),
+      allowed,
+    );
+    expect(outcome.notes[0].fields.map((field) => field.key)).toEqual([
+      'k0',
+      'k1',
+      'k2',
+      'k4',
+      'k5',
+      'k6',
+    ]);
   });
 
   describe('reported scope', () => {
     const scoped = (evidence: string[], scope: unknown) =>
       JSON.stringify({
         scope,
-        notes: [{ kind: 'insight', title: 't', summary: 's', body: 'b', evidence }],
+        notes: [{ title: 't', summary: 's', body: 'b', evidence }],
       });
 
     it('rejects a note that cites a message older than the brief allowed', () => {
@@ -362,7 +431,6 @@ describe('distill validation', () => {
       JSON.stringify({
         notes: [
           {
-            kind: 'insight',
             title: 't',
             summary: 's',
             body: 'b',
@@ -378,27 +446,16 @@ describe('distill validation', () => {
 
   it('drops a note with no evidence at all', () => {
     const outcome = parseDistillResponse(
-      JSON.stringify({ notes: [{ kind: 'other', title: 't', summary: 's', body: 'b' }] }),
+      JSON.stringify({ notes: [{ title: 't', summary: 's', body: 'b' }] }),
       allowed,
     );
     expect(outcome.rejected[0].reason).toBe('no_evidence');
   });
 
-  it('honours kind="other" rather than rejecting an untemplated note', () => {
-    const outcome = parseDistillResponse(
-      JSON.stringify({
-        notes: [{ kind: 'other', title: 't', summary: 's', body: 'b', evidence: ['m1'] }],
-      }),
-      allowed,
-    );
-    expect(outcome.notes[0].kind).toBe('other');
-    expect(outcome.notes[0].fields).toEqual([]);
-  });
-
-  it('keeps a note whose kind is outside the vocabulary, as other', () => {
-    // The plan's invariant: `kind` is a suggestion and never refuses a note. A model
-    // handed Chinese material may answer a Chinese label, and losing the note over a
-    // label would be content loss for no reason. The label is reported instead.
+  it('ignores a kind field an older prompt asked for', () => {
+    // `kind` is deleted (v36); a model answering a cached old prompt with one is
+    // neither rejected nor stored — the aspect dimension is a tag now, and the
+    // note's content does not depend on the label.
     const outcome = parseDistillResponse(
       JSON.stringify({
         notes: [{ kind: '命令', title: 't', summary: 's', body: 'b', evidence: ['m1'] }],
@@ -406,18 +463,8 @@ describe('distill validation', () => {
       allowed,
     );
     expect(outcome.rejected).toEqual([]);
-    expect(outcome.notes[0].kind).toBe('other');
-    expect(outcome.kindFallbacks).toEqual([{ label: '命令', title: 't' }]);
-  });
-
-  it('does not report kind="other" as a fallback', () => {
-    const outcome = parseDistillResponse(
-      JSON.stringify({
-        notes: [{ kind: 'other', title: 't', summary: 's', body: 'b', evidence: ['m1'] }],
-      }),
-      allowed,
-    );
-    expect(outcome.kindFallbacks).toEqual([]);
+    expect(outcome.notes[0].title).toBe('t');
+    expect('kind' in outcome.notes[0]).toBe(false);
   });
 
   it('reports unparseable output as invalid_json', () => {
@@ -428,7 +475,7 @@ describe('distill validation', () => {
 
   it('accepts a fenced JSON block', () => {
     const outcome = parseDistillResponse(
-      '```json\n{"notes":[{"kind":"other","title":"t","summary":"s","body":"b","evidence":["m1"]}]}\n```',
+      '```json\n{"notes":[{"title":"t","summary":"s","body":"b","evidence":["m1"]}]}\n```',
       allowed,
     );
     expect(outcome.notes).toHaveLength(1);
@@ -439,7 +486,6 @@ describe('distill validation', () => {
       JSON.stringify({
         notes: [
           {
-            kind: 'other',
             title: 't',
             summary: 's',
             body: 'x'.repeat(2000),
@@ -459,7 +505,6 @@ describe('distill validation', () => {
     const payload = JSON.stringify({
       notes: [
         {
-          kind: 'other',
           title: 't',
           summary: 's',
           body: 'x'.repeat(2000),

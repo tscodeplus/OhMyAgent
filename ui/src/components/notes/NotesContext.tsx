@@ -479,7 +479,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           title: seed?.title?.trim() ?? '',
           summary: seed?.summary ?? '',
           body: seed?.body ?? '',
-          kind: seed?.kind ?? 'other',
           fields: seed?.fields ?? [],
           tags: seed?.tags ?? [],
           scope: seed?.scope ?? 'user',

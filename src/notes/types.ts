@@ -10,47 +10,13 @@
  *     numbers). This is also the REST payload and the WebUI's `Note` type, so
  *     there is exactly one note shape above the database.
  *
- * Every closed set is a union plus an `is*` guard rather than a free string:
- * `kind` is a classification *suggestion* (it never rejects a note), but it
- * still has to be one of the eight so filtering and counts mean something.
+ * Every closed set is a union plus an `is*` guard rather than a free string. There
+ * is no `kind`: a classification that changed no behaviour (no filter the UI ever
+ * sent, no ranking, no policy) was deleted in v36 — the aspect dimension lives in
+ * tags (one optional aspect tag from a small vocabulary the distiller prompt
+ * fixes), where it rides machinery that actually consumes it: the tag facet
+ * filter, the FTS index and the tag counts.
  */
-
-/** What a note is about. `other` is the deliberate catch-all (plan §4.3). */
-export const NOTE_KINDS = [
-  'command',
-  'workflow',
-  'pitfall',
-  'insight',
-  'opinion',
-  'reference',
-  'decision',
-  'other',
-] as const;
-
-export type NoteKind = (typeof NOTE_KINDS)[number];
-
-export function isNoteKind(value: unknown): value is NoteKind {
-  return typeof value === 'string' && (NOTE_KINDS as readonly string[]).includes(value);
-}
-
-/**
- * Optional structured slots per kind (plan §4.3).
- *
- * These are *suggestions* — the distiller fills whichever it has something to
- * say about and the body stays authoritative. A key outside this table is
- * dropped at validation time, because a slot no renderer knows about would be
- * stored forever and never shown.
- */
-export const NOTE_FIELDS: Record<NoteKind, readonly string[]> = {
-  command: ['command', 'when', 'gotcha'],
-  workflow: ['steps', 'checkpoint'],
-  pitfall: ['symptom', 'cause', 'fix'],
-  insight: ['claim', 'why'],
-  opinion: ['stance', 'source'],
-  reference: ['subject', 'usage', 'limits'],
-  decision: ['decision', 'context', 'alternatives'],
-  other: [],
-};
 
 /**
  * Outcome of a status change.
@@ -61,11 +27,6 @@ export const NOTE_FIELDS: Record<NoteKind, readonly string[]> = {
  */
 export type SetStatusResult =
   { ok: true; note: Note } | { ok: false; code: 'title_conflict'; existingId: string };
-
-/** Slot keys the HTTP layer accepts (`fields: [{ key, value, mono? }]`). */
-export function isNoteFieldKey(kind: NoteKind, key: string): boolean {
-  return (NOTE_FIELDS[kind] as readonly string[]).includes(key);
-}
 
 /**
  * Lifecycle (plan §6). `active` is the only status the default read filter
@@ -195,7 +156,7 @@ export function isCaptureMode(value: unknown): value is CaptureMode {
 
 /** One structured slot, already parsed and typed for rendering. */
 export interface NoteField {
-  /** Slot name from `NOTE_FIELDS[kind]`. The label is the client's i18n key. */
+  /** Short slot name. Free-form: the UI shows the key itself where no i18n label exists. */
   key: string;
   value: string;
   /** `true` renders a copy button (commands, paths, config keys). */
@@ -228,7 +189,6 @@ export interface NoteSource {
 export interface NoteRelated {
   id: string;
   title: string;
-  kind: NoteKind;
   basis: NoteRelationBasis;
 }
 
@@ -243,7 +203,6 @@ export function isRelationBasis(value: unknown): value is NoteRelationBasis {
 /** A note as stored (`notes` row). JSON columns are TEXT or NULL. */
 export interface NoteRow {
   id: string;
-  kind: string;
   title: string;
   normalized_title: string;
   summary: string;
@@ -273,7 +232,6 @@ export interface NoteRow {
 /** A note as every layer above the repository sees it. */
 export interface Note {
   id: string;
-  kind: NoteKind;
   title: string;
   summary: string;
   body: string;
@@ -322,7 +280,6 @@ export interface NoteSourceInput {
 }
 
 export interface CreateNoteInput {
-  kind: NoteKind;
   title: string;
   summary: string;
   body: string;
@@ -345,7 +302,6 @@ export interface CreateNoteInput {
 
 export interface UpdateNoteInput {
   title?: string;
-  kind?: NoteKind;
   summary?: string;
   body?: string;
   fields?: NoteField[];
@@ -382,7 +338,6 @@ export interface CaptureRunInput {
 
 export interface NoteListQuery {
   status: NoteStatus;
-  kind?: NoteKind;
   /**
    * Facet filters, each a set: **OR inside a field, AND across fields** — "any of
    * these authors, in any of these channels, carrying any of these tags". That is

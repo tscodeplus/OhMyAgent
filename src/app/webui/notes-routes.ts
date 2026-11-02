@@ -10,7 +10,7 @@
  *
  * Status codes, chosen so the editor can react without string matching:
  *
- *   400 — caller error: unknown status/kind/scope, un-parsable body, an empty
+ *   400 — caller error: unknown status/scope, un-parsable body, an empty
  *         title on a manual note, a `capture` without a session or with a mode
  *         that cannot produce a window.
  *   404 — the note does not exist. `GET /api/notes/:id` is the only read that
@@ -30,13 +30,11 @@
 import type { FastifyInstance } from 'fastify';
 import {
   NOTE_CHANNELS,
-  NOTE_KINDS,
   NOTE_SCOPES,
   NOTE_REJECTION_CODES,
   NOTE_STATUSES,
   isCaptureMode,
   isNoteChannel,
-  isNoteKind,
   isNoteOrigin,
   isNoteScope,
   isNoteRejectionCode,
@@ -155,10 +153,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     if (!isNoteStatus(statusRaw)) {
       return reply.status(400).send({ error: 'invalid status', allowed: NOTE_STATUSES });
     }
-    const kindRaw = asString(query.kind);
-    if (kindRaw && !isNoteKind(kindRaw)) {
-      return reply.status(400).send({ error: 'invalid kind', allowed: NOTE_KINDS });
-    }
     const originRaw = parseCsv(query.origin);
     const badOrigin = originRaw.find((value) => !isNoteOrigin(value));
     if (badOrigin !== undefined) {
@@ -176,7 +170,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
 
     const listQuery: NoteListQuery = {
       status: statusRaw,
-      kind: kindRaw ? (kindRaw as NoteListQuery['kind']) : undefined,
       origins: originRaw.length ? (originRaw as NoteOrigin[]) : undefined,
       channels: channelRaw.length ? (channelRaw as NoteChannel[]) : undefined,
       projectIds: parseCsv(query.projectId),
@@ -225,10 +218,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
         .status(400)
         .send({ error: 'invalid mode', allowed: ['turn', 'recent', 'selection', 'text'] });
     }
-    const kindRaw = asString(body.kind);
-    if (kindRaw && !isNoteKind(kindRaw)) {
-      return reply.status(400).send({ error: 'invalid kind', allowed: NOTE_KINDS });
-    }
     const scopeRaw = asString(body.scope);
     if (scopeRaw && !isNoteScope(scopeRaw)) {
       return reply.status(400).send({ error: 'invalid scope', allowed: NOTE_SCOPES });
@@ -272,7 +261,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
       instruction: instructionRaw || undefined,
       messageIds,
       text: text?.slice(0, MAX_TEXT_CHARS),
-      kind: kindRaw ? (kindRaw as CaptureRequest['kind']) : undefined,
       scope: scopeRaw ? (scopeRaw as CaptureRequest['scope']) : undefined,
       scopeKey: asString(body.scopeKey),
       turns: typeof body.turns === 'number' ? body.turns : undefined,
@@ -311,10 +299,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     if (title.length > MAX_TITLE_CHARS) {
       return reply.status(400).send({ error: `title exceeds ${MAX_TITLE_CHARS} characters` });
     }
-    const kindRaw = asString(body.kind);
-    if (kindRaw && !isNoteKind(kindRaw)) {
-      return reply.status(400).send({ error: 'invalid kind', allowed: NOTE_KINDS });
-    }
     const scopeRaw = asString(body.scope);
     if (scopeRaw && !isNoteScope(scopeRaw)) {
       return reply.status(400).send({ error: 'invalid scope', allowed: NOTE_SCOPES });
@@ -328,7 +312,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
       title,
       summary: (asString(body.summary) ?? '').slice(0, MAX_SUMMARY_CHARS),
       body: asString(body.body) ?? '',
-      kind: kindRaw ? (kindRaw as CaptureRequest['kind']) : undefined,
       fields: parseFields(body.fields),
       tags: parseTags(body.tags),
       scope: scopeRaw ? (scopeRaw as CaptureRequest['scope']) : undefined,
@@ -348,10 +331,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
     const expectedVersion =
       typeof body.expectedVersion === 'number' ? body.expectedVersion : undefined;
 
-    const kindRaw = asString(body.kind);
-    if (kindRaw && !isNoteKind(kindRaw)) {
-      return reply.status(400).send({ error: 'invalid kind', allowed: NOTE_KINDS });
-    }
     const scopeRaw = asString(body.scope);
     if (scopeRaw && !isNoteScope(scopeRaw)) {
       return reply.status(400).send({ error: 'invalid scope', allowed: NOTE_SCOPES });
@@ -366,7 +345,6 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
 
     const result = service.update(id, {
       title: title?.trim(),
-      kind: kindRaw ? (kindRaw as NoteListQuery['kind']) : undefined,
       summary: asString(body.summary)?.slice(0, MAX_SUMMARY_CHARS),
       body: asString(body.body),
       fields: parseFields(body.fields),
