@@ -95,6 +95,8 @@ export default function NotesFloatingBall() {
     dismissDraftCard,
     /** The store's own error line — the sentence a refused write is refused with. */
     error,
+    /** False when the server has no notes API: capture would 404, so draw nothing. */
+    available,
     ballHidden,
     setBallHidden,
     ballSize,
@@ -371,8 +373,10 @@ export default function NotesFloatingBall() {
 
   // `ballHidden` is a user preference and the only way out of it is the notes page
   // switch, which is deliberate: a floating ball that keeps coming back after being
-  // dismissed is worse than one that needs one visit to restore.
-  if (!onConversationPage || ballHidden) return null;
+  // dismissed is worse than one that needs one visit to restore. `available` is not a
+  // preference: with the layer off every capture answers 404, so the ball would only
+  // offer a button that fails.
+  if (!available || !onConversationPage || ballHidden) return null;
 
   return (
     <>

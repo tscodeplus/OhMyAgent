@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { notesSectionSchema } from '../../src/app/config.js';
+import { loadConfig, notesSectionSchema, resetConfig } from '../../src/app/config.js';
 import { jsConfigToYaml, yamlToAppConfigRaw } from '../../src/app/config-loader.js';
 import {
   BODY_MAX_DEFAULT,
@@ -144,5 +144,44 @@ describe('notes config mapping', () => {
     const notes = yaml.notes as Record<string, any>;
     expect(notes.ball).toEqual({ show: true });
     expect(notes.capture.model_ref).toBe('x/y');
+  });
+});
+
+/**
+ * An absent section means *on* — the one place this section does not follow the
+ * `mcp`/`judge` "new subsystem stays off" rule.
+ *
+ * The reason is the WebUI rather than the daemon: the notes tab is in the sidebar for
+ * every deployment, so "off until you write a section" opened a fresh install onto a
+ * page whose API did not exist. These cases pin both halves — silence is on, and the
+ * explicit switch still works — because the schema's `default(true)` alone does not
+ * decide it: `buildNotesSection` used to return `{ enabled: false }` for a missing
+ * section, shadowing the default.
+ */
+describe('notes default state', () => {
+  it('turns the layer on when the file has no notes: section at all', () => {
+    const raw = yamlToAppConfigRaw({
+      provider: { primary: 'openai/gpt-4o', api_key: 'sk-test' },
+    });
+    expect(notesSectionSchema.parse(raw.notes ?? {}).enabled).toBe(true);
+  });
+
+  it('turns the layer on for a `notes:` key left blank', () => {
+    // `notes:` with nothing under it is YAML null — absent, not an empty block.
+    const raw = yamlToAppConfigRaw({ notes: null });
+    expect(notesSectionSchema.parse(raw.notes ?? {}).enabled).toBe(true);
+  });
+
+  it('keeps the explicit off switch working', () => {
+    const raw = yamlToAppConfigRaw({ notes: { enabled: false } });
+    expect(notesSectionSchema.parse(raw.notes).enabled).toBe(false);
+  });
+
+  it('is on in a config loaded without any notes section', () => {
+    // The end-to-end shape of the promise: an env-only load has no `notes:` anywhere,
+    // and the layer still comes up — that is what "on by default" has to mean.
+    resetConfig();
+    const config = loadConfig({ CONFIG_FILE: '' } as NodeJS.ProcessEnv);
+    expect(config.notes.enabled).toBe(true);
   });
 });

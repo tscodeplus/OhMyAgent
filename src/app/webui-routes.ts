@@ -245,8 +245,12 @@ export async function registerWebUIRoutes(
   });
 
   // Notes API. Registered only while the service exists, so `notes.enabled:
-  // false` means the routes 404 and the WebUI hides the tab — "no service" is
-  // the off switch rather than a second flag read at every call site.
+  // false` means the routes 404 — "no service" is the off switch rather than a
+  // second flag read at every call site. (Absent `notes:` no longer disables the
+  // layer, so a fresh install has these routes; only an explicit `false`, or a
+  // service that failed to construct, leaves the page without an API.) The WebUI
+  // answers that 404 by showing the page as switched off, with a link to the
+  // settings tab that turns it on, instead of rendering the 404 itself.
   if (cfg.services.notesService) {
     registerNotesRoutes(app, { service: cfg.services.notesService });
   }

@@ -251,9 +251,12 @@ export const judgeSectionSchema = z.object({
  *
  * Notes are distilled from a conversation on demand and reviewed by a human;
  * this block decides whether the layer runs and how much of a conversation one
- * capture reads. Every key has a default, and an *absent* YAML section maps to
- * `enabled: false` in the loader — the same rule `mcp` and `judge` follow, so a
- * new subsystem cannot switch itself on during an upgrade.
+ * capture reads. Every key has a default, and an *absent* YAML section is on with
+ * those defaults — the opposite of `mcp` and `judge`, which stay off until a section
+ * appears. Notes are part of the WebUI people already have, so "off unless you write
+ * a section" only meant a fresh install opened the notes tab onto a stopped layer;
+ * `notes.enabled: false` is the off switch. See `buildNotesSection` in
+ * `config-loader.ts` for the full reasoning.
  *
  * What is deliberately not configurable: the review gate. `origin='agent'` is
  * always `draft`, and no key can make distillation land straight in the library.
@@ -677,10 +680,11 @@ const configSchema = z.object({
   }),
   // Both sections carry their own defaults, so they are not `.optional()`:
   // `notes` and `conversationSearch` are always present objects in the parsed
-  // config. An *absent* YAML section is mapped to `enabled: false` by the loader
-  // (a new subsystem must not switch itself on during an upgrade, the same rule
-  // `mcp` and `judge` follow), while an explicit block without an `enabled:` key
-  // keeps the `enabled: true` default below.
+  // config. They differ on an *absent* YAML section: `conversation_search` is mapped
+  // to `enabled: false` by the loader (the `mcp`/`judge` rule — a new subsystem must
+  // not switch itself on during an upgrade), while `notes` is on with its defaults,
+  // because its page is part of the WebUI and an absent section used to open that
+  // page onto a layer that was not running.
   notes: notesSectionSchema,
   conversationSearch: conversationSearchSectionSchema,
   cron: z

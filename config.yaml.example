@@ -336,8 +336,12 @@ channels:
 #     #   memory_hygiene: true         # and scene_cluster are not wired into the
 #     #   scene_cluster: false         # scheduler, so their values are inert.
 
-# --- Notes (optional) ---
-# notes:                            # capture a note from a conversation, review it, keep it
+# --- Notes (on by default) ---
+# Capture a note from a conversation, review it, keep it. An ABSENT block means the layer
+# is already on with the defaults below — write `enabled: false` to turn it off (the WebUI's
+# 设置 → 笔记 tab writes the same key). An absent block only decides whether the layer runs;
+# it never relaxes the review gate: agent-distilled notes are drafts until a human approves.
+# notes:
 #   enabled: true                   # master switch: false = no API, no capture, no distillation
 #   capture:
 #     model_ref: ""                 # empty = reuse memory_aux_models (extraction wants a fast model)

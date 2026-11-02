@@ -20,6 +20,7 @@ import {
   Inbox,
   Link2,
   Loader2,
+  NotebookPen,
   Pencil,
   Pin,
   PinOff,
@@ -37,6 +38,7 @@ import Modal from '../ui/Modal';
 import MultiSelect from '../ui/MultiSelect';
 import Select from '../ui/Select';
 import { useToast } from '../ui/Toast';
+import { useSettings } from '../../contexts/SettingsContext';
 import { toSearchParams, useNotes, type PurgeOutcome } from './NotesContext';
 import {
   CHANNEL_LABEL,
@@ -85,6 +87,8 @@ const NOTE_PAGE_SIZE = 50;
 export default function NotesView() {
   const { t, i18n } = useTranslation('common');
   const { showToast } = useToast();
+  /** The "turn it on" button in the disabled state opens this modal on its own tab. */
+  const { openSettings } = useSettings();
   const navigate = useNavigate();
   const { noteId } = useParams<{ noteId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -97,6 +101,7 @@ export default function NotesView() {
     projects: projectFacets,
     loading,
     error,
+    available,
     query,
     setQuery,
     refresh,
@@ -721,6 +726,41 @@ export default function NotesView() {
       q: '',
     });
   }, [setQuery]);
+
+  /**
+   * The layer is off, so there is no list to show.
+   *
+   * `notes.enabled: false` gates construction of the service, which is why the routes
+   * 404 rather than answering an empty page — and that 404 used to be rendered
+   * verbatim by the list header: "404: Not Found 重试" over an empty library, with a
+   * retry button that could never succeed. Turning the layer off is a decision, so the
+   * page states it and offers the switch; the absent-section case that used to make
+   * this the *first* thing a new install saw no longer exists (the layer is on by
+   * default).
+   */
+  if (!available) {
+    return (
+      <div className="flex h-full items-center justify-center bg-white px-6 dark:bg-neutral-950">
+        <div className="max-w-sm text-center">
+          <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-neutral-200/60 text-neutral-400 dark:bg-neutral-800/70 dark:text-neutral-500">
+            <NotebookPen className="h-4.5 w-4.5" strokeWidth={1.75} />
+          </span>
+          <h1 className="mt-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            {t('notes.disabledTitle')}
+          </h1>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+            {t('notes.disabledBody')}
+          </p>
+          <Button className="mt-4" size="sm" onClick={() => openSettings('notes')}>
+            {t('notes.disabledOpenSettings')}
+          </Button>
+          <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
+            {t('notes.disabledRestart')}
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div ref={pageRef} className="flex h-full min-h-0 bg-white dark:bg-neutral-950">
       {/*

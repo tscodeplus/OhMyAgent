@@ -676,14 +676,25 @@ function buildMemoryAuxModels(memAuxCfg: YamlNode): Record<string, unknown> | un
 /**
  * Map the `notes:` YAML section (MyDocs/NOTES_LAYER_PLAN.md §9).
  *
- * Same rule as `notes:`: a *missing* section means the layer stays off
- * rather than taking the schema's `enabled: true` default, because a new
- * subsystem must not switch itself on during an upgrade. A present block
- * (even empty) is the opt-in, and both spellings of every key are accepted so
- * a hand-edited YAML and a WebUI save load identically.
+ * An *absent* section is **on**, with the schema's conservative defaults — the
+ * opposite of `mcp` and `judge`, and the exception is deliberate. Those two switch on
+ * an external integration that needs credentials, so "off until configured" is the
+ * honest default. Notes ship with the WebUI, whose tab sits in the sidebar for every
+ * deployment: "off until you write a section" therefore meant that a fresh install
+ * opened the notes page onto a layer that was not running, which reads as a broken
+ * page rather than a subsystem waiting to be configured. Silence now means the same
+ * thing as an empty block.
+ *
+ * `enabled: false` remains the documented off switch (and the WebUI's settings tab
+ * writes it), and the review gate is unaffected: an absent section turns on
+ * *storage*, never auto-approval, so agent-distilled notes still land as drafts.
+ * Both spellings of every key are accepted so a hand-edited YAML and a WebUI save
+ * load identically.
  */
 function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
-  if (notesCfg == null) return { enabled: false };
+  // `notes:` with nothing under it parses as null, which is an absent section — the
+  // schema then fills in `enabled: true`, `capture.*` and `ball.show`.
+  if (notesCfg == null) return {};
   const captureCfg = notesCfg.capture as YamlNode;
   const draftCfg = notesCfg.draft as YamlNode;
   return {

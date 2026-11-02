@@ -1650,6 +1650,10 @@
       "tags": "shared tags"
     },
     "empty": "No notes yet. Tap the ball in the corner, or press Ctrl+Shift+N.",
+    "disabledTitle": "Notes are turned off",
+    "disabledBody": "This server has not registered the notes API, so there is nothing to read here. Notes are distilled from a conversation and only enter the library once you approve them — with the switch off nothing is captured or stored.",
+    "disabledOpenSettings": "Open settings",
+    "disabledRestart": "Turning it on needs a service restart before this page comes back.",
     "emptySearch": "No notes match",
     "emptyDrafts": "No drafts waiting for approval",
     "emptyArchived": "No archived notes",

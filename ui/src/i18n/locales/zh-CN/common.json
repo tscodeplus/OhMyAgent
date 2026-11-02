@@ -1650,6 +1650,10 @@
       "tags": "相同标签"
     },
     "empty": "还没有笔记。点右下角的笔记球，或者按 Ctrl+Shift+N。",
+    "disabledTitle": "笔记功能已关闭",
+    "disabledBody": "服务端没有注册笔记接口，所以这一页没有可读的内容。笔记是从对话里提炼、经你批准后才进入库中的，开关关着时既不抓取也不保存。",
+    "disabledOpenSettings": "去设置里打开",
+    "disabledRestart": "打开后需要重启服务，这一页才会回来。",
     "emptySearch": "没有匹配的笔记",
     "emptyDrafts": "没有等待批准的草稿",
     "emptyArchived": "没有归档的笔记",

@@ -157,6 +157,15 @@ interface NotesContextValue {
   projects: Array<{ id: string; name: string; count: number }>;
   loading: boolean;
   error: string | null;
+  /**
+   * Whether this server runs the notes layer at all.
+   *
+   * `false` when the routes are not registered: `notes.enabled` was set to false, or
+   * the service failed to construct. Everything else in this store then has nothing
+   * to talk to, so the page shows that fact instead of the 404 it would otherwise
+   * earn. Absent `notes:` config is *not* this state — the layer is on by default.
+   */
+  available: boolean;
   query: NotesQuery;
   setQuery: (next: Partial<NotesQuery>) => void;
   refresh: () => Promise<void>;
@@ -269,6 +278,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether the server has a notes API, and `unknown` until something proves it.
+   *
+   * Neither default is free: optimistic ("on") fires a request that is guaranteed to
+   * 404 on an install with the layer off, and pessimistic ("off") blinks the page
+   * into "未启用" for every working install while `/api/config` is in flight. So the
+   * list simply waits for the answer, which costs one round trip either way and is
+   * the same request the ball's visibility already needed.
+   */
+  const [layer, setLayer] = useState<'unknown' | 'on' | 'off'>('unknown');
+  const available = layer !== 'off';
   const [stats, setStats] = useState<NotesStatsView | null>(null);
   const [ballHidden, setBallHiddenState] = useState(false);
   const [ballSize, setBallSizeState] = useState<BallSize>(readBallSize);
@@ -296,6 +316,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const listRequest = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
+    // The routes do not exist when the layer is off: asking anyway is how the page
+    // ended up showing "404: Not Found 重试" over an empty library.
+    if (layer === 'off') {
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    // One round trip decides whether this request can succeed at all (see `layer`).
+    if (layer === 'unknown') return;
     const ticket = (seq.current += 1);
     listRequest.current?.abort();
     const request = new AbortController();
@@ -321,6 +350,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       // We cancelled this one on purpose. Its rejection is the cancellation, not a
       // failure, so it must not paint an error line over a search in progress.
       if (request.signal.aborted) return;
+      // A 404 here is not "the list failed", it is "this server has no notes API".
+      // Trust the endpoint over the config snapshot: `notes.enabled` reads true for a
+      // service that failed to construct too, and the routes are what actually exist.
+      if ((err as { status?: number }).status === 404) {
+        setLayer('off');
+        setError(null);
+        return;
+      }
       setError(describeError(err));
     } finally {
       if (ticket === seq.current) setLoading(false);
@@ -335,7 +372,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     } catch {
       setStats(null);
     }
-  }, [query]);
+  }, [query, layer]);
 
   useEffect(() => {
     void refresh();
@@ -345,21 +382,26 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => listRequest.current?.abort(), []);
 
   /**
-   * Read the ball's visibility from `config.yaml` once per page load.
+   * Read the two `notes:` keys this store needs, once per page load.
    *
-   * A failed read leaves the ball visible: "config unreachable" must not be read as
-   * "the operator hid it", because the only way back from a hidden ball is a page the
-   * user may not think to visit.
+   * One request, because both answers are about the same section: `notes.enabled`
+   * decides whether there is a list to fetch at all, and `notes.ball.show` decides
+   * whether the ball is drawn. A failed read settles both at their safe defaults —
+   * "config unreachable" must not be read as "the operator hid the ball" (the only
+   * way back from a hidden ball is a page the user may not think to visit), nor as
+   * "the layer is off" when it is running; the list request then answers the second
+   * question authoritatively, 404 ⇒ off.
    */
   useEffect(() => {
     let cancelled = false;
-    void apiRequest<{ notes?: { ball?: { show?: boolean } } }>('/api/config')
+    void apiRequest<{ notes?: { enabled?: boolean; ball?: { show?: boolean } } }>('/api/config')
       .then((config) => {
         if (cancelled) return;
         if (config?.notes?.ball?.show === false) setBallHiddenState(true);
+        setLayer(config?.notes?.enabled === false ? 'off' : 'on');
       })
       .catch(() => {
-        /* see above */
+        if (!cancelled) setLayer('on');
       });
     return () => {
       cancelled = true;
@@ -731,6 +773,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       projects: result.projects,
       loading,
       error,
+      available,
       query,
       setQuery,
       refresh,
@@ -763,6 +806,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       result.projects,
       loading,
       error,
+      available,
       query,
       setQuery,
       refresh,
