@@ -181,16 +181,16 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
         config.ttlDays > 0
           ? repository.countDraftsOlderThan(Date.now() - (config.ttlDays - 1) * 24 * 3600_000)
           : 0;
-      const archived = counts.archived ?? 0;
+      // Deliberately not `active / (active + archived)` any more: `archived` holds the
+      // expired drafts and the notes the user put away themselves, so the old proxy
+      // answered "how much of the library is archived" while its name promised a
+      // review verdict. The verdicts are the ones `review()` recorded.
+      const tally = repository.reviewTally();
+      const reviewed = tally.approved + tally.rejected;
       return {
         byStatus: counts,
         draftsDue: due,
-        // Approved drafts / everything that ever entered review is the honest
-        // denominator; the repository does not keep that, so this is a proxy.
-        approvalRate:
-          counts.active > 0
-            ? Math.round((counts.active / (counts.active + archived)) * 100) / 100
-            : 0,
+        approvalRate: reviewed > 0 ? Math.round((tally.approved / reviewed) * 100) / 100 : 0,
       };
     },
   };

@@ -125,7 +125,11 @@ export function createNotesServices(input: NotesComposerInput): NotesServices {
   }
 
   try {
-    const repository = new NotesRepository(db);
+    // The logger goes into the repository so a corrupt JSON column (`tags`,
+    // `fields`) leaves a warning naming the note and the column: the row still
+    // renders as empty, which without that line is indistinguishable from a note
+    // that never had tags.
+    const repository = new NotesRepository(db, logger);
     const modelConfig = resolveNotesModelConfig(input.auxConfig, modelRef);
     const pipeline = new CapturePipeline({
       repository,

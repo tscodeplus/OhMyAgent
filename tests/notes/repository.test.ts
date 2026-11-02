@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
+import type { Logger } from 'pino';
 import { NotesRepository } from '../../src/notes/repository.js';
 import { migrateV31 } from '../../src/memory/migration-v31.js';
 import { MESSAGE_ASSISTANT, openSeededDatabase, PROJECT_ID, SESSION_ID } from './fixtures.js';
@@ -496,5 +497,35 @@ describe('NotesRepository', () => {
     repository.recordView(draft.note.id);
     expect(repository.get(draft.note.id)?.viewCount).toBe(1);
     expect(viewEvents()).toBe(1);
+  });
+
+  /**
+   * A corrupt JSON column used to become `[]` with no trace, which made "my tags
+   * are gone" a report nobody could act on. The row still renders — one bad row
+   * must not take down a whole list page — but it now names itself.
+   */
+  it('warns instead of silently emptying a corrupt JSON column', () => {
+    const warnings: Array<{ noteId: string; column: string; message: string }> = [];
+    const noisy = new NotesRepository(db, {
+      warn: (fields: { noteId: string; column: string }, message: string) =>
+        warnings.push({ ...fields, message }),
+    } as unknown as Logger);
+    const created = noisy.create(baseInput());
+    if (!created.ok) throw new Error('create failed');
+
+    db.prepare('UPDATE notes SET tags = ? WHERE id = ?').run('["truncated', created.note.id);
+    expect(noisy.get(created.note.id)?.tags).toEqual([]);
+    expect(warnings).toEqual([
+      { noteId: created.note.id, column: 'tags', message: 'Note JSON column is not valid JSON' },
+    ]);
+
+    // Valid JSON of the wrong shape is the same corruption, reported the same way.
+    db.prepare('UPDATE notes SET fields = ? WHERE id = ?').run('"scalar"', created.note.id);
+    expect(noisy.get(created.note.id)?.fields).toEqual([]);
+    expect(warnings[1]).toEqual({
+      noteId: created.note.id,
+      column: 'fields',
+      message: 'Note JSON column is not an array',
+    });
   });
 });

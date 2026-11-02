@@ -22,6 +22,7 @@ import { auxLLMCall, type AuxModelConfig } from '../memory/aux-llm-client.js';
 import { extractJson } from '../memory/json-utils.js';
 import { normalizeTags } from './canonical.js';
 import { BODY_MAX_DEFAULT, MAX_NOTES_DEFAULT, WINDOW_TURNS_MAX } from './output-budget.js';
+import { firstMeaningfulLine } from './text.js';
 import type { NoteField } from './types.js';
 
 /** Caps from the plan §5.3 validation table. `bodyMax` is configurable, see output-budget.ts. */
@@ -247,7 +248,13 @@ function validateNote(
   let tooLong = false;
   const trimmedBody =
     bodyText.length > bodyMaxChars ? ((tooLong = true), bodyText.slice(0, bodyMaxChars)) : bodyText;
-  const summary = clampText(candidate.summary, LIMITS.summaryMax) || firstLine(trimmedBody);
+  // The summary's fallback is the body's first line of words — the same rule a dropped
+  // text's title is derived by (`text.ts`), so the two cannot disagree about what counts
+  // as a line. A body made only of markdown furniture yields nothing, and `''` is the
+  // honest summary for a note that says nothing in its first line.
+  const summary =
+    clampText(candidate.summary, LIMITS.summaryMax) ||
+    firstMeaningfulLine(trimmedBody).slice(0, LIMITS.summaryMax);
   if (summary.length > LIMITS.summaryMax) tooLong = true;
 
   // Evidence is the anti-hallucination gate: a note must rest on material the
@@ -307,14 +314,6 @@ function validateNote(
     evidence: Array.from(new Set(evidence)),
     confidence,
   };
-}
-
-function firstLine(text: string): string {
-  const line = text
-    .split('\n')
-    .map((item) => item.replace(/^[#>\-*\s]+/, '').trim())
-    .find((item) => item.length > 0);
-  return (line ?? '').slice(0, LIMITS.summaryMax);
 }
 
 /**

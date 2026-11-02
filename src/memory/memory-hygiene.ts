@@ -16,7 +16,10 @@ export interface HygieneConfig {
    * never deletes the row — plan §6.
    */
   notesDraftTtlDays: number;
-  /** Retention days for `note_events` (`notes.log_retention_days`). 0 = forever. */
+  /**
+   * Retention days for `note_events` and `capture_runs`
+   * (`notes.log_retention_days`). 0 = forever.
+   */
   notesLogRetentionDays: number;
 }
 
@@ -167,6 +170,10 @@ export class MemoryHygiene {
       if (prunedNoteEvents > 0) {
         cleanedKinds['note_events'] = prunedNoteEvents;
       }
+      const prunedCaptureRuns = this.pruneCaptureRuns(config.notesLogRetentionDays);
+      if (prunedCaptureRuns > 0) {
+        cleanedKinds['capture_runs'] = prunedCaptureRuns;
+      }
 
       // The per-turn injection rows are the same kind of append-only growth —
       // one row per prompt build — so they take the same ride on this pass.
@@ -236,6 +243,34 @@ export class MemoryHygiene {
     if (!this.tableExists('note_events')) return 0;
     const cutoff = Date.now() - retentionDays * 24 * 3600_000;
     return this.db.prepare('DELETE FROM note_events WHERE created_at < ?').run(cutoff).changes;
+  }
+
+  /**
+   * Delete finished `capture_runs` past the notes log horizon; returns how many.
+   *
+   * Same `notes.log_retention_days` as `note_events`, not a knob of its own: a run
+   * row and its events are two halves of one capture attempt, so a second setting
+   * would only ever be the one nobody edits — and the half that got out of sync
+   * would be the one that still exists. The run row is also the only thing that says
+   * a capture happened at all.
+   *
+   * `status <> 'running'` is compared as a string on purpose, so a capture that is
+   * still streaming is never deleted out from under itself: it started before the
+   * cutoff by definition (a slow model call, not an old row), and losing the row
+   * mid-flight would erase the only trace of a capture that is about to finish. The
+   * closed set of statuses lives in `notes/types.ts`; the retention step must not
+   * depend on it, because a status added there is allowed to age out too.
+   *
+   * Guarded on the table existing, exactly like the events: a pass over a database
+   * opened before v31, or with the notes layer off, must not throw.
+   */
+  private pruneCaptureRuns(retentionDays: number): number {
+    if (retentionDays <= 0) return 0;
+    if (!this.tableExists('capture_runs')) return 0;
+    const cutoff = Date.now() - retentionDays * 24 * 3600_000;
+    return this.db
+      .prepare("DELETE FROM capture_runs WHERE created_at < ? AND status <> 'running'")
+      .run(cutoff).changes;
   }
 
   private tableExists(name: string): boolean {

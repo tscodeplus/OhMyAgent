@@ -24,7 +24,16 @@
 
 import type { Message } from '../memory/repositories/message-repository.js';
 import { WINDOW_TURNS_MAX } from './output-budget.js';
+import { estimateTokens } from './text.js';
 import type { CaptureMode } from './types.js';
+
+/**
+ * Re-exported, not redeclared: the estimate lives in `text.ts` so the capture ledger
+ * (`token_est`) and this window cannot price one conversation differently. Kept on
+ * this module's surface because `tokenEst` is a field of `ResolvedWindow`, so the
+ * window is where its size is read from.
+ */
+export { estimateTokens };
 
 export interface WindowOptions {
   sessionId: string;
@@ -70,25 +79,6 @@ export interface ResolvedWindow {
   droppedMessages: number;
   /** Set when the window could not be built at all (`invalid` capture run). */
   error?: 'empty_session' | 'empty_selection' | 'selection_outside_session';
-}
-
-/** Rough token estimate: CJK costs ~2 chars/token, latin ~4. */
-export function estimateTokens(text: string): number {
-  let cjk = 0;
-  let other = 0;
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    if (
-      (code >= 0x3000 && code <= 0x9fff) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xff00 && code <= 0xffef)
-    ) {
-      cjk += 1;
-    } else {
-      other += 1;
-    }
-  }
-  return Math.ceil(cjk / 2 + other / 4);
 }
 
 /**

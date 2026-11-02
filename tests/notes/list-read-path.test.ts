@@ -214,8 +214,9 @@ describe('notes list read path', () => {
     try {
       const stats = service.stats();
       expect(stats.byStatus).toEqual({ active: 1, draft: 1, archived: 1 });
-      // `counts` + `countDraftsOlderThan`. Hydrating a note for the counts would
-      // add the page, its count, the facets and the companions.
+      // Three statements: `counts`, `countDraftsOlderThan` and the review tally that
+      // `approvalRate` reads. Hydrating a note for the counts would add the page, its
+      // count, the facets and the companions.
       expect(probe.count).toBeLessThanOrEqual(3);
     } finally {
       probe.restore();

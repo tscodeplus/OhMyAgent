@@ -12,11 +12,16 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type Database from 'better-sqlite3';
+import { CapturePipeline, type CaptureDeps } from '../../src/notes/capture.js';
+import { NotesRepository } from '../../src/notes/repository.js';
+import type { NotesRuntimeConfig } from '../../src/notes/service-contract.js';
+import type { DistillOutcome } from '../../src/notes/distill.js';
 import {
   ASSISTANT_CONTENT,
   MESSAGE_ASSISTANT,
   MESSAGE_USER,
   PROJECT_ID,
+  RUNTIME_CONFIG,
   SESSION_ID,
   USER_CONTENT,
   createTestService,
@@ -968,5 +973,156 @@ describe('notes service', () => {
 
       expect(result.notes[0].scope).toBe('user');
     });
+  });
+});
+
+/**
+ * The capture ledger's lifecycle: a row may not claim an outcome before it has one.
+ *
+ * `capture_runs` is the only record that a capture happened at all, so its `status` has
+ * to mean what it says. The row is written *before* the model call, which made the old
+ * starting value `ok` a lie: a process killed mid-capture left `ok` with
+ * `note_count = 0` — indistinguishable from "ran fine, found nothing" — and nothing
+ * later could tell the two apart. These tests pin the three halves of the fix: the
+ * starting state is `running`, every path overwrites it with a terminal one, and a
+ * failure carries its error.
+ */
+
+/** A pipeline whose model call is this test's own function, so a failure is expressible. */
+function pipelineWithDistill(
+  db: Database.Database,
+  distill: NonNullable<CaptureDeps['distill']>,
+): CapturePipeline {
+  const repository = new NotesRepository(db);
+  const config: NotesRuntimeConfig = { ...RUNTIME_CONFIG };
+  return new CapturePipeline({
+    repository,
+    db,
+    getConfig: () => config,
+    auxConfig: {},
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as never,
+    distill,
+  });
+}
+
+/** The ledger row as any audit of captures would read it. */
+function captureRun(
+  db: Database.Database,
+  captureId: string,
+): { status: string; note_count: number; error: string | null } {
+  return db
+    .prepare('SELECT status, note_count, error FROM capture_runs WHERE id = ?')
+    .get(captureId) as { status: string; note_count: number; error: string | null };
+}
+
+describe('capture run status', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = openSeededDatabase();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('says `running` while the model call is in flight, then records the outcome', async () => {
+    const inFlight: Array<{ id: string; status: string }> = [];
+    const pipeline = pipelineWithDistill(db, async () => {
+      const row = db
+        .prepare('SELECT id, status FROM capture_runs ORDER BY rowid DESC LIMIT 1')
+        .get() as { id: string; status: string };
+      inFlight.push(row);
+      return { notes: [defaultDistilled()], rejected: [], rawChars: 0 };
+    });
+
+    const result = await pipeline.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The row existed before the model was asked anything, and it did not yet claim
+    // to have produced anything.
+    expect(inFlight).toEqual([{ id: result.captureId, status: 'running' }]);
+    expect(captureRun(db, result.captureId)).toMatchObject({ status: 'ok', note_count: 1 });
+  });
+
+  it('records a failed run when the model call throws', async () => {
+    const pipeline = pipelineWithDistill(db, async () => {
+      throw new Error('gateway 502');
+    });
+
+    const result = await pipeline.capture({ sessionId: SESSION_ID, mode: 'turn' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('model_failed');
+
+    const row = captureRun(db, result.captureId ?? '');
+    // Terminal *and* diagnostic: a `failed` row with no error is the same dead end as
+    // an `ok` row with no notes.
+    expect(row.status).toBe('failed');
+    expect(row.error).toContain('gateway 502');
+    expect(row.note_count).toBe(0);
+  });
+
+  it('leaves no run in `running`, whatever the outcome was', async () => {
+    const oneNote = async (): Promise<DistillOutcome> => ({
+      notes: [defaultDistilled()],
+      rejected: [],
+      rawChars: 0,
+    });
+    const noNotes = async (): Promise<DistillOutcome> => ({
+      notes: [],
+      rejected: [],
+      rawChars: 0,
+    });
+
+    const results = [
+      // A note was written.
+      await pipelineWithDistill(db, oneNote).capture({ sessionId: SESSION_ID, mode: 'turn' }),
+      // The model answered without anything usable.
+      await pipelineWithDistill(db, noNotes).capture({ sessionId: SESSION_ID, mode: 'turn' }),
+      // Nothing to read: no window ever reached the distiller.
+      await pipelineWithDistill(db, oneNote).capture({
+        sessionId: SESSION_ID,
+        mode: 'text',
+        text: '   ',
+      }),
+      // A verbatim drop: no model call at all, so only the overwrite can label it.
+      await pipelineWithDistill(db, oneNote).capture({
+        sessionId: SESSION_ID,
+        mode: 'text',
+        text: '发布前先跑 npx vitest run tests/notes',
+      }),
+      // The model call failed.
+      await pipelineWithDistill(db, async () => {
+        throw new Error('boom');
+      }).capture({ sessionId: SESSION_ID, mode: 'turn' }),
+    ];
+
+    const statuses = results.map((result) => {
+      if (!result.captureId) throw new Error('a capture returned without a ledger row');
+      return captureRun(db, result.captureId).status;
+    });
+    expect(statuses).toEqual(['ok', 'empty', 'empty', 'ok', 'failed']);
+  });
+
+  it('records the verbatim drop as one note, having started it as `running`', async () => {
+    const pipeline = pipelineWithDistill(db, async () => ({
+      notes: [],
+      rejected: [],
+      rawChars: 0,
+    }));
+
+    const result = await pipeline.capture({
+      sessionId: SESSION_ID,
+      mode: 'text',
+      text: 'lsof -i :9191 然后 kill -9',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // The row was created `running` with no count and finished with both set, so a
+    // verbatim drop cannot be left looking like a capture that found nothing.
+    expect(captureRun(db, result.captureId)).toMatchObject({ status: 'ok', note_count: 1 });
   });
 });

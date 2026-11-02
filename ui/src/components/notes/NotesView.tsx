@@ -1821,6 +1821,17 @@ function IconAction({
  * "already saved" without reaching into this state.
  */
 /** The first line with content, used as a title when none was typed. */
+/**
+ * The first line of a body, as a title someone would have written.
+ *
+ * The editor's own derived title: a note saved with an empty title field gets one
+ * from its first meaningful line, so "save without naming it" produces a row with
+ * a name instead of a blank. Its server-side twin is `firstMeaningfulLine` in
+ * `src/notes/text.ts` — deliberately not imported, because the WebUI bundle does
+ * not (and should not) pull the notes server into the browser. Two runtimes, one
+ * rule: if the notion of "meaningful line" changes, change both (the capture path
+ * and this one must agree, or a note's title depends on which client wrote it).
+ */
 function firstLineOf(text: string): string {
   const line = text
     .split('\n')

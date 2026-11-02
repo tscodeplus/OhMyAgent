@@ -177,7 +177,12 @@ export interface NotesStats {
   byStatus: Record<NoteStatus, number>;
   /** Drafts that will expire within a day — what the badge should nag about. */
   draftsDue: number;
-  /** Approvals per active note, the crude "is review working" number. */
+  /**
+   * Share of the notes that entered review and were approved, i.e.
+   * `note_events.approve / (approve + reject)` over the retained event log, and `0`
+   * when nothing was reviewed yet. Expired drafts and notes a human archived are
+   * not in the denominator: neither is a rejection.
+   */
   approvalRate: number;
 }
 

@@ -451,7 +451,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [navigate, refresh],
   );
 
-  /** Write a server answer into the overlay; a row the list owns is its business. */
+  /**
+   * Write a server answer into the overlay; a row the list owns is its business.
+   *
+   * Internal on purpose: it is in the value's dependency list (every write callback
+   * uses it) but *not* in `NotesContextValue`, and it used to be both — an excess
+   * property a consumer could neither see nor call, which is the same drift as a
+   * documented function that does not exist.
+   */
   const applyNote = useCallback((note: Note) => {
     setCaptured((prev) =>
       prev.some((item) => item.id === note.id)
@@ -681,7 +688,6 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       togglePin,
       archiveNote,
       restoreNote,
-      applyNote,
       markViewed,
     }),
     [
@@ -705,12 +711,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       stats,
       dismissDraftCard,
       createNoteInternal,
-      fetchNote,
       updateNote,
       togglePin,
       archiveNote,
       restoreNote,
-      applyNote,
       markViewed,
       ballHidden,
       setBallHidden,

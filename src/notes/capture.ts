@@ -50,6 +50,7 @@ import {
 } from './window.js';
 import { parseWindowIntent } from './window-intent.js';
 import { WINDOW_TURNS_DEFAULT } from './output-budget.js';
+import { estimateTokens, firstMeaningfulLine } from './text.js';
 import type {
   CaptureRequest,
   CaptureResult,
@@ -284,13 +285,22 @@ export class CapturePipeline {
       : undefined;
     const droppedMessages = window.droppedMessages + loaderDropped;
 
+    /**
+     * The ledger row starts `running`, never `ok`: it is written *before* the model
+     * call, so any outcome here would be a claim about a call that has not happened.
+     * The old `ok` is what a killed process left behind — a capture that looks like it
+     * ran and found nothing (`ok` + `note_count = 0`), which is the one reading nobody
+     * can correct later. Every path below overwrites it with the terminal status, so a
+     * row still `running` means the process died mid-capture: unfinished, which is what
+     * it says.
+     */
     const captureId = this.deps.repository.createCaptureRun({
       sessionId: session.id,
       scope: request.scope ?? 'user',
       mode,
       messageIds: window.messageIds,
       tokenEst: window.tokenEst,
-      status: 'ok',
+      status: 'running',
       droppedMessages,
     });
 
@@ -596,13 +606,15 @@ export class CapturePipeline {
    */
   private captureVerbatim(request: CaptureRequest, session: CaptureSession): CaptureResult {
     const text = (request.text ?? '').trim();
+    // Same starting state as the distilled path, for the same reason: nothing is
+    // decided yet when this row is written, so it may not describe an outcome.
     const captureId = this.deps.repository.createCaptureRun({
       sessionId: session.id,
       scope: request.scope ?? 'user',
       mode: 'text',
       messageIds: [],
-      tokenEst: estimateNoteTokens(text),
-      status: 'ok',
+      tokenEst: estimateTokens(text),
+      status: 'running',
     });
 
     if (!text) {
@@ -720,22 +732,17 @@ export class CapturePipeline {
 /** A sentence someone typed is a note, not an essay; pasted logs get cut, not refused. */
 const TEXT_NOTE_MAX_CHARS = 4000;
 
-/** Rough token estimate for the diagnostic log — CJK per character, latin per 4. */
-function estimateNoteTokens(text: string): number {
-  if (!text) return 0;
-  const cjk = (text.match(/[\u3400-\u9FFF\u3040-\u30FF\uAC00-\uD7AF]/g) ?? []).length;
-  const rest = text.length - cjk;
-  return Math.ceil(cjk / 2 + rest / 4);
-}
-
-/** The title is the first line that says something; a single-line note uses itself. */
+/**
+ * A dropped text's title: its first line with words, else the text itself.
+ *
+ * The second fallback is the material, not a label: a title is this row's identity (the
+ * review queue's only label, and `normalized_title`'s input), so it may not come back
+ * empty. A placeholder name was the old answer ('随手记') and no input could reach it —
+ * the text is already trimmed and non-empty here, so "use the text" always produces
+ * something a human can recognise as their own material.
+ */
 function titleFromText(text: string): string {
-  const line = text
-    .split('\n')
-    .map((item) => item.replace(/^[#>*\-\s]+/, '').trim())
-    .find((item) => item.length > 0);
-  const title = (line ?? text).slice(0, 60).trim();
-  return title || '随手记';
+  return (firstMeaningfulLine(text) || text).slice(0, 60).trim();
 }
 
 /** Session channels we recognise; `unknown` is dropped rather than stored. */

@@ -23,6 +23,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import type { Logger } from 'pino';
 import { randomUUID } from 'node:crypto';
 import { normalizeTags, normalizeTitle } from './canonical.js';
 import { ftsFacetTokens } from './facets.js';
@@ -84,18 +85,6 @@ function citedIds(rows: Array<{ kind: string; source_id: string }>, kind: string
   return [...new Set(rows.filter((row) => row.kind === kind).map((row) => row.source_id))];
 }
 
-function parseJsonArray<T>(raw: string | null): T[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    // A malformed JSON column is corrupt data, not an empty list — but throwing
-    // here would make one bad row take down the whole list render.
-    return [];
-  }
-}
-
 function serializeArray(values: readonly string[] | undefined): string | null {
   if (!values || values.length === 0) return null;
   return JSON.stringify(values);
@@ -130,9 +119,46 @@ export class NotesRepository {
    */
   private readonly statements = new Map<string, Database.Statement>();
 
-  constructor(db: Database.Database) {
+  constructor(
+    db: Database.Database,
+    /**
+     * Optional so the repository stays constructible from a bare connection (tests,
+     * scripts). When present, it is the only channel through which corrupt stored
+     * data becomes visible: the class deliberately renders through it rather than
+     * throwing, so silence here would mean "my tags disappeared" has no trace at all.
+     */
+    private readonly logger?: Logger,
+  ) {
     this.db = db;
     this.relations = new NoteRelations(db);
+  }
+
+  /**
+   * Parse a JSON array column, tolerating corruption.
+   *
+   * A malformed column is corrupt data, not an empty list — but throwing here would
+   * let one bad row take down a whole list render. So the row still renders as `[]`,
+   * and the warning names the note and the column: that pair is what makes "the tags
+   * vanished" a diagnosable report instead of a mystery. The raw value stays out of
+   * the log because it is note content (a body-sized field on `fields`), not a
+   * diagnostic; the failing row is identifiable by id alone.
+   */
+  private parseJsonArray<T>(raw: string | null, noteId: string, column: string): T[] {
+    if (!raw) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      this.logger?.warn({ noteId, column }, 'Note JSON column is not valid JSON');
+      return [];
+    }
+    if (!Array.isArray(parsed)) {
+      // Valid JSON of the wrong shape is the same corruption: a scalar cannot be
+      // rendered as a tag list, and dropping it silently is what got us here.
+      this.logger?.warn({ noteId, column }, 'Note JSON column is not an array');
+      return [];
+    }
+    return parsed as T[];
   }
 
   private prepare(sql: string): Database.Statement {
@@ -148,7 +174,7 @@ export class NotesRepository {
 
   private mapRow(row: NoteRow): Note {
     const channel = isNoteChannel(row.channel) ? row.channel : null;
-    const fields = parseJsonArray<NoteField>(row.fields).filter(
+    const fields = this.parseJsonArray<NoteField>(row.fields, row.id, 'fields').filter(
       (field) => typeof field?.key === 'string' && typeof field?.value === 'string',
     );
     return {
@@ -157,7 +183,7 @@ export class NotesRepository {
       summary: row.summary,
       body: row.body,
       fields,
-      tags: parseJsonArray<string>(row.tags),
+      tags: this.parseJsonArray<string>(row.tags, row.id, 'tags'),
       status: isNoteStatus(row.status) ? row.status : 'archived',
       statusReason: isNoteStatusReason(row.status_reason) ? row.status_reason : null,
       origin: isNoteOrigin(row.origin) ? row.origin : 'user',
@@ -504,6 +530,34 @@ export class NotesRepository {
   }
 
   /**
+   * Approve/reject counts — the honest denominator for `approvalRate`.
+   *
+   * The two verdicts are the actions `setStatus` writes out of `service.review()`:
+   * `approve` (draft → active) and `reject` (draft → archived/rejected). `archive`
+   * is deliberately not one of them: `expired` and a user's own archive are
+   * lifecycle moves that no reviewer decided, and counting them as rejections is
+   * exactly what made `active / (active + archived)` answer a different question
+   * than the one its name asks.
+   *
+   * Counted per note, not per event, because `approve` is also what a human's
+   * `restore()` writes — a note archived and restored twice would otherwise read
+   * as three approvals of one note.
+   *
+   * `note_events` is pruned on the `notes.log_retention_days` horizon, so this is
+   * the rate over the retained log rather than over all time — the same window the
+   * audit trail a reader can look at covers.
+   */
+  reviewTally(): { approved: number; rejected: number } {
+    const row = this.prepare(
+      `SELECT
+           COUNT(DISTINCT CASE WHEN action = 'approve' THEN note_id END) AS approved,
+           COUNT(DISTINCT CASE WHEN action = 'reject' THEN note_id END) AS rejected
+         FROM note_events`,
+    ).get() as { approved: number; rejected: number };
+    return { approved: row.approved, rejected: row.rejected };
+  }
+
+  /**
    * The filter row's options: the library under `status`, **not** the filtered page.
    *
    * Facets are computed from status and scope alone so that narrowing one facet does
@@ -731,13 +785,15 @@ export class NotesRepository {
     const nextTitle = input.title ?? row.title;
     const nextSummary = input.summary ?? row.summary;
     const nextBody = input.body ?? row.body;
-    const nextTags = input.tags ? normalizeTags(input.tags) : parseJsonArray<string>(row.tags);
+    const nextTags = input.tags
+      ? normalizeTags(input.tags)
+      : this.parseJsonArray<string>(row.tags, id, 'tags');
     const nextFields =
       input.fields !== undefined
         ? input.fields.filter(
             (field) => typeof field.key === 'string' && typeof field.value === 'string',
           )
-        : parseJsonArray<NoteField>(row.fields);
+        : this.parseJsonArray<NoteField>(row.fields, id, 'fields');
     const nextScope = isNoteScope(input.scope)
       ? input.scope
       : (row.scope as CreateNoteInput['scope']);
@@ -892,7 +948,7 @@ export class NotesRepository {
       // stays invisible to every `status='active'` search.
       const updated = this.rawRow(id);
       if (updated) {
-        const tags = parseJsonArray<string>(updated.tags);
+        const tags = this.parseJsonArray<string>(updated.tags, id, 'tags');
         indexNote(this.db, {
           id,
           status,

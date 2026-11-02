@@ -134,8 +134,21 @@ export const NOTE_EVENT_ACTORS = ['agent', 'user', 'system'] as const;
 
 export type NoteEventActor = (typeof NOTE_EVENT_ACTORS)[number];
 
-/** Capture outcomes. `invalid` is "the model produced nothing usable". */
-export const CAPTURE_STATUSES = ['ok', 'empty', 'invalid', 'failed'] as const;
+/**
+ * Capture outcomes. `invalid` is "the model produced nothing usable".
+ *
+ * `running` is the starting state, not an outcome: the ledger row is written before the
+ * window is distilled, so it cannot carry a result yet. It is expected to be overwritten
+ * by one of the four terminal values, and a row still holding it means the process died
+ * mid-capture — so a reader has to treat it as unfinished. Retention may not delete it
+ * (a run that started before the cutoff is one slow model call, not an old row — this is
+ * why the retention pass in `memory-hygiene` skips it) and a tally may not read it as
+ * "found nothing".
+ *
+ * The closed set lives here and only here: `capture_runs.status` is a plain TEXT column
+ * with no CHECK constraint, so adding `running` is a code change with no migration.
+ */
+export const CAPTURE_STATUSES = ['running', 'ok', 'empty', 'invalid', 'failed'] as const;
 
 export type CaptureStatus = (typeof CAPTURE_STATUSES)[number];
 
