@@ -48,14 +48,14 @@ const CHAT_TAB: Tab = { id: 'chat', path: '/', labelKey: 'tabs.chat', icon: Bot 
 
 // Secondary tools — flat peers of the chat section below it.
 const TOOL_TABS: Tab[] = [
-  { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
-  { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
-  { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
   // Notes replaced the knowledge hub (pages + review queue + entity graph) —
   // see `MyDocs/NOTES_LAYER_PLAN.md`. The knowledge tab's three sub-pages fed a
   // corpus nobody curated by hand, while the interaction that gets used is
   // "capture this conversation".
   { id: 'notes', path: '/notes', labelKey: 'tabs.notes', icon: NotebookPen },
+  { id: 'skills', path: '/skills', labelKey: 'tabs.skills', icon: Sparkles },
+  { id: 'files', path: '/files', labelKey: 'tabs.files', icon: Folder },
+  { id: 'memory', path: '/memory', labelKey: 'tabs.memory', icon: Database },
   { id: 'cron', path: '/cron', labelKey: 'tabs.cron', icon: Clock },
   { id: 'dashboard', path: '/dashboard', labelKey: 'tabs.dashboard', icon: BarChart3 },
 ];
