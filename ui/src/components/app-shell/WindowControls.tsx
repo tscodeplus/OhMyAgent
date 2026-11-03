@@ -43,9 +43,14 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
 
   if (!isElectron() || hidden) return null;
 
+  // Tailwind emits `hover:bg-[color]` utilities before named ones, so a
+  // combined string would lose the red to `hover:bg-black/5`. Each button
+  // therefore carries exactly one hover background.
   const base =
     'inline-flex h-full w-[46px] items-center justify-center text-neutral-600 transition-colors ' +
-    'hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10';
+    'dark:text-neutral-400';
+  const neutralHover = `${base} hover:bg-black/5 dark:hover:bg-white/10`;
+  const closeHover = `${base} hover:bg-[#e81123] hover:text-white dark:hover:bg-[#e81123]`;
 
   return (
     <div className="flex h-full items-stretch">
@@ -53,7 +58,7 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
         type="button"
         title={t('window.minimize')}
         aria-label={t('window.minimize')}
-        className={base}
+        className={neutralHover}
         onClick={() => window.electronAPI?.minimize()}
       >
         <Minus className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -62,7 +67,7 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
         type="button"
         title={maximized ? t('window.restore') : t('window.maximize')}
         aria-label={maximized ? t('window.restore') : t('window.maximize')}
-        className={base}
+        className={neutralHover}
         onClick={() => window.electronAPI?.maximize()}
       >
         {maximized ? (
@@ -75,7 +80,7 @@ export default function WindowControls({ hidden }: WindowControlsProps) {
         type="button"
         title={t('window.close')}
         aria-label={t('window.close')}
-        className={`${base} hover:bg-[#e81123] hover:text-white dark:hover:bg-[#e81123]`}
+        className={closeHover}
         onClick={() => window.electronAPI?.close()}
       >
         <X className="h-4 w-4" strokeWidth={1.5} />
