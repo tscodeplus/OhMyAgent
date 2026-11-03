@@ -259,6 +259,15 @@ export default function ModelSettings({
   /* ─── UI state (kept as-is) ─── */
   const [expandedCustom, setExpandedCustom] = useState<Set<number>>(new Set());
   const [expandedBuiltin, setExpandedBuiltin] = useState<Set<string>>(new Set());
+  /* In-progress provider-name edit for a built-in provider key. `provider_keys`
+     is keyed by provider name, so writing every keystroke into the record
+     re-keyed the row → React unmounted the input and the field lost focus after
+     one character. The draft keeps the typed text out of the record until
+     blur/Enter, then commits it in one rename. */
+  const [providerNameDraft, setProviderNameDraft] = useState<{
+    from: string;
+    value: string;
+  } | null>(null);
   const [showBuiltinModal, setShowBuiltinModal] = useState(false);
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [newBuiltinForm, setNewBuiltinForm] = useState({ provider: '', apiKey: '', baseUrl: '' });
@@ -294,6 +303,7 @@ export default function ModelSettings({
     delete updated[name];
     setProviderKeys(updated);
     setProviderKeysDirty(true);
+    setProviderNameDraft((draft) => (draft?.from === name ? null : draft));
   };
 
   const updateProviderKeyName = (oldName: string, newName: string) => {
@@ -308,6 +318,24 @@ export default function ModelSettings({
     }
     setProviderKeys(updated);
     setProviderKeysDirty(true);
+    // The rename re-keys the row; carry the expanded flag over so the card the
+    // user is editing does not collapse under them.
+    setExpandedBuiltin((prev) => {
+      if (!prev.has(oldName) || !newName) return prev;
+      const next = new Set(prev);
+      next.delete(oldName);
+      next.add(newName);
+      return next;
+    });
+  };
+
+  const commitProviderNameDraft = () => {
+    if (!providerNameDraft) return;
+    const next = providerNameDraft.value.trim();
+    if (next && next !== providerNameDraft.from) {
+      updateProviderKeyName(providerNameDraft.from, next);
+    }
+    setProviderNameDraft(null);
   };
 
   const updateProviderKey = (name: string, field: keyof ProviderKeyEntry, value: string) => {
@@ -684,7 +712,7 @@ export default function ModelSettings({
                   });
                 return (
                   <div
-                    key={name || '__new__'}
+                    key={`${source}:${name || '__new__'}`}
                     className="rounded-lg border border-neutral-100 dark:border-neutral-800 overflow-hidden"
                   >
                     {/* Header */}
@@ -738,8 +766,19 @@ export default function ModelSettings({
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <Input
                                 label={t('settings.models.providerName')}
-                                value={name}
-                                onChange={(e) => updateProviderKeyName(name, e.target.value)}
+                                value={
+                                  providerNameDraft?.from === name ? providerNameDraft.value : name
+                                }
+                                onChange={(e) =>
+                                  setProviderNameDraft({ from: name, value: e.target.value })
+                                }
+                                onBlur={commitProviderNameDraft}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    commitProviderNameDraft();
+                                  }
+                                }}
                                 placeholder="e.g. deepseek"
                               />
                               <Input

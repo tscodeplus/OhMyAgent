@@ -188,6 +188,82 @@ describe('GET /api/providers/:id/models', () => {
   });
 });
 
+describe('GET /api/providers/:id/models with custom_providers config', () => {
+  let app: ReturnType<typeof Fastify>;
+
+  const customProvider = {
+    provider: 'agnes',
+    apiKey: 'sk-agnes',
+    baseUrl: 'https://agnes.example.com/v1',
+    models: [
+      {
+        id: 'agnes-1',
+        name: 'Agnes One',
+        api: 'openai-completions',
+        reasoning: true,
+        reasoningLevel: 'high',
+        contextWindow: 64000,
+        maxTokens: 8000,
+        input: ['text', 'image'],
+      },
+    ],
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockGetModels.mockImplementation(() => {
+      throw new Error('unknown provider');
+    });
+
+    app = Fastify({ logger: false });
+    registerConfigRoutes(app, {
+      getConfig: () => ({ piAi: {}, customProviders: [customProvider] }) as any,
+      configPath: '/tmp/test-config.yaml',
+    });
+
+    await app.ready();
+  });
+
+  // registerModel() only runs at bootstrap, so a provider+model saved from the
+  // settings UI is absent from the process-global registry until a restart. The
+  // model dropdown must not depend on that.
+  it('serves models declared in config even when the registry does not know them', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/providers/agnes/models' });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.provider).toBe('agnes');
+    expect(body.models).toHaveLength(1);
+    expect(body.models[0]).toMatchObject({
+      id: 'agnes-1',
+      name: 'Agnes One',
+      api: 'openai-completions',
+      baseUrl: 'https://agnes.example.com/v1',
+      reasoning: true,
+      reasoningLevel: 'high',
+      contextWindow: 64000,
+      maxTokens: 8000,
+      input: ['text', 'image'],
+      thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
+    });
+  });
+
+  it('does not duplicate a model already registered at bootstrap', async () => {
+    mockGetModels.mockReturnValue([
+      { id: 'agnes-1', name: 'Agnes One (registered)', api: 'openai-completions' },
+      { id: 'agnes-2', name: 'Agnes Two', api: 'openai-completions' },
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: '/api/providers/agnes/models' });
+    const body = JSON.parse(res.body);
+
+    expect(body.models.map((m: { id: string }) => m.id)).toEqual(['agnes-1', 'agnes-2']);
+    // The config entry wins: it carries the reasoningLevel override.
+    expect(body.models[0].name).toBe('Agnes One');
+    expect(body.models[0].reasoningLevel).toBe('high');
+  });
+});
+
 describe('PUT /api/config', () => {
   let app: ReturnType<typeof Fastify>;
   let dir: string;

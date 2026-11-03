@@ -281,32 +281,52 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
   // Powers the searchable model dropdown in Settings → Models & Routing.
   app.get('/api/providers/:id/models', async (request, reply) => {
     const { id } = request.params as { id: string };
+
+    // Models declared under `custom_providers` are read from the live config,
+    // not only from the process-global registry: `registerModel` runs at
+    // bootstrap, so a provider/model saved from the settings UI would not show
+    // up in any model dropdown until the process restarted. Custom entries win
+    // on id collisions (same precedence as `getModels` in compat.ts), which
+    // also keeps the per-model `reasoningLevel` override attached.
+    const customProvider = cfg.getConfig()?.customProviders?.find((p) => p.provider === id);
+    const customModels = (customProvider?.models ?? []).map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      api: m.api,
+      baseUrl: customProvider?.baseUrl || undefined,
+      reasoning: !!m.reasoning,
+      // The chat input's reasoning selector needs the per-model override to show
+      // the model's effective default (server precedence: model cfg > default).
+      reasoningLevel: m.reasoningLevel,
+      input: Array.isArray(m.input) ? m.input : [],
+      contextWindow: m.contextWindow || undefined,
+      maxTokens: m.maxTokens || undefined,
+      // Mirrors the thinkingLevelMap bootstrap registers for custom models.
+      thinkingLevelMap: { xhigh: 'xhigh', max: 'max' },
+    }));
+    const customIds = new Set(customModels.map((m) => m.id));
+
+    let catalogModels: Array<Record<string, unknown>> = [];
     try {
-      // Per-model reasoningLevel overrides configured on custom providers —
-      // the chat input's reasoning selector needs them to display the model's
-      // effective default (server precedence: model cfg > global default).
-      const customModels = new Map(
-        (cfg.getConfig()?.customProviders ?? [])
-          .find((p) => p.provider === id)
-          ?.models.map((m) => [m.id, m.reasoningLevel])
-          .filter((entry): entry is [string, string] => Boolean(entry[1])) ?? [],
-      );
-      const models = getModels(id as any).map((m: any) => ({
-        id: m.id,
-        name: m.name || m.id,
-        api: m.api,
-        baseUrl: m.baseUrl || undefined,
-        reasoning: !!m.reasoning,
-        reasoningLevel: customModels.get(m.id),
-        input: Array.isArray(m.input) ? m.input : [],
-        contextWindow: m.contextWindow || undefined,
-        maxTokens: m.maxTokens || undefined,
-        thinkingLevelMap: m.thinkingLevelMap || undefined,
-      }));
-      return reply.send({ provider: id, models });
+      catalogModels = getModels(id as any)
+        .filter((m: any) => !customIds.has(m.id))
+        .map((m: any) => ({
+          id: m.id,
+          name: m.name || m.id,
+          api: m.api,
+          baseUrl: m.baseUrl || undefined,
+          reasoning: !!m.reasoning,
+          input: Array.isArray(m.input) ? m.input : [],
+          contextWindow: m.contextWindow || undefined,
+          maxTokens: m.maxTokens || undefined,
+          thinkingLevelMap: m.thinkingLevelMap || undefined,
+        }));
     } catch {
-      return reply.send({ provider: id, models: [] });
+      // Unknown provider id (no catalog, no custom config) → empty list.
+      catalogModels = [];
     }
+
+    return reply.send({ provider: id, models: [...customModels, ...catalogModels] });
   });
 
   // Fetch models live from the provider's API (for providers that support /models endpoint)
