@@ -534,11 +534,15 @@ export default function NotesView() {
   /**
    * Remove one row, whatever "remove" means for its status.
    *
-   * One handler for the three verbs: the *action* differs (archive is a soft delete, a
-   * draft's reject records a verdict, an archived row comes back) while the
-   * follow-through does not — the row leaving the list is the confirmation. Nothing is
-   * lost for a mis-click either: nothing was thrown away, so an archive or a discard is
-   * one `恢复` click away in 归档.
+   * One handler for the three verbs: the *action* differs (archive is a soft delete the
+   * user can take back, a draft's reject records a verdict and erases the draft, an
+   * archived row comes back) while the follow-through does not — the row leaving the
+   * list is the confirmation. An archive is one `恢复` click away in 归档; a discard is
+   * not coming back, which is why it is the one verb that has to be given a reason.
+   *
+   * `reason` comes from the row's own reason menu (`NoteRow`), because the code is a
+   * verdict the reviewer states, not a constant the list may invent: a tally of "nine
+   * duplicates out of fifty" is only actionable if the row that was discarded knew why.
    */
   const removeNote = useCallback(
     async (note: Note, reason: NoteRejectionCode = 'other'): Promise<boolean> => {
@@ -1097,15 +1101,12 @@ export default function NotesView() {
             </div>
           )}
 
-          {/* The one reader of `stats()`: how urgent the queue is and whether the
-              review gate is actually being used. Shown only in the drafts view —
-              "3 due" over a list of approved notes would be nagging about nothing. */}
+          {/* The one reader of `stats()`: whether the review gate is actually being
+              used. Shown only in the drafts view — a rate over a list of approved
+              notes would be a number about a queue nobody is looking at. */}
           {statusFilter === 'draft' && stats && (
             <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              {t('notes.draftsStats', {
-                due: stats.draftsDue,
-                rate: Math.round(stats.approvalRate * 100),
-              })}
+              {t('notes.draftsStats', { rate: Math.round(stats.approvalRate * 100) })}
             </p>
           )}
         </div>
@@ -1156,7 +1157,7 @@ export default function NotesView() {
               // arrow does — and clicking *another* row asks the same unsaved-text
               // question before it switches, which is why both go through the guard.
               onSelect={() => requestClose(note.id === noteId ? '/notes' : `/notes/${note.id}`)}
-              onRemove={() => void removeNote(note)}
+              onRemove={(reason) => void removeNote(note, reason)}
             />
           ))}
           {/* "加载更多" rather than an invisible cap: without it the list simply ended,
@@ -1302,47 +1303,106 @@ function differsFromNote(note: Note, draft: Partial<Note>): boolean {
 /**
  * Delete, with the rejection code it will be recorded under.
  *
- * A menu rather than a dialog: the codes are one glance each and the action is not
- * destructive enough to deserve a confirm step — the note is archived, never
- * dropped. The chosen code is the note's *verdict*; `note_events.detail` keeps it.
+ * A menu rather than a dialog: the codes are one glance each and the click that follows
+ * is the whole interaction — the note is gone before a confirm step could say anything a
+ * second time. The chosen code is the note's *verdict*; `note_events.detail` keeps it
+ * after the body is erased, which is what the approval rate counts.
+ *
+ * Two triggers use it: the draft's "丢弃" in the detail pane, and the bin on a draft
+ * row in the list (`placement="below"`). They look the same on purpose — a discard
+ * means the same thing in both places, so it asks the same question in both.
  */
 function RejectMenu({
   reason,
   onReason,
+  placement = 'above',
+  label,
+  triggerClassName,
   children,
 }: {
   reason: NoteRejectionCode;
   onReason: (reason: NoteRejectionCode) => void;
+  /**
+   * `above` is the detail pane's action bar, where the trigger sits at the bottom of a
+   * scrolling column and there is room overhead.
+   *
+   * `below` is a list row: it floats under the trigger in viewport coordinates, because
+   * the list's `overflow-y-auto` clips an absolutely positioned menu at both ends —
+   * opening upward cut the menu off on the first row, downward on the last one. A fixed
+   * menu does not travel with the list, so it closes on scroll instead of detaching.
+   */
+  placement?: 'above' | 'below';
+  /** Icon-only triggers need their own name; text triggers already carry one. */
+  label?: string;
+  triggerClassName?: string;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation('common');
   const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const floating = placement === 'below';
+  const width = 168;
 
   useEffect(() => {
     if (!open) return;
+    if (floating) {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      // A trigger that is not on screen has no menu to place: closing beats rendering at
+      // (0,0), which is what `undefined` rect would have produced.
+      if (!rect) {
+        setOpen(false);
+        return;
+      }
+      setAnchor({
+        top: rect.bottom + 4,
+        // Clamped to the viewport: the rail sits 12px from the right edge of a 364px
+        // column, but the same page renders full-width on a wide screen.
+        left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+      });
+    }
     const onPointerDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (ref.current?.contains(target)) return;
+      setOpen(false);
     };
+    const close = () => setOpen(false);
     document.addEventListener('mousedown', onPointerDown);
-    return () => document.removeEventListener('mousedown', onPointerDown);
-  }, [open]);
+    if (floating) {
+      window.addEventListener('scroll', close, true);
+      window.addEventListener('resize', close);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open, floating, width]);
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={floating ? undefined : 'relative'}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        aria-label={label}
+        title={label}
+        className={cn(triggerClassName)}
       >
         {children}
       </button>
-      {open && (
+      {open && (!floating || anchor) && (
         <div
           role="menu"
-          className="absolute bottom-full right-0 z-20 mb-1 w-[168px] rounded-lg border border-neutral-200 bg-white p-1 shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900"
+          style={floating && anchor ? { top: anchor.top, left: anchor.left } : undefined}
+          className={cn(
+            'w-[168px] rounded-lg border border-neutral-200 bg-white p-1 shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900',
+            // z-30 for the floating one: it has to clear the rows painted after it.
+            floating ? 'fixed z-30' : 'absolute bottom-full right-0 z-20 mb-1',
+          )}
         >
           <div className="px-2 py-1 text-[10px] text-neutral-400 dark:text-neutral-500">
             {t('notes.rejectHint')}
@@ -1419,6 +1479,21 @@ function ListSkeleton({ label }: { label: string }) {
 }
 
 /**
+ * The rail button both a plain action and a menu trigger wear.
+ *
+ * 24px is the floor for a thumb (the detail's header icons are 28px; a row is denser).
+ * Always visible, never `opacity-0` + `group-hover`: on a phone there is no hover, so a
+ * hover-revealed delete simply does not exist. The quiet grey ink is what keeps it out
+ * of the way while scanning.
+ */
+const RAIL_ACTION =
+  'inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100';
+
+/** The detail pane's bar trigger: the same ink and height as the two `Button`s beside it. */
+const BAR_ACTION =
+  'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800';
+
+/**
  * One row, as a card with two columns: the note itself, and a right rail holding the
  * time and the row's one action.
  *
@@ -1447,16 +1522,16 @@ function NoteRow({
   /** Second row of a pair — see the banding comment at the call site. */
   banded: boolean;
   onSelect: () => void;
-  onRemove: () => void;
+  /** `reason` is only meaningful for a draft: it is the verdict the reject records. */
+  onRemove: (reason?: NoteRejectionCode) => void;
 }) {
   const { t } = useTranslation('common');
   /**
    * One verb per status, and the icon says which one.
    *
-   * `DELETE /api/notes/:id` archives — the text is kept and `restore` brings it back — so
-   * an active row says 归档 and wears the archive box, not a bin. A draft's reject is the
-   * only one that reads as "gone" (it will not come back as a draft), so it is the only
-   * row that gets the bin.
+   * `DELETE /api/notes/:id` archives a note — the text is kept and `restore` brings it
+   * back — so an active row says 归档 and wears the archive box, not a bin. A draft's
+   * reject is the only verb here that erases, so it is the only row that gets the bin.
    */
   const action =
     note.status === 'archived'
@@ -1465,6 +1540,15 @@ function NoteRow({
         ? { icon: Trash2, label: t('notes.discard') }
         : { icon: Archive, label: t('notes.archive') };
   const ActionIcon = action.icon;
+  /**
+   * The code a discard from this row will be recorded under.
+   *
+   * Local, and it survives between clicks only for as long as the row is mounted: the
+   * menu preselects the last verdict so discarding a batch of duplicates is one click
+   * each, but a remount (filter change, refetch) starts from `other` again rather than
+   * claiming a verdict the reviewer never stated in this sitting.
+   */
+  const [rejectReason, setRejectReason] = useState<NoteRejectionCode>('other');
 
   return (
     <li
@@ -1579,19 +1663,36 @@ function NoteRow({
           <span className="whitespace-nowrap text-[10px] tabular-nums text-neutral-400 dark:text-neutral-500">
             {relativeTime(note.updatedAt, language)}
           </span>
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label={action.label}
-            title={action.label}
-            // 24px is the floor for a thumb (the detail's header icons are 28px; a row
-            // is denser). Always visible, never `opacity-0` + `group-hover`: on a phone
-            // there is no hover, so a hover-revealed delete simply does not exist. The
-            // quiet grey ink is what keeps it out of the way while scanning.
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-200/70 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100"
-          >
-            <ActionIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
-          </button>
+          {/* A draft's bin opens the same reason menu the detail pane does instead of
+              discarding on the click: `review {decision:'reject'}` is the only write in
+              this page that records a *verdict*, and a row that fired it as `other` made
+              the tally measure how many drafts were swept out of the list rather than why
+              they were rejected. Archive and restore stay one click — those two are
+              undoing a move, not stating an opinion. */}
+          {note.status === 'draft' ? (
+            <RejectMenu
+              reason={rejectReason}
+              placement="below"
+              label={action.label}
+              triggerClassName={RAIL_ACTION}
+              onReason={(code) => {
+                setRejectReason(code);
+                onRemove(code);
+              }}
+            >
+              <ActionIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </RejectMenu>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onRemove()}
+              aria-label={action.label}
+              title={action.label}
+              className={RAIL_ACTION}
+            >
+              <ActionIcon className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          )}
         </div>
       </div>
     </li>
@@ -1794,14 +1895,16 @@ function NoteDetail({
                       <Pencil className="h-3.5 w-3.5" />
                       {t('notes.edit')}
                     </Button>
-                    {/* Deleting asks why, and only here. The floating card's delete is
-                        one click (`other`): mid-conversation the user's intent is to get
-                        the card off the screen, and a dialog there would cost more than
-                        the tally is worth. This row is a deliberate visit to review, so
-                        the code recorded here is a verdict — which is what makes
-                        "nine of fifty were duplicates" mean something. */}
+                    {/* Deleting asks why: here through the reason menu, and on a draft row
+                        in the list through the same one. The floating card's delete is the
+                        exception — one click (`other`): mid-conversation the user's intent
+                        is to get the card off the screen, and a dialog there would cost
+                        more than the tally is worth. This row and the list are deliberate
+                        visits to review, so the code recorded there is a verdict — which
+                        is what makes "nine of fifty were duplicates" mean something. */}
                     <RejectMenu
                       reason={rejectReason}
+                      triggerClassName={BAR_ACTION}
                       onReason={(code) => {
                         setRejectReason(code);
                         onDiscard(code);

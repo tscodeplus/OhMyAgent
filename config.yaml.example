@@ -360,9 +360,9 @@ channels:
 #                                    # NOTE: window_turns / token_budget were removed — the
 #                                    # window is the session itself (turn/recent/session
 #                                    # modes are sizes the UI promises, not knobs to tune)
-#   draft:
-#     ttl_days: 14                  # unapproved drafts archive after N days; 0 = never
 #   log_retention_days: 90          # note_events horizon; 0 = keep forever
+#                                    # NOTE: draft.ttl_days was removed — a draft never
+#                                    # expires; it is approved or deleted, nothing else
 #   # NOT configurable: review. Agent-distilled content is always a draft until a
 #   # human approves it — that is the layer's contract, not a setting.
 

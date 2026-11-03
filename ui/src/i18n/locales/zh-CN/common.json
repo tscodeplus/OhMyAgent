@@ -540,9 +540,8 @@
       "redact": "抹掉密钥形态的片段",
       "redactHint": "送去模型前先遮蔽密钥。关闭后 key、token 可能原样进入请求。",
       "retention": "保留",
-      "draftTtlDays": "草稿未审保留天数",
       "logRetentionDays": "操作日志保留天数",
-      "retentionHint": "草稿到期归档为「已过期」，可恢复，不会删除。填 0 表示永久保留（日志会持续增长）。",
+      "retentionHint": "只影响操作日志和抓取记录：填 0 表示永久保留（会持续增长）。草稿不会过期，只会被批准或删除。",
       "restartHint": "「启用笔记」和「蒸馏模型」重启后生效；其余改动在下一次捕获或清理时生效。",
       "bodyMaxChars": "正文上限（字符）",
       "bodyMaxCharsHint": "单条正文上限，超出会截断。默认 1200 可容纳一个主题的多个方面，上限 4000。",
@@ -1770,7 +1769,7 @@
     "toast": {
       "failed": "操作失败，请重试"
     },
-    "draftsStats": "{{due}} 条明天到期 · 批准率 {{rate}}%"
+    "draftsStats": "批准率 {{rate}}%"
   },
   "search": {
     "contextTitle": "对话上下文",

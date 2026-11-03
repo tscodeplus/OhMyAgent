@@ -75,7 +75,7 @@ import { useNotes } from './NotesContext';
 import { FacetRow, relativeTime } from './NoteBits';
 import { useBallPlacement } from './useBallPlacement';
 
-/** The draft card retracts after this long; the draft itself never expires here. */
+/** How long the review card stays before it retracts. The draft itself never expires. */
 const CARD_AUTO_HIDE_MS = 30_000;
 /** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
 const BALL_HEIGHT = 56;

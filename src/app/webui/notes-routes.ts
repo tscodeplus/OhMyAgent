@@ -399,7 +399,16 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
       reason: reasonRaw ? (reasonRaw as NoteRejectionCode) : undefined,
       actor: 'user',
     });
-    if (result.ok) return reply.send({ note: result.note });
+    /*
+     * Two shapes of success, because the two verdicts leave different states behind.
+     * `approve` answers with the promoted note; `reject` answers with the id it
+     * erased, and the caller drops that row instead of rewriting it — a rejected
+     * draft's body, evidence and index row are gone, and only its `reject` event
+     * survives so the approval tally still knows a verdict was given.
+     */
+    if (result.ok) {
+      return reply.send(result.deleted ? { deleted: true, id: result.id } : { note: result.note });
+    }
     // Approving a draft whose title an active note already owns is 422 with the
     // owner's id: the reviewer can open it, retitle, or discard. 409 would say the
     // request was fine but the state was not, and the state is exactly the point.
@@ -420,13 +429,20 @@ export function registerNotesRoutes(app: FastifyInstance, options: NotesRouteOpt
   });
 
   /**
-   * Archive, not delete: the row keeps its body and gains a reason (plan §6).
-   * A `DELETE` that removed the row would also remove the history of the review.
+   * `DELETE /api/notes/:id` is two sentences under one verb, decided by the row.
+   *
+   * For a note it archives: the body stays, `status_reason` records why, and `restore`
+   * brings it back. For a *draft* it erases — there is no archive a refused draft could
+   * wait in without becoming a row that `restore` publishes unreviewed, so the delete
+   * is the discard (`reject` with `other`). Both answer 200; the response says which
+   * happened by carrying either `note` or `deleted`.
    */
   app.delete('/api/notes/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const result = service.archive(id, 'user');
-    if (result.ok) return reply.send({ note: result.note });
+    if (result.ok) {
+      return reply.send(result.note ? { note: result.note } : { deleted: true, id });
+    }
     return reply.status(404).send({ error: 'not found' });
   });
 

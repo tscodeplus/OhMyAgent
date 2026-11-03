@@ -71,17 +71,17 @@ describe('notes approvalRate', () => {
     expect(service.stats().approvalRate).toBe(0);
   });
 
-  it('ignores expiry, which archives a draft without a verdict', () => {
+  it('counts a rejected draft after its body is erased, because the verdict is the point', () => {
     const approved = draft(repository, 'approved one');
     service.review(approved, { decision: 'approve' });
-    // Two drafts the TTL takes: `expired` is a lifecycle move, so neither the
-    // numerator nor the denominator may see them.
-    draft(repository, 'stale one', Date.now() - 5 * DAY_MS);
-    draft(repository, 'stale two', Date.now() - 5 * DAY_MS);
-    repository.expireDrafts(1);
+    // Rejecting deletes the draft; the `reject` event outlives it, so the rate keeps
+    // the one measurement the reviewer actually made.
+    const doomed = draft(repository, 'rejected one');
+    service.review(doomed, { decision: 'reject', reason: 'duplicate' });
+    expect(service.get(doomed)).toBeUndefined();
 
-    expect(repository.reviewTally()).toEqual({ approved: 1, rejected: 0 });
-    expect(service.stats().approvalRate).toBe(1);
+    expect(repository.reviewTally()).toEqual({ approved: 1, rejected: 1 });
+    expect(service.stats().approvalRate).toBe(0.5);
   });
 
   it('counts a note once, even though restoring it logs another approve', () => {

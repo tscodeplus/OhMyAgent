@@ -13,9 +13,9 @@
  *    at tab level would nag on the hot fields too, and no list at all is how the
  *    knowledge tab once looked applied while nothing had changed.
  * 2. **Everything else is read per call.** `capture.*` is read by `CapturePipeline`
- *    through `getConfig()` on every capture, and `draft.ttlDays` /
- *    `logRetentionDays` are mutated into `MemoryHygiene`'s config object by its reload
- *    listener, so those apply on the next capture / next hygiene run without a restart.
+ *    through `getConfig()` on every capture, and `logRetentionDays` is mutated into
+ *    `MemoryHygiene`'s config object by its reload listener, so those apply on the next
+ *    capture / next hygiene run without a restart.
  *
  * What is deliberately absent: any switch for the review gate. `origin='agent'` is
  * always `draft`, and no key can make distillation land straight in the library.
@@ -80,7 +80,6 @@ export default function NotesSettings({
   const notes = (config?.notes as Record<string, unknown>) || {};
   const capture = (notes.capture as Record<string, unknown>) || {};
   const ball = (notes.ball as Record<string, unknown>) || {};
-  const draft = (notes.draft as Record<string, unknown>) || {};
 
   const num = (path: string, node: Record<string, unknown>, key: string, fallback: number) =>
     getField(path, String(node[key] ?? fallback)) as string;
@@ -252,13 +251,6 @@ export default function NotesSettings({
 
       <AccordionItem title={t('settings.notes.retention')}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label={t('settings.notes.draftTtlDays')}
-            type="number"
-            min={0}
-            value={num('notes.draft.ttlDays', draft, 'ttlDays', 14)}
-            onChange={(event) => setField('notes.draft.ttlDays', event.target.value)}
-          />
           <Input
             label={t('settings.notes.logRetentionDays')}
             type="number"

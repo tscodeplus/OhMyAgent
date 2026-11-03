@@ -363,10 +363,9 @@ export async function createMemoryServices(
   const hygieneConfig = {
     tempRetentionDays: config.memory.hygiene.retentionDays,
     checkIntervalMs: 12 * 60 * 60 * 1000,
-    // Notes take the same ride: drafts expire into `archived`, `note_events`
-    // is pruned. Both default to their schema values even when the layer is off
-    // (the SQL is table-guarded), so enabling notes later needs no restart.
-    notesDraftTtlDays: config.notes?.draft.ttlDays ?? 14,
+    // Notes take the same ride: `note_events` and `capture_runs` are pruned here.
+    // Both default to their schema values even when the layer is off (the SQL is
+    // table-guarded), so enabling notes later needs no restart.
     notesLogRetentionDays: config.notes?.logRetentionDays ?? 90,
   };
 
@@ -410,10 +409,8 @@ export async function createMemoryServices(
     // Hygiene reads its knobs off this object on every run, so a reload that did not
     // mutate it here would leave the horizon frozen at whatever the process booted
     // with — while the settings tab happily showed the new number. It also carries the
-    // two notes knobs (`draft.ttlDays`, `logRetentionDays`), which is why they can be
-    // edited without a restart.
+    // `notes.logRetentionDays` knob, which is why it can be edited without a restart.
     hygieneConfig.tempRetentionDays = c.memory.hygiene.retentionDays;
-    hygieneConfig.notesDraftTtlDays = c.notes?.draft.ttlDays ?? 14;
     hygieneConfig.notesLogRetentionDays = c.notes?.logRetentionDays ?? 90;
     logger.info(
       {
@@ -421,7 +418,7 @@ export async function createMemoryServices(
         fallbackCount: auxModelConfig.fallbackRefs?.length ?? 0,
         outputLanguage: c.memory.outputLanguage,
         retentionDays: hygieneConfig.tempRetentionDays,
-        notesDraftTtlDays: hygieneConfig.notesDraftTtlDays,
+        notesLogRetentionDays: hygieneConfig.notesLogRetentionDays,
       },
       'Memory aux models reloaded (hot)',
     );

@@ -174,6 +174,27 @@ export interface ReviewDecision {
 }
 
 /**
+ * The two verdicts answer with two different things, because they leave two different
+ * states behind.
+ *
+ * `approve` promotes the row and hands it back. `reject` erases the draft's content —
+ * body, evidence, relations, index row — and keeps only the `reject` event, so there is
+ * no note to return. A caller that assumed `note` on every success rendered a deleted
+ * draft; `deleted` is what tells it to drop the row instead of updating it.
+ */
+export interface ReviewResult {
+  ok: boolean;
+  /** Approve only. */
+  note?: Note;
+  /** Reject only: the draft's content is gone, its verdict is in `note_events`. */
+  deleted?: boolean;
+  /** The id the verdict was about, so the caller can remove exactly one row. */
+  id?: string;
+  code?: 'not_found' | 'title_conflict';
+  existingId?: string;
+}
+
+/**
  * The outcome of a physical erase.
  *
  * `title_mismatch` is its own code rather than a 404 because the two are different
@@ -198,13 +219,12 @@ export interface PurgeOptions {
 
 export interface NotesStats {
   byStatus: Record<NoteStatus, number>;
-  /** Drafts that will expire within a day — what the badge should nag about. */
-  draftsDue: number;
   /**
    * Share of the notes that entered review and were approved, i.e.
    * `note_events.approve / (approve + reject)` over the retained event log, and `0`
-   * when nothing was reviewed yet. Expired drafts and notes a human archived are
-   * not in the denominator: neither is a rejection.
+   * when nothing was reviewed yet. Rejected drafts contribute their event after their
+   * body is erased; notes a human archived are not in the denominator — that is a
+   * lifecycle move, not a verdict.
    */
   approvalRate: number;
 }
@@ -233,7 +253,7 @@ export interface NotesService {
     },
     actor?: NoteEventActor,
   ): UpdateResult;
-  review(id: string, decision: ReviewDecision): UpdateResult;
+  review(id: string, decision: ReviewDecision): ReviewResult;
   pin(id: string, pinned: boolean): UpdateResult;
   archive(id: string, reason?: NoteStatusReason): UpdateResult;
   restore(id: string): UpdateResult;
@@ -278,7 +298,6 @@ export interface NotesRuntimeConfig {
   thinking: NotesThinkingMode;
   /** Sampling temperature for the distillation call; the repair retry halves it. */
   temperature: number;
-  ttlDays: number;
   logRetentionDays: number;
   /** Empty = reuse `memory_aux_models`. */
   modelRef: string;

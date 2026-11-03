@@ -40,6 +40,7 @@ import type {
   PurgeOptions,
   PurgeResult,
   ReviewDecision,
+  ReviewResult,
   UpdateResult,
 } from './service-contract.js';
 
@@ -106,7 +107,7 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       return result as UpdateResult;
     },
 
-    review(id: string, decision: ReviewDecision): UpdateResult {
+    review(id: string, decision: ReviewDecision): ReviewResult {
       const note = repository.get(id);
       if (!note) return { ok: false, code: 'not_found' };
       if (decision.decision === 'approve') {
@@ -126,19 +127,25 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
           return { ok: false, code: 'title_conflict', existingId: updated.existingId };
         return { ok: true, note: updated.note };
       }
-      // Two different facts: the row leaves the library as `rejected`, and the
-      // code (duplicate / recap / thin …) goes into the log so the tally is
-      // actionable. Storing the code in `status_reason` would make the column a
-      // mix of lifecycle and diagnosis.
-      const updated = repository.setStatus(id, 'archived', {
-        reason: 'rejected',
-        detail: decision.reason ?? 'other',
-        actor: decision.actor ?? 'user',
-      });
-      if (!updated) return { ok: false, code: 'not_found' };
-      return updated.ok
-        ? { ok: true, note: updated.note }
-        : { ok: false, code: 'title_conflict', existingId: updated.existingId };
+      // Only a draft has a verdict to give. A reject aimed at an `active` note — a
+      // stale tab, a double click after an approval — is a no-op answered with the
+      // note, because erasing a published note through the review route is the one
+      // outcome nobody can undo.
+      if (note.status !== 'draft') return { ok: true, note };
+      // A verdict is final for a draft, and it is the *content* that goes: the body,
+      // its evidence, its relations and its index row are erased, while the `reject`
+      // event stays behind so `approvalRate` still counts what the reviewer said.
+      // "Delete" and "reject" are one operation because there is nowhere left for a
+      // refused draft to wait — `archived` holds notes the user put away, and a
+      // rejected draft sitting there was one `恢复` click from being published
+      // unreviewed.
+      const rejected = repository.rejectDraft(id, decision.reason ?? 'other', decision.actor);
+      if (!rejected.ok) return { ok: false, code: 'not_found' };
+      deps.logger.info(
+        { noteId: id, code: decision.reason ?? 'other', actor: decision.actor ?? 'user' },
+        'notes.reject',
+      );
+      return { ok: true, deleted: true, id };
     },
 
     pin(id: string, pinned: boolean): UpdateResult {
@@ -147,6 +154,17 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
     },
 
     archive(id: string, reason = 'user'): UpdateResult {
+      const note = repository.get(id);
+      if (!note) return { ok: false, code: 'not_found' };
+      // Only a note can be archived. Putting a *draft* away would mean an unreviewed
+      // draft living in `archived` with a `user` reason — exactly the row whose
+      // `恢复` publishes it without review — so archiving a draft is a discard, and a
+      // discard erases. The route keeps `DELETE /api/notes/:id` for both because from
+      // the caller's side it is one sentence: "I do not want this in my list".
+      if (note.status === 'draft') {
+        const rejected = repository.rejectDraft(id, 'other', 'user');
+        return rejected.ok ? { ok: true } : { ok: false, code: 'not_found' };
+      }
       const updated = repository.setStatus(id, 'archived', { reason, actor: 'user' });
       if (!updated) return { ok: false, code: 'not_found' };
       return updated.ok
@@ -157,7 +175,11 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
     restore(id: string): UpdateResult {
       const note = repository.get(id);
       if (!note) return { ok: false, code: 'not_found' };
-      const updated = repository.setStatus(id, 'active', { actor: 'user' });
+      // Drafts never expire any more, so `expired` only survives in databases written
+      // before that policy was removed. Restoring one of those to `active` would
+      // publish a draft nobody ever reviewed; the queue is where it belongs.
+      const target: NoteStatus = note.statusReason === 'expired' ? 'draft' : 'active';
+      const updated = repository.setStatus(id, target, { actor: 'user' });
       if (!updated) return { ok: false, code: 'not_found' };
       // Restoring a note whose title was taken while it was archived is the other
       // way to reach the unique index; same answer as approval.
@@ -198,20 +220,15 @@ export function createNotesService(deps: NotesServiceDeps): NotesService {
       // so answering "how many drafts" opened a whole list page (facets, sources,
       // relations and their probes) to read three numbers.
       const counts = repository.counts();
-      const config = deps.getConfig();
-      const due =
-        config.ttlDays > 0
-          ? repository.countDraftsOlderThan(Date.now() - (config.ttlDays - 1) * 24 * 3600_000)
-          : 0;
       // Deliberately not `active / (active + archived)` any more: `archived` holds the
-      // expired drafts and the notes the user put away themselves, so the old proxy
-      // answered "how much of the library is archived" while its name promised a
-      // review verdict. The verdicts are the ones `review()` recorded.
+      // notes the user put away themselves, so the old proxy answered "how much of the
+      // library is archived" while its name promised a review verdict. The verdicts are
+      // the ones `review()` recorded — `approved` and `rejected` are both only ever
+      // written there, and a rejected draft keeps its event after its body is erased.
       const tally = repository.reviewTally();
       const reviewed = tally.approved + tally.rejected;
       return {
         byStatus: counts,
-        draftsDue: due,
         approvalRate: reviewed > 0 ? Math.round((tally.approved / reviewed) * 100) / 100 : 0,
       };
     },

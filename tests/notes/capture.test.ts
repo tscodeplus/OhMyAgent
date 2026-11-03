@@ -185,24 +185,32 @@ describe('notes service', () => {
     expect(edited.note?.body).toBe('改过的正文');
   });
 
-  it('rejects with a reason and keeps the row', async () => {
+  it('rejects with a reason by erasing the row and keeping the verdict', async () => {
     const { service } = createTestService(db);
     const captured = await service.capture({ sessionId: SESSION_ID, mode: 'turn' });
     if (!captured.ok) throw new Error('capture failed');
+    const id = captured.notes[0].id;
 
-    const rejected = service.review(captured.notes[0].id, {
-      decision: 'reject',
-      reason: 'duplicate',
-    });
-    expect(rejected.note?.status).toBe('archived');
-    // Two facts, two places: the row was *rejected*, and the reviewer's code is
-    // in the log so the tally stays actionable.
-    expect(rejected.note?.statusReason).toBe('rejected');
+    const rejected = service.review(id, { decision: 'reject', reason: 'duplicate' });
+    // The two facts live in two places now: the content is gone, the verdict is not.
+    expect(rejected).toEqual({ ok: true, deleted: true, id });
+    expect(service.get(id)).toBeUndefined();
     const logged = db
       .prepare("SELECT detail FROM note_events WHERE note_id = ? AND action = 'reject'")
-      .get(captured.notes[0].id) as { detail: string } | undefined;
+      .get(id) as { detail: string } | undefined;
     expect(logged?.detail).toBe('duplicate');
-    expect(service.get(captured.notes[0].id)?.body).toBe(captured.notes[0].body);
+  });
+
+  it('leaves an approved note alone when a stale tab rejects it', () => {
+    const { service } = createTestService(db);
+    const created = service.createManual({ title: 'already published', body: 'b' });
+    if (!created.ok) throw new Error('create failed');
+
+    const result = service.review(created.note.id, { decision: 'reject', reason: 'thin' });
+    // A no-op answered with the note: the review route must never erase something
+    // that already passed it, whatever the caller believed about its status.
+    expect(result).toEqual({ ok: true, note: expect.objectContaining({ id: created.note.id }) });
+    expect(service.get(created.note.id)?.body).toBe('b');
   });
 
   it('archives and restores without losing the body', () => {
@@ -478,7 +486,7 @@ describe('notes service', () => {
     expect(service.get(second.note.id)?.status).toBe('draft');
   });
 
-  it('expires stale drafts through the repository, as hygiene will', () => {
+  it('leaves a stale draft in the queue — drafts do not expire', () => {
     const { repository } = createTestService(db);
     repository.create({
       title: 'old draft',
@@ -490,8 +498,10 @@ describe('notes service', () => {
       scopeKey: '',
       now: Date.now() - 40 * 24 * 3600_000,
     });
-    expect(repository.expireDrafts(14)).toHaveLength(1);
-    expect(repository.list({ status: 'draft' }).total).toBe(0);
+    // The only ways out of the queue are the two verdicts; a draft nobody has
+    // decided on waits for the decision instead of ageing into an archive.
+    expect(repository.list({ status: 'draft' }).total).toBe(1);
+    expect(repository.list({ status: 'archived' }).total).toBe(0);
   });
 
   /**

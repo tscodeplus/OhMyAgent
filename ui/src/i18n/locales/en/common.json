@@ -540,9 +540,8 @@
       "redact": "Redact credential-shaped spans",
       "redactHint": "Masking happens before the material reaches the model. Off means keys and tokens can travel verbatim.",
       "retention": "Retention",
-      "draftTtlDays": "Unreviewed drafts kept for (days)",
       "logRetentionDays": "Operation log kept for (days)",
-      "retentionHint": "An expired draft is archived as “expired”, never deleted, and can be restored. 0 keeps forever.",
+      "retentionHint": "Applies to the event log and capture runs: 0 keeps them forever. Drafts never expire — they are approved or deleted.",
       "restartHint": "The switch and the distillation model apply after a restart; everything else applies on the next capture or the next cleanup run.",
       "bodyMaxChars": "Body cap (characters)",
       "bodyMaxCharsHint": "Maximum body length per note; longer bodies are truncated. 1200 fits several aspects of one subject; the hard ceiling is 4000.",
@@ -1770,7 +1769,7 @@
     "toast": {
       "failed": "That did not work — try again"
     },
-    "draftsStats": "{{due}} expiring tomorrow · {{rate}}% approved"
+    "draftsStats": "{{rate}}% approved"
   },
   "search": {
     "contextTitle": "Conversation context",

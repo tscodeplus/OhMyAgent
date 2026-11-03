@@ -126,7 +126,7 @@ export const SEARCH_INDEX: SearchEntry[] = [
   { tabId: 'notes', labelKey: 'settings.notes.bodyMaxChars' },
   { tabId: 'notes', labelKey: 'settings.notes.sessionRows' },
   { tabId: 'notes', labelKey: 'settings.notes.ballShow' },
-  { tabId: 'notes', labelKey: 'settings.notes.draftTtlDays' },
+  { tabId: 'notes', labelKey: 'settings.notes.logRetentionDays' },
 
   // Multimodal
   { tabId: 'multimodal', labelKey: 'settings.multimodal.title' },

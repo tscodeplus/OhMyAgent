@@ -21,6 +21,7 @@ import { migrateV33 } from './migration-v33.js';
 import { migrateV34 } from './migration-v34.js';
 import { migrateV35 } from './migration-v35.js';
 import { migrateV36 } from './migration-v36.js';
+import { migrateV37 } from './migration-v37.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -279,6 +280,16 @@ export function openDatabase(dbPath: string): Database.Database {
     migrateV36(db);
   } catch (err) {
     logger.warn({ err }, '[V36] notes.kind drop failed — continuing');
+  }
+
+  // v37: retire the two archived notes reasons that no longer exist as states. A
+  // rejected draft is erased (its `reject` event kept for the approval rate), and a
+  // draft the old TTL hid is put back in the queue. Both selectors are status/reason
+  // matches, so a replay finds nothing and does nothing.
+  try {
+    migrateV37(db);
+  } catch (err) {
+    logger.warn({ err }, '[V37] notes retention migration failed — continuing');
   }
 
   // Backfill FTS index for memories that are missing from it (first-time

@@ -11,12 +11,6 @@ export interface HygieneConfig {
   /** Memory key used to store the last check timestamp. */
   lastCheckKey: string;
   /**
-   * Days an unapproved note draft survives (`notes.draft.ttl_days`). `0` =
-   * never expire. Expiring a draft archives it (`status_reason: expired`), it
-   * never deletes the row — plan §6.
-   */
-  notesDraftTtlDays: number;
-  /**
    * Retention days for `note_events` and `capture_runs`
    * (`notes.log_retention_days`). 0 = forever.
    */
@@ -65,7 +59,6 @@ export class MemoryHygiene {
       tempRetentionDays: this.config.tempRetentionDays ?? 90,
       checkIntervalMs: this.config.checkIntervalMs ?? 12 * 60 * 60 * 1000,
       lastCheckKey: this.config.lastCheckKey ?? '__hygiene_last_check__',
-      notesDraftTtlDays: this.config.notesDraftTtlDays ?? 14,
       notesLogRetentionDays: this.config.notesLogRetentionDays ?? 90,
     };
   }
@@ -157,15 +150,12 @@ export class MemoryHygiene {
         this.onMemoryChanged?.();
       }
 
-      // Notes: an unapproved draft is a decision that was never made, so it
-      // expires into `archived(expired)` rather than accumulating in the review
-      // queue forever. Archiving, not deleting — the body may still be the only
-      // record of a useful command (plan §6). `note_events` is append-only and
-      // grows with writes rather than with rows, so it rides the same pass.
-      const expiredDrafts = this.expireNoteDrafts(config.notesDraftTtlDays);
-      if (expiredDrafts > 0) {
-        cleanedKinds['notes.draft'] = expiredDrafts;
-      }
+      // Notes: nothing expires a draft. A draft is a decision waiting for a human,
+      // and the only two ways out are the two verdicts — approve, or reject (which
+      // erases it). Expiring one into an archive left an unreviewed draft sitting
+      // next to the notes the user put away, one `恢复` click from being published.
+      // `note_events` is append-only and grows with writes rather than with rows, so
+      // it rides this pass.
       const prunedNoteEvents = this.pruneNoteEvents(config.notesLogRetentionDays);
       if (prunedNoteEvents > 0) {
         cleanedKinds['note_events'] = prunedNoteEvents;
@@ -218,24 +208,6 @@ export class MemoryHygiene {
         error: String(e),
       };
     }
-  }
-
-  /**
-   * Expire stale drafts. Guarded on the tables existing: a database opened
-   * before v31 ran (or a notes-disabled install) must not throw here — the
-   * hygiene pass is shared and must stay independent of the notes layer.
-   */
-  private expireNoteDrafts(ttlDays: number): number {
-    if (ttlDays <= 0) return 0;
-    if (!this.tableExists('notes')) return 0;
-    const cutoff = Date.now() - ttlDays * 24 * 3600_000;
-    const result = this.db
-      .prepare(
-        `UPDATE notes SET status = 'archived', status_reason = 'expired', updated_at = ?
-                WHERE status = 'draft' AND created_at < ?`,
-      )
-      .run(Date.now(), cutoff);
-    return result.changes;
   }
 
   private pruneNoteEvents(retentionDays: number): number {

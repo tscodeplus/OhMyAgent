@@ -696,7 +696,6 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
   // schema then fills in `enabled: true`, `capture.*` and `ball.show`.
   if (notesCfg == null) return {};
   const captureCfg = notesCfg.capture as YamlNode;
-  const draftCfg = notesCfg.draft as YamlNode;
   return {
     enabled: yamlBool(notesCfg.enabled, true, 'notesCfg.enabled'),
     capture: {
@@ -747,9 +746,6 @@ function buildNotesSection(notesCfg: YamlNode): Record<string, unknown> {
     // here by both the settings page and the ball's own menu, so every device agrees.
     ball: {
       show: yamlBool((notesCfg.ball as YamlNode)?.show, true, 'notesCfg.ball.show'),
-    },
-    draft: {
-      ttlDays: num(draftCfg?.ttl_days ?? draftCfg?.ttlDays, 14, 'notesCfg.draft.ttl_days'),
     },
     logRetentionDays: num(
       notesCfg.log_retention_days ?? notesCfg.logRetentionDays,
@@ -1854,13 +1850,6 @@ export function jsConfigToYaml(
           const ybl = { ...((cur.ball as Record<string, unknown>) || {}) };
           if (bl.show !== undefined) ybl.show = bl.show;
           yn.ball = ybl;
-        }
-
-        const dr = nt.draft as Record<string, unknown> | undefined;
-        if (dr) {
-          const ydr = { ...((cur.draft as Record<string, unknown>) || {}) };
-          if (dr.ttlDays !== undefined) ydr.ttl_days = dr.ttlDays;
-          yn.draft = ydr;
         }
 
         yaml.notes = yn;

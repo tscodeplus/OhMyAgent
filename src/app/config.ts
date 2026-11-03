@@ -356,12 +356,6 @@ export const notesSectionSchema = z
         show: z.boolean().default(true),
       })
       .default({}),
-    draft: z
-      .object({
-        /** Days an unapproved draft survives before hygiene archives it. 0 = never. */
-        ttlDays: z.coerce.number().int().nonnegative().default(14),
-      })
-      .default({}),
     /** `note_events` retention in days. 0 = keep forever (grows with writes). */
     logRetentionDays: z.coerce.number().int().nonnegative().default(90),
   })

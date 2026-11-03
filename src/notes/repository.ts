@@ -1016,18 +1016,7 @@ export class NotesRepository {
       const current = this.rawRow(id);
       if (!current) return { ok: false, code: 'not_found' };
       if (current.status !== 'archived') return { ok: false, code: 'not_archived' };
-
-      // Children first, parents last: the note row is the thing every other table
-      // above is keyed by, so the wipe reads in dependency order instead of relying
-      // on `ON DELETE CASCADE` to finish the job silently.
-      this.prepare('DELETE FROM note_sources WHERE note_id = ?').run(id);
-      // Same statement as `NoteRelations.dropFor` (the scope-move path); kept inline
-      // so the four operations of a wipe are readable in one place. Both columns are
-      // named because the mirror row would otherwise survive with a dead target.
-      this.prepare('DELETE FROM note_relations WHERE note_id = ? OR related_id = ?').run(id, id);
-      this.prepare('DELETE FROM note_events WHERE note_id = ?').run(id);
-      this.prepare('DELETE FROM notes WHERE id = ?').run(id);
-      removeNoteFromIndex(this.db, id);
+      this.eraseBody(id, { keepEvents: false });
       return { ok: true };
     })();
   }
@@ -1135,23 +1124,52 @@ export class NotesRepository {
     this.prepare(`UPDATE capture_runs SET ${fields.join(', ')} WHERE id = ?`).run(...params, id);
   }
 
-  countDraftsOlderThan(cutoff: number): number {
-    return (
-      this.prepare(
-        `SELECT COUNT(*) AS cnt FROM notes WHERE status = 'draft' AND created_at < ?`,
-      ).get(cutoff) as { cnt: number }
-    ).cnt;
+  /**
+   * Reject a draft: the verdict is kept, the content is not.
+   *
+   * The reviewer's answer is the point of asking — "nine of fifty were duplicates"
+   * is an instruction about the distiller — so the `reject` row survives in
+   * `note_events` (no foreign key points at `notes`, and `reviewTally()` counts it).
+   * Everything a reader could open goes: body, evidence, both relation sides and the
+   * FTS row. A discarded draft used to land in `archived(rejected)`, which meant the
+   * one row the user had explicitly refused stayed on disk and one `恢复` click away
+   * from being published without review.
+   *
+   * Only a draft can be rejected. Approving an `active` note is a no-op answered with
+   * the note itself; erasing one by the same route would delete a published note.
+   */
+  rejectDraft(
+    id: string,
+    code: string,
+    actor: NoteEventActor = 'user',
+  ): { ok: true } | { ok: false } {
+    return this.db.transaction((): { ok: true } | { ok: false } => {
+      // Re-read inside the transaction: the row can be approved between the
+      // service's lookup and this write, and erasing an approved note is the one
+      // outcome that is not recoverable.
+      const row = this.rawRow(id);
+      if (!row || row.status !== 'draft') return { ok: false };
+      this.appendEvent(id, 'reject', actor, code, Date.now());
+      this.eraseBody(id, { keepEvents: true });
+      return { ok: true };
+    })();
   }
 
-  /** Retention: drafts older than `ttlDays` are archived, never deleted. */
-  expireDrafts(ttlDays: number, now = Date.now()): string[] {
-    if (ttlDays <= 0) return [];
-    const cutoff = now - ttlDays * 24 * 3600_000;
-    const rows = this.prepare(`SELECT id FROM notes WHERE status = 'draft' AND created_at < ?`).all(
-      cutoff,
-    ) as Array<{ id: string }>;
-    for (const row of rows)
-      this.setStatus(row.id, 'archived', { reason: 'expired', actor: 'system' });
-    return rows.map((row) => row.id);
+  /**
+   * Delete every row keyed by a note, children first.
+   *
+   * `note_events` is the one table a caller may keep: a purge erases a note that has
+   * to read as if it never existed (its journal goes with it), while a rejection
+   * erases a draft whose *verdict* is still the measurement of the distiller. The
+   * journal carries no content — action, actor, a code — so keeping it leaks nothing
+   * a reader could have read in the note.
+   */
+  private eraseBody(id: string, options: { keepEvents: boolean }): void {
+    this.prepare('DELETE FROM note_sources WHERE note_id = ?').run(id);
+    // Both columns: the mirror row would otherwise survive with a dead target.
+    this.prepare('DELETE FROM note_relations WHERE note_id = ? OR related_id = ?').run(id, id);
+    if (!options.keepEvents) this.prepare('DELETE FROM note_events WHERE note_id = ?').run(id);
+    this.prepare('DELETE FROM notes WHERE id = ?').run(id);
+    removeNoteFromIndex(this.db, id);
   }
 }

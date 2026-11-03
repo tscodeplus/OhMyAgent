@@ -121,9 +121,8 @@ function readBallSize(): BallSize {
   }
 }
 
-/** The two numbers the review UI shows; `stats()` has no other reader. */
+/** The one number the review UI shows; `stats()` has no other reader. */
 export interface NotesStatsView {
-  draftsDue: number;
   approvalRate: number;
 }
 
@@ -365,10 +364,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     // Separate request, separate failure: the list is what the page is for, and a
     // stats endpoint that is down must not blank it.
     try {
-      const data = await apiRequest<{ draftsDue: number; approvalRate: number }>(
-        '/api/notes/stats',
-      );
-      setStats({ draftsDue: data.draftsDue, approvalRate: data.approvalRate });
+      const data = await apiRequest<{ approvalRate: number }>('/api/notes/stats');
+      setStats({ approvalRate: data.approvalRate });
     } catch {
       setStats(null);
     }
@@ -565,11 +562,17 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const discardDraft = useCallback(
     async (id: string, reason: NoteRejectionCode = 'other'): Promise<boolean> => {
       try {
-        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}/review`, {
-          method: 'POST',
-          body: JSON.stringify({ decision: 'reject', reason }),
-        });
-        applyNote(response.note);
+        // A reject answers with `{ deleted }`, not a note: the draft's body, evidence,
+        // relations and index row are gone and only its `reject` event survives (that
+        // is what the approval rate counts). So the row is *dropped* from the overlay
+        // instead of being rewritten with the server's copy — the mistake this overlay
+        // made once already was holding an object for a row that no longer existed.
+        const response = await apiRequest<{ deleted?: boolean; id?: string; note?: Note }>(
+          `/api/notes/${id}/review`,
+          { method: 'POST', body: JSON.stringify({ decision: 'reject', reason }) },
+        );
+        if (response.deleted) setCaptured((prev) => prev.filter((note) => note.id !== id));
+        else if (response.note) applyNote(response.note);
         setDraftCardId((current) => (current === id ? null : current));
         await refresh();
         return true;
@@ -656,12 +659,16 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const archiveNote = useCallback(
     async (id: string): Promise<boolean> => {
       try {
-        const response = await apiRequest<{ note: Note }>(`/api/notes/${id}`, {
-          method: 'DELETE',
-        });
+        const response = await apiRequest<{ note?: Note; deleted?: boolean; id?: string }>(
+          `/api/notes/${id}`,
+          { method: 'DELETE' },
+        );
         // The row leaves the current filter; writing the server's `archived` copy into
-        // the overlay is what makes it leave the screen too.
-        applyNote(response.note);
+        // the overlay is what makes it leave the screen too. `deleted` is the draft
+        // branch of the same verb (a draft has no archive to wait in), and there the
+        // row has to be dropped rather than rewritten.
+        if (response.note) applyNote(response.note);
+        else setCaptured((prev) => prev.filter((note) => note.id !== id));
         await refresh();
         return true;
       } catch (err) {

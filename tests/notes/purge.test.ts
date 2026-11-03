@@ -226,13 +226,16 @@ describe('notes purge', () => {
     if (!kept.ok || !doomed.ok) throw new Error('drafts were not created');
 
     service.review(kept.note.id, { decision: 'approve' });
-    service.review(doomed.note.id, { decision: 'reject', reason: 'other' });
-    expect(service.stats().approvalRate).toBe(0.5);
+    service.review(doomed.note.id, { decision: 'approve' });
+    expect(service.stats().approvalRate).toBe(1);
 
-    // The note goes, and its verdict goes with it: an approval rate over notes that
-    // no longer exist would be a ratio of two different things.
+    // Archive then purge: a note erased *with* its journal takes its verdict along,
+    // so the rate becomes 1/1 rather than 1/2. (A rejected draft is the opposite case
+    // on purpose — its body goes, its verdict stays; see `rejectDraft`.)
+    service.archive(doomed.note.id);
     expect(service.purge(doomed.note.id, { title: '被抹除的笔记' })).toEqual({ ok: true });
     expect(service.stats().approvalRate).toBe(1);
+    expect(repository.reviewTally()).toEqual({ approved: 1, rejected: 0 });
   });
 
   it('leaves exactly one trace: the logger line', () => {

@@ -27,7 +27,6 @@ function notesConfig(bodyMaxChars: number, maxNotes: number): AppConfig {
     notes: {
       enabled: true,
       capture: { bodyMaxChars, maxNotesPerCapture: maxNotes, modelRef: '' },
-      draft: { ttlDays: 14 },
       logRetentionDays: 90,
     },
   } as unknown as AppConfig;

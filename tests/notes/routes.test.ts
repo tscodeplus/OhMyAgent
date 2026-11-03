@@ -208,6 +208,26 @@ describe('notes routes', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it('answers a rejection with the id it erased, not with a note', async () => {
+    const capture = await app.inject({
+      method: 'POST',
+      url: '/api/notes/capture',
+      payload: { sessionId: SESSION_ID, mode: 'turn' },
+    });
+    const draftId = capture.json().notes[0].id as string;
+
+    const rejected = await app.inject({
+      method: 'POST',
+      url: `/api/notes/${draftId}/review`,
+      payload: { decision: 'reject', reason: 'duplicate' },
+    });
+    expect(rejected.statusCode).toBe(200);
+    // No `note` key: there is no row to hand back. A client that read `note.status`
+    // here rendered a draft whose body the server had just erased.
+    expect(rejected.json()).toEqual({ deleted: true, id: draftId });
+    expect(service.get(draftId)).toBeUndefined();
+  });
+
   it('maps capture outcomes to status codes', async () => {
     const noSession = await app.inject({
       method: 'POST',
@@ -235,7 +255,7 @@ describe('notes routes', () => {
     const deleted = await app.inject({ method: 'DELETE', url: `/api/notes/${id}` });
     expect(deleted.statusCode).toBe(200);
     expect(deleted.json().note.status).toBe('archived');
-    // Still there, still readable: archiving is not deleting (plan §6).
+    // Still there, still readable: archiving a note is not deleting it.
     expect(service.get(id)?.body).toBe('keep me');
   });
 

@@ -75,7 +75,6 @@ export function readNotesRuntimeConfig(config: AppConfig): NotesRuntimeConfig {
     maxOutputTokens: notes?.capture?.maxOutputTokens,
     thinking: notes?.capture?.thinking ?? 'inherit',
     temperature: notes?.capture?.temperature ?? 0.2,
-    ttlDays: notes?.draft?.ttlDays ?? 14,
     logRetentionDays: notes?.logRetentionDays ?? 90,
     modelRef: notes?.capture?.modelRef ?? '',
   };

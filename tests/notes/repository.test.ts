@@ -290,14 +290,15 @@ describe('NotesRepository', () => {
     expect(narrowed.projects).toEqual([{ id: PROJECT_ID, name: 'OhMyAgent', count: 1 }]);
   });
 
-  it('expires stale drafts by archiving them', () => {
-    const old = Date.now() - 30 * 24 * 3600_000;
-    repository.create(baseInput({ status: 'draft', origin: 'agent', now: old }));
+  it('erases a rejected draft and keeps its verdict', () => {
+    const created = repository.create(baseInput({ status: 'draft', origin: 'agent' }));
+    if (!created.ok) throw new Error('create failed');
 
-    const expired = repository.expireDrafts(14);
-    expect(expired).toHaveLength(1);
-    const note = repository.list({ status: 'archived' }).notes[0];
-    expect(note.statusReason).toBe('expired');
+    expect(repository.rejectDraft(created.note.id, 'duplicate')).toEqual({ ok: true });
+    expect(repository.get(created.note.id)).toBeUndefined();
+    expect(repository.list({ status: 'draft' }).total).toBe(0);
+    // The measurement survives the row: `reviewTally` reads the journal.
+    expect(repository.reviewTally()).toEqual({ approved: 0, rejected: 1 });
   });
 
   it('is idempotent when the migration replays', () => {
