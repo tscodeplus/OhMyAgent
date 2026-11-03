@@ -19,7 +19,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { MissingRequiredField } from './requiredFields';
-import { ChevronDown, ChevronRight, GripVertical, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, GripVertical, Plus, Trash2 } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
@@ -45,6 +45,7 @@ import Select from '../ui/Select';
 import Input from '../ui/Input';
 import PasswordInput from '../ui/PasswordInput';
 import Spinner from '../ui/Spinner';
+import ConfirmDialog from '../ui/ConfirmDialog';
 import { SettingsSection, SettingsCard } from './SettingsSection';
 
 /* ───────── Domain types ───────── */
@@ -711,6 +712,7 @@ function JudgeChainRow({
     <div
       ref={setNodeRef}
       style={style}
+      data-judge-row={providerId}
       className={`rounded-lg border transition-colors ${
         primary
           ? 'border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/25'
@@ -780,14 +782,16 @@ function JudgeChainRow({
             </span>
           )}
         </button>
-        {/* Remove this provider group from the chain (re-addable via menu) */}
+        {/* Delete this provider group from the chain (asks for confirmation,
+            re-addable via menu) */}
         <button
           type="button"
           onClick={onRemove}
           className="shrink-0 rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
-          title={t('settings.judge.removeGroup')}
+          title={t('settings.judge.deleteGroup')}
+          aria-label={t('settings.judge.deleteGroup')}
         >
-          <X size={14} />
+          <Trash2 size={14} />
         </button>
       </div>
 
@@ -1007,6 +1011,7 @@ function JudgeChainJudgesRow({
     <div
       ref={setNodeRef}
       style={style}
+      data-judge-row={id}
       className={`rounded-lg border transition-colors ${
         primary
           ? 'border-blue-500 bg-blue-50/40 dark:border-blue-500 dark:bg-blue-950/25'
@@ -1076,14 +1081,15 @@ function JudgeChainJudgesRow({
             {entry.model.trim() || 'jev-latest'}
           </span>
         </button>
-        {/* Remove this judges entry (and its chain ref) */}
+        {/* Delete this judges entry (and its chain ref); asks for confirmation */}
         <button
           type="button"
           onClick={onRemove}
           className="shrink-0 rounded p-1 text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
           title={t('settings.judge.customJudgeRemove')}
+          aria-label={t('settings.judge.customJudgeRemove')}
         >
-          <X size={14} />
+          <Trash2 size={14} />
         </button>
       </div>
 
@@ -1128,6 +1134,10 @@ function JudgeChainJudgesRow({
             />
             <Input
               label={t('settings.judge.customJudgeApiKeyLabel')}
+              // type="password" gives the masked field plus the eye toggle
+              // (same as the provider rows' API Key) — a relay key typed in
+              // clear text on a shared screen is the failure mode here.
+              type="password"
               value={entry.apiKey}
               onChange={(e) => onChange({ ...entry, apiKey: e.target.value })}
               placeholder="sk-…"
@@ -1386,6 +1396,19 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   /* ── Expanded chain row (provider or judges entry; default collapsed) ── */
   const [openRow, setOpenRow] = useState<string | null>(null);
 
+  /** Scroll a just-added row into view — the add menu sits at the top of a list
+     that can already be long, so the new group would open below the fold. */
+  const revealRow = useCallback((id: string) => {
+    // One frame later: the row does not exist in the DOM yet at call time.
+    window.requestAnimationFrame(() => {
+      // Attribute compare (not a selector): row ids contain '#' and ':'.
+      const el = Array.from(document.querySelectorAll('[data-judge-row]')).find(
+        (node) => node.getAttribute('data-judge-row') === id,
+      );
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }, []);
+
   /* ── Autopilot telemetry (read-only; the promotion gates live server-side) ── */
   const fetchAutopilotReport = useCallback(
     () => apiRequest<AutopilotTelemetry>('/api/judge/autopilot'),
@@ -1501,28 +1524,38 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
   }, []);
 
   /** Append a builtin provider group (bare ref = added, no model yet). */
-  const addProviderRow = useCallback((providerId: (typeof JUDGE_PROVIDER_IDS)[number]) => {
-    setAddMenuOpen(false);
-    setDraft((prev) => {
-      if (!prev) return prev;
-      const { rows, opaque } = deriveChainRows(prev);
-      if (rows.some((r) => r.kind === 'provider' && r.provider === providerId)) return prev;
-      const nextRows: ChainSortableRow[] = [
-        ...rows,
-        {
-          kind: 'provider' as const,
-          id: providerId,
-          provider: providerId,
-          model: '',
-        },
-      ];
-      return { ...prev, ...chainWriteBack(nextRows, opaque, prev) };
-    });
-  }, []);
+  const addProviderRow = useCallback(
+    (providerId: (typeof JUDGE_PROVIDER_IDS)[number]) => {
+      setAddMenuOpen(false);
+      setDraft((prev) => {
+        if (!prev) return prev;
+        const { rows, opaque } = deriveChainRows(prev);
+        if (rows.some((r) => r.kind === 'provider' && r.provider === providerId)) return prev;
+        const nextRows: ChainSortableRow[] = [
+          ...rows,
+          {
+            kind: 'provider' as const,
+            id: providerId,
+            provider: providerId,
+            model: '',
+          },
+        ];
+        return { ...prev, ...chainWriteBack(nextRows, opaque, prev) };
+      });
+      // Open the new group right away: adding is only useful together with the
+      // fields inside it (model / key / Base URL).
+      setOpenRow(providerId);
+      revealRow(providerId);
+    },
+    [revealRow],
+  );
 
   /** Append a blank custom-judges entry (renders at the end of the chain). */
   const addJudgeEntry = useCallback(() => {
     setAddMenuOpen(false);
+    // Derive the new row id from the pre-add list length: unplaced judges
+    // entries render in index order at the end, so the id is predictable.
+    const rowId = `judges:#${draftRef.current?.judges.length ?? 0}`;
     setDraft((prev) =>
       prev
         ? {
@@ -1541,7 +1574,27 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
           }
         : prev,
     );
-  }, []);
+    // Open the new entry: its name + Base URL are the required fields.
+    setOpenRow(rowId);
+    revealRow(rowId);
+  }, [revealRow]);
+
+  /** Pending delete: the trash button only opens a confirm popup, the row (and
+     its chain ref) is removed on confirm — an X icon reads as "close", a
+     one-click delete loses hand-entered Base URL / Key data. */
+  const [pendingRemoval, setPendingRemoval] = useState<
+    | { kind: 'provider'; provider: (typeof JUDGE_PROVIDER_IDS)[number]; label: string }
+    | { kind: 'judges'; index: number; label: string }
+    | null
+  >(null);
+
+  const confirmRemoval = useCallback(() => {
+    const pending = pendingRemoval;
+    setPendingRemoval(null);
+    if (!pending) return;
+    if (pending.kind === 'provider') removeProviderRow(pending.provider);
+    else removeJudgeEntry(pending.index);
+  }, [pendingRemoval, removeProviderRow, removeJudgeEntry]);
 
   /* ── Add-group dropdown (section header, right side) ── */
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -1707,7 +1760,13 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                           // unsaved chain edits would be discarded.
                           void fetchJudgeConfig({ silent: true, keepDraft: true });
                         }}
-                        onRemove={() => removeProviderRow(row.provider)}
+                        onRemove={() =>
+                          setPendingRemoval({
+                            kind: 'provider',
+                            provider: row.provider,
+                            label: t(`settings.judge.providers.${row.provider}`),
+                          })
+                        }
                       />
                     ) : (
                       <JudgeChainJudgesRow
@@ -1720,7 +1779,16 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                         expanded={openRow === row.id}
                         onToggle={() => setOpenRow((prev) => (prev === row.id ? null : row.id))}
                         onChange={(next) => setJudgeEntry(row.entryIndex, next)}
-                        onRemove={() => removeJudgeEntry(row.entryIndex)}
+                        onRemove={() =>
+                          setPendingRemoval({
+                            kind: 'judges',
+                            index: row.entryIndex,
+                            label:
+                              row.entry.name.trim() !== ''
+                                ? row.entry.name
+                                : t('settings.judge.customJudgeUnnamed'),
+                          })
+                        }
                       />
                     ),
                   )}
@@ -1953,6 +2021,22 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
           </SettingsCard>
         </SettingsSection>
       </div>
+
+      {/* ── Delete confirmation (popup) — rendered once for the whole chain ── */}
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title={t('settings.judge.deleteConfirmTitle')}
+        message={
+          pendingRemoval === null
+            ? ''
+            : pendingRemoval.kind === 'provider'
+              ? t('settings.judge.deleteGroupConfirm', { name: pendingRemoval.label })
+              : t('settings.judge.deleteCustomJudgeConfirm', { name: pendingRemoval.label })
+        }
+        confirmLabel={t('settings.judge.deleteAction')}
+        onConfirm={confirmRemoval}
+        onCancel={() => setPendingRemoval(null)}
+      />
     </div>
   );
 }
