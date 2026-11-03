@@ -56,7 +56,13 @@ import {
   type UpdateNoteInput,
 } from './types.js';
 
-const DEFAULT_LIST_LIMIT = 50;
+/**
+ * One page of the library, which is what the WebUI's pager counts in.
+ *
+ * Kept equal to the route's default and to the UI's `NOTES_PAGE_SIZE`: an offset is
+ * only meaningful to a reader that knows how many rows a page holds.
+ */
+const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 200;
 /** Enough excerpt to recognise the message in the review card, not a copy of it. */
 const MAX_EXCERPT_CHARS = 200;

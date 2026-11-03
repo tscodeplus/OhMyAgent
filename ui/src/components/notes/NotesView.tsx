@@ -19,7 +19,6 @@ import {
   Clock,
   Inbox,
   Link2,
-  Loader2,
   NotebookPen,
   Pencil,
   Pin,
@@ -31,7 +30,6 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { apiRequest } from '../../utils/api';
 import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
@@ -39,7 +37,7 @@ import MultiSelect from '../ui/MultiSelect';
 import Select from '../ui/Select';
 import { useToast } from '../ui/Toast';
 import { useSettings } from '../../contexts/SettingsContext';
-import { toSearchParams, useNotes, type PurgeOutcome } from './NotesContext';
+import { useNotes, type PurgeOutcome } from './NotesContext';
 import {
   CHANNEL_LABEL,
   CopyableValue,
@@ -53,6 +51,7 @@ import {
   sessionLabel,
 } from './NoteBits';
 import MarkdownEditor from './MarkdownEditor';
+import NotesPager from './NotesPager';
 import SearchContextPanel from '../search/SearchContextPanel';
 import type { SearchResult } from '../../types/search';
 import {
@@ -75,14 +74,6 @@ const SEARCH_DEBOUNCE_MS = 280;
 
 /** Breathing room between the citation sheet and the column it belongs to. */
 const DRAWER_INSET_PX = 6;
-
-/**
- * How many rows one page holds.
- *
- * Matches the server's `DEFAULT_LIST_LIMIT`, because page 1 is whatever the provider
- * fetched without asking: a different number here would make "加载更多" skip rows.
- */
-const NOTE_PAGE_SIZE = 50;
 
 /**
  * A count that cannot widen the control holding it.
@@ -140,81 +131,31 @@ export default function NotesView() {
     markViewed,
     fetchNote,
     stats,
+    page,
+    pageCount,
+    total,
+    setPage,
   } = useNotes();
 
   /**
-   * Rows after the first page, and whether there are any.
+   * The scrolling list, so a page change starts at the top of the new rows.
    *
-   * `NotesQuery` in `NotesContext` carries no `limit`/`offset`: the provider fetches one
-   * page per filter and replaces it. So "加载更多" is one explicit request from here,
-   * using the same predicates the provider sends — and the extras are dropped whenever
-   * the filter changes, so the two sources cannot show the same row twice or keep a row
-   * the new filter excluded. The real fix is a paged query in the provider; the list
-   * lives in a component this page is allowed to change during a shared working tree.
+   * `ul` is the scroll container, not the window: without this, page 2 opens at the
+   * offset page 1 ended on and looks like the pager did nothing.
    */
-  const [more, setMore] = useState<Note[]>([]);
-  const [moreState, setMoreState] = useState<'idle' | 'loading' | 'end'>('idle');
-  const queryKey = JSON.stringify(query);
+  const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
-    setMore([]);
-    setMoreState('idle');
-  }, [queryKey]);
-
-  /**
-   * Drafts are notes that have not been approved yet, so they live in the same
-   * list and the same detail view — the server returns whichever status the query
-   * asks for, and `rows` is already that list. Keeping drafts in a separate drawer
-   * was the reason approving one happened on a different screen from editing it.
-   */
-  const allNotes = useMemo(() => {
-    if (more.length === 0) return rows;
-    const known = new Set(rows.map((note) => note.id));
-    return [...rows, ...more.filter((note) => !known.has(note.id))];
-  }, [more, rows]);
-
-  const loadMore = useCallback(async () => {
-    setMoreState('loading');
-    // The provider's own builder, with the two paging keys on top: a facet added to
-    // `toSearchParams` reaches this page for free, whereas the hand-written copy that
-    // used to be here would have paged an unfiltered list the day one was added.
-    // The page count, not the number of rows on screen: an offset is a position in the
-    // server's list, and a row deleted from page 1 shifts everything after it. That
-    // drift is what offset paging is, and it is the reason this stays one page at a
-    // time instead of pretending to hold the whole library.
-    const params = toSearchParams(query, {
-      limit: String(NOTE_PAGE_SIZE),
-      offset: String(NOTE_PAGE_SIZE + more.length),
-    });
-    try {
-      const page = await apiRequest<{ notes: Note[] }>(`/api/notes?${params}`);
-      setMore((prev) => {
-        // Offset paging drifts when a row above is removed, so a note can arrive twice.
-        // `allNotes` de-dupes against the first page only; this keeps the appended tail
-        // from rendering the same row twice.
-        const seen = new Set(prev.map((note) => note.id));
-        return [...prev, ...page.notes.filter((note) => !seen.has(note.id))];
-      });
-      // A short page is the only "到底" signal this page has: the provider keeps the
-      // server's `total` to itself, so the count cannot be compared to what is loaded.
-      setMoreState(page.notes.length < NOTE_PAGE_SIZE ? 'end' : 'idle');
-    } catch {
-      setMoreState('idle');
-      showToast(t('notes.loadMoreError'), 'error');
-    }
-  }, [more.length, query, showToast, t]);
-
-  /**
-   * Whether another page can be offered.
-   *
-   * A first page shorter than the page size is the whole library; after a load, `end` is
-   * the answer that request gave.
-   */
-  const canLoadMore = moreState !== 'end' && (more.length > 0 || allNotes.length >= NOTE_PAGE_SIZE);
+    listRef.current?.scrollTo({ top: 0 });
+  }, [page]);
 
   /**
    * Filters live in the store, not here: every one of them is a SQL predicate on
    * the server (a JSON scan over tags would disagree with the tag row rendered
    * beside it), so the page state and the query are the same object.
+   *
+   * Drafts are in this list rather than in a drawer of their own: a draft is what the
+   * server returns for `status=draft`, and `rows` is already that list — which is why
+   * approving one happens on the same screen that edits it.
    *
    * `statusFilter` is seeded from the URL so the `?drafts=1` deep link is right on
    * the first paint — setting it in an effect afterwards lost the value, because
@@ -605,10 +546,8 @@ export default function NotesView() {
   const finishPurge = useCallback(
     (note: Note, outcome: 'purged' | 'gone') => {
       setPurgeOpen(false);
-      // The tail pages are this component's own state and the provider cannot see them,
-      // so its refetch would leave a purged row rendering from `加载更多` until the
-      // filter changed.
-      setMore((prev) => prev.filter((item) => item.id !== note.id));
+      // The list refetch covers this row on its own now that the tail is not a second,
+      // component-owned list: `purgeNote` awaits the reload before it resolves.
       // Purging ends the detail view: there is nothing left in the pane to read.
       navigate('/notes');
       // Purging the last archived note empties 归档 with the user standing in it —
@@ -891,7 +830,7 @@ export default function NotesView() {
                   {/* Server-side count for the status being shown: "笔记 7" over a
                       list of three drafts reads as a bug. Compacted above a thousand
                       for the same reason as the badges below it. */}
-                  {formatCount(counts[statusFilter] ?? allNotes.length, i18n.language)}
+                  {formatCount(counts[statusFilter] ?? rows.length, i18n.language)}
                 </span>
               </h1>
               {error && (
@@ -1115,13 +1054,18 @@ export default function NotesView() {
             meta strip, so their heights differ. A rule between two rows of different
             heights reads as a table with a broken grid, while a rounded card per row
             absorbs the difference — and the row you open is then a card *plus* an
-            accent, instead of the only thing on the page with an outline. */}
+            accent, instead of the only thing on the page with an outline.
+
+            `pb-28` used to keep the last row clear of the floating ball, which is
+            never drawn here (`NotesFloatingBall` is conversation-only). The pager is
+            the footer of this column now, so the scroll area ends above it. */}
         <ul
+          ref={listRef}
           onKeyDown={onListKeyDown}
-          className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-28"
+          className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pb-2"
         >
-          {loading && allNotes.length === 0 && <ListSkeleton label={t('notes.loading')} />}
-          {!loading && allNotes.length === 0 && (
+          {loading && rows.length === 0 && <ListSkeleton label={t('notes.loading')} />}
+          {!loading && rows.length === 0 && (
             <ListEmpty
               icon={
                 searchText
@@ -1143,7 +1087,7 @@ export default function NotesView() {
               }
             />
           )}
-          {allNotes.map((note, index) => (
+          {rows.map((note, index) => (
             <NoteRow
               key={note.id}
               note={note}
@@ -1160,33 +1104,11 @@ export default function NotesView() {
               onRemove={(reason) => void removeNote(note, reason)}
             />
           ))}
-          {/* "加载更多" rather than an invisible cap: without it the list simply ended,
-              which reads as "the library holds 50 notes". */}
-          {canLoadMore && (
-            <li>
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={moreState === 'loading'}
-                className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 bg-white/60 text-[12px] text-neutral-600 transition-colors hover:bg-white disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900/40 dark:text-neutral-300 dark:hover:bg-neutral-900"
-              >
-                {moreState === 'loading' ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                    {t('notes.loading')}
-                  </>
-                ) : (
-                  t('notes.loadMore')
-                )}
-              </button>
-            </li>
-          )}
-          {moreState === 'end' && more.length > 0 && (
-            <li className="py-2 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-              {t('notes.endOfList')}
-            </li>
-          )}
         </ul>
+        {/* Pages, not "load more": an appended tail made the reader the owner of a list
+            position the server could not reproduce, so any write dropped them back to
+            row 1. A page number is a position the refetch after a write can honour. */}
+        <NotesPager page={page} pageCount={pageCount} total={total} onPage={setPage} />
       </div>
 
       {/* ── detail column ───────────────────────────────────────────── */}

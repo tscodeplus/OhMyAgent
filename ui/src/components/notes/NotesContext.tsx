@@ -31,6 +31,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../utils/api';
+import { NOTES_PAGE_SIZE } from './types';
 import type { Note, NoteChannel, NoteListResult, NoteRejectionCode, NoteStatus } from './types';
 
 /**
@@ -168,6 +169,22 @@ interface NotesContextValue {
   query: NotesQuery;
   setQuery: (next: Partial<NotesQuery>) => void;
   refresh: () => Promise<void>;
+  /**
+   * Where the reader is in the filtered list, and what that list holds in total.
+   *
+   * Paging lives here rather than in the page component because every write
+   * (`approve`, `pin`, `archive`) refetches the list: with the page number held by the
+   * component, that refetch dropped the reader back to row 1. Page numbers are offsets
+   * in disguise — `offset = (page - 1) * NOTES_PAGE_SIZE` — so the REST contract is
+   * unchanged; only who remembers the position moved.
+   */
+  page: number;
+  /** `ceil(total / NOTES_PAGE_SIZE)`, floored at 1: an empty list is still page 1. */
+  pageCount: number;
+  /** Rows matching the current filters across every page — what the pager prints. */
+  total: number;
+  /** Clamped to `1..pageCount`; asking for the page already open is a no-op. */
+  setPage: (next: number) => void;
   capturing: boolean;
   /** The draft whose review card is on screen; `null` when nothing is pending. */
   draftCardId: string | null;
@@ -241,10 +258,10 @@ function describeError(err: unknown): string {
 /**
  * The list query as a URL query string — the *only* spelling of it.
  *
- * Exported because the list's "load more" needs the same predicates with a different
- * `offset`. It used to rebuild the keys by hand, so a facet added here would have
- * silently paged an unfiltered list: a second spelling of the query language is the
- * same defect as a second ranker.
+ * `extra` is how paging reaches the server (`limit`/`offset`) without a second query
+ * builder: a facet added here used to be missing from the hand-written copy that
+ * "load more" used, which silently paged a list the filters did not describe. Two
+ * spellings of one query language is the same defect as two rankers.
  */
 export function toSearchParams(
   query: NotesQuery,
@@ -292,6 +309,14 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   const [ballHidden, setBallHiddenState] = useState(false);
   const [ballSize, setBallSizeState] = useState<BallSize>(readBallSize);
   const [query, setQueryState] = useState<NotesQuery>({ status: 'active' });
+  /**
+   * The page the list is showing, 1-based.
+   *
+   * Not in `NotesQuery`: the query is the *filter*, and every change to it restarts at
+   * page 1, while paging is a position inside one filter's result. Keeping them apart
+   * is also what stops a page number from riding along into a facet change.
+   */
+  const [page, setPageState] = useState(1);
   const [capturing, setCapturing] = useState(false);
   const [draftCardId, setDraftCardId] = useState<string | null>(null);
   /**
@@ -329,13 +354,26 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     const request = new AbortController();
     listRequest.current = request;
     try {
-      const data = await apiRequest<NoteListResult>(`/api/notes?${toSearchParams(query, {})}`, {
-        signal: request.signal,
-      });
+      const data = await apiRequest<NoteListResult>(
+        `/api/notes?${toSearchParams(query, {
+          limit: String(NOTES_PAGE_SIZE),
+          offset: String((page - 1) * NOTES_PAGE_SIZE),
+        })}`,
+        { signal: request.signal },
+      );
       // A slow first response must not overwrite a fast second one.
       if (ticket !== seq.current) return;
       setResult(data);
       setError(null);
+      // The page a reader is on can stop existing under them: approving the last draft
+      // of page 4 leaves `offset` past `total`, and the server answers that with an
+      // empty page rather than an error. Step back to the last real page instead of
+      // painting "还没有笔记" over a library that is not empty.
+      if (data.total > 0 && (page - 1) * NOTES_PAGE_SIZE >= data.total) {
+        setPageState(Math.max(1, Math.ceil(data.total / NOTES_PAGE_SIZE)));
+      } else if (data.total === 0 && page !== 1) {
+        setPageState(1);
+      }
       // The list is now authoritative for every id it returns: the overlay only
       // carries what a refetch has not seen yet.
       const listed = new Set(data.notes.map((note) => note.id));
@@ -369,7 +407,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     } catch {
       setStats(null);
     }
-  }, [query, layer]);
+  }, [query, layer, page]);
 
   useEffect(() => {
     void refresh();
@@ -405,19 +443,55 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  /** The list plus anything captured since the last fetch, de-duplicated by id. */
+  /**
+   * The current page plus anything captured since the last fetch, de-duplicated by id.
+   *
+   * The overlay only applies to page 1: a just-captured note is the newest row, so on
+   * page 3 it would push one of that page's own twenty rows over the edge and make the
+   * pager's "第 3 / 12 页" describe a list nobody fetched.
+   */
   const notes = useMemo(() => {
+    if (page !== 1) return result.notes;
     const seen = new Set(result.notes.map((note) => note.id));
     const fresh = captured.filter((note) => !seen.has(note.id) && note.status === query.status);
     return [...fresh, ...result.notes];
-  }, [captured, result.notes, query.status]);
+  }, [captured, page, result.notes, query.status]);
 
-  const drafts = useMemo(
-    () => (query.status === 'draft' ? notes : captured.filter((note) => note.status === 'draft')),
-    [captured, notes, query.status],
+  /**
+   * Drafts the UI holds, for the ball's review-card lookup — page-independent.
+   *
+   * On the drafts view it is the list itself, plus any draft captured since the last
+   * fetch (which the page-1 rule above would otherwise hide on page 3).
+   */
+  const drafts = useMemo(() => {
+    const held = captured.filter((note) => note.status === 'draft');
+    if (query.status !== 'draft') return held;
+    const listed = new Set(notes.map((note) => note.id));
+    return [...held.filter((note) => !listed.has(note.id)), ...notes];
+  }, [captured, notes, query.status]);
+
+  /**
+   * Rows in the whole filtered list, and the page count the pager renders.
+   *
+   * `total` is the server's `COUNT(*)` over the same predicate — the number the old
+   * "load more" never read, which is why it had to infer "this is everything" from a
+   * short page.
+   */
+  const total = result.total;
+  const pageCount = Math.max(1, Math.ceil(total / NOTES_PAGE_SIZE));
+
+  const setPage = useCallback(
+    (next: number) => {
+      const bounded = Number.isFinite(next) ? Math.round(next) : 1;
+      setPageState(Math.min(Math.max(1, bounded), pageCount));
+    },
+    [pageCount],
   );
 
   const setQuery = useCallback((next: Partial<NotesQuery>) => {
+    // Page 4 of the old filter is a different list under the new one, so a filter
+    // change restarts at row 1 — the same rule the server applies to `offset`.
+    setPageState(1);
     setQueryState((current) => ({ ...current, ...next }));
   }, []);
 
@@ -471,6 +545,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           timeoutMs: treatment === 'distill' ? 150_000 : 30_000,
         });
         setCaptured((prev) => [...response.notes, ...prev]);
+        // Every new row is the newest row, so it lives on page 1 — the overlay renders
+        // there and nowhere else (see `notes`). A capture therefore puts the list back
+        // at the top instead of leaving the reader on a page the draft is not on.
+        setPageState(1);
         // Every capture ends in a review card rather than a jump to the page: the
         // card is where a draft is judged, and a verbatim drop needs the same
         // decision (approve it, edit it, or let the agent tidy it up).
@@ -606,6 +684,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         }),
       });
       setCaptured((prev) => [response.note, ...prev]);
+      // Same rule as a capture: a row is created with `updated_at = now`, so it sorts
+      // to the top of page 1 and a reader left on page 3 would see the editor open on
+      // a note the list does not show.
+      setPageState(1);
       return response.note;
     } catch (err) {
       setError(describeError(err));
@@ -784,6 +866,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       query,
       setQuery,
       refresh,
+      page,
+      pageCount,
+      total,
+      setPage,
       capturing,
       draftCardId,
       capture,
@@ -817,6 +903,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       query,
       setQuery,
       refresh,
+      page,
+      pageCount,
+      total,
+      setPage,
       capturing,
       draftCardId,
       capture,

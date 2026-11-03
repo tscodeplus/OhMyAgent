@@ -51,7 +51,16 @@ import {
 } from '../../notes/types.js';
 import type { CaptureRequest, NotesService } from '../../notes/service-contract.js';
 
-const DEFAULT_LIST_LIMIT = 50;
+/**
+ * Rows on one page of the WebUI list.
+ *
+ * The pager turns a page number into `offset = (page - 1) * this`, so the default has
+ * to match the client's page size (`NOTES_PAGE_SIZE`): a client that omits `limit`
+ * would otherwise fetch a page the pager never asked for, and page 2 would repeat
+ * rows page 1 already showed. `MAX_LIST_LIMIT` stays the ceiling for the readers that
+ * pass their own limit (the agent's notes context still asks for a handful).
+ */
+const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 200;
 const MAX_TITLE_CHARS = 60;
 const MAX_SUMMARY_CHARS = 120;

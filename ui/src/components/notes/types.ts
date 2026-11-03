@@ -118,6 +118,15 @@ export interface Note {
   sessionTitle?: string | null;
 }
 
+/**
+ * Rows one page of the library holds.
+ *
+ * Matches the server's `DEFAULT_LIST_LIMIT`, because page 1 is whatever the provider
+ * asks for and the pager derives every other offset (`(page - 1) * NOTES_PAGE_SIZE`)
+ * from it. A different number on either side would make page 2 repeat or skip rows.
+ */
+export const NOTES_PAGE_SIZE = 20;
+
 /** What `GET /api/notes` answers: rows plus the counters and facets the page needs. */
 export interface NoteListResult {
   notes: Note[];

@@ -58,6 +58,35 @@ describe('notes routes', () => {
     expect(drafts.json().notes[0].title).toBe('draft one');
   });
 
+  /**
+   * The list the WebUI pages through.
+   *
+   * Page numbers are offsets in disguise (`offset = (page - 1) * 20`), so three things
+   * have to hold at the boundary: an omitted `limit` is exactly one page, `total`
+   * counts the whole filter rather than the page, and consecutive offsets neither skip
+   * a row nor repeat one.
+   */
+  it('pages twenty rows at a time and reports the filter total', async () => {
+    for (let index = 0; index < 25; index += 1) {
+      service.createManual({ title: `note ${index}`, body: 'b' });
+    }
+
+    const first = await app.inject({ method: 'GET', url: '/api/notes' });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().notes).toHaveLength(20);
+    expect(first.json().total).toBe(25);
+
+    const second = await app.inject({ method: 'GET', url: '/api/notes?limit=20&offset=20' });
+    expect(second.json().notes).toHaveLength(5);
+    expect(second.json().total).toBe(25);
+
+    const ids = new Set<string>([
+      ...first.json().notes.map((note: { id: string }) => note.id),
+      ...second.json().notes.map((note: { id: string }) => note.id),
+    ]);
+    expect(ids.size).toBe(25);
+  });
+
   it('rejects an unknown status instead of silently listing active', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/notes?status=whatever' });
     expect(response.statusCode).toBe(400);

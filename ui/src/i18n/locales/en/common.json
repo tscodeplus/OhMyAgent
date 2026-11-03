@@ -1763,9 +1763,14 @@
       "private": "Should not be kept",
       "other": "Other"
     },
-    "loadMore": "Load more",
-    "loadMoreError": "Could not load more — try again",
-    "endOfList": "That is everything",
+    "pagination": {
+      "label": "Notes pagination",
+      "prev": "Previous page",
+      "next": "Next page",
+      "goTo": "Go to page {{page}}",
+      "status": "Page {{page}} of {{pages}}",
+      "totalNotes": "{{total}} notes"
+    },
     "toast": {
       "failed": "That did not work — try again"
     },
