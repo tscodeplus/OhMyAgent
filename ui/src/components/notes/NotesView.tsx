@@ -84,6 +84,30 @@ const DRAWER_INSET_PX = 6;
  */
 const NOTE_PAGE_SIZE = 50;
 
+/**
+ * A count that cannot widen the control holding it.
+ *
+ * The library header puts 已归档, 草稿箱 and 新建笔记 in one row of a 364px column: a
+ * raw five-digit archive (`已归档 10000`) turns an 8px badge into a paragraph and
+ * pushes the row past the column's edge, and the same number reaches the title pill
+ * and the drafts badge. Compact notation keeps every badge one or two glyphs wide and
+ * is still locale-correct — `1万` in zh-CN, `10K` in en — while anything under a
+ * thousand (the case that matters) stays exact.
+ */
+const compactFormatters = new Map<string, Intl.NumberFormat>();
+function formatCount(value: number, language: string): string {
+  if (value < 1000) return String(value);
+  let formatter = compactFormatters.get(language);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(language, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    });
+    compactFormatters.set(language, formatter);
+  }
+  return formatter.format(value);
+}
+
 export default function NotesView() {
   const { t, i18n } = useTranslation('common');
   const { showToast } = useToast();
@@ -535,9 +559,25 @@ export default function NotesView() {
         showToast(t('notes.toast.failed'), 'error');
         return false;
       }
-      return ok;
+      if (!ok) return false;
+      /**
+       * Emptying a queue returns to the library.
+       *
+       * 归档 and 草稿箱 are *places*, not filters: restoring the last archived note or
+       * discarding the last draft leaves the user standing in an empty room with a
+       * sentence about it (没有归档的笔记 / 没有等待批准的草稿) and nothing to do next. The
+       * note they just acted on now lives in the library, which is where the eye goes
+       * anyway. `counts[status]` is the server's total for the scope — not the loaded
+       * page — so `<= 1` means the place is now empty rather than "this page of it is".
+       * Both toggles stay on screen at zero either way: this is the courtesy, not the
+       * way out. Approving a draft is the third verb and already switches on its own
+       * (it lands in the library), so only the two removals need saying here.
+       */
+      const queue = note.status === 'draft' || note.status === 'archived' ? note.status : null;
+      if (queue && statusFilter === queue && counts[queue] <= 1) setStatusFilter('active');
+      return true;
     },
-    [archiveNote, discardDraft, restoreNote, showToast, t],
+    [archiveNote, counts, discardDraft, restoreNote, setStatusFilter, showToast, statusFilter, t],
   );
 
   /**
@@ -567,12 +607,16 @@ export default function NotesView() {
       setMore((prev) => prev.filter((item) => item.id !== note.id));
       // Purging ends the detail view: there is nothing left in the pane to read.
       navigate('/notes');
+      // Purging the last archived note empties 归档 with the user standing in it —
+      // the same rule as a restore or a discarded last draft, applied to the one verb
+      // that does not go through `removeNote`.
+      if (statusFilter === 'archived' && counts.archived <= 1) setStatusFilter('active');
       // A purge is confirmed by the note being gone and the pane closing, so it
       // needs nothing said. `gone` is the exception: nothing visible changed,
       // so the fact that it was already gone has to be stated.
       if (outcome === 'gone') showToast(t('notes.purgeGone'), 'info', 3000);
     },
-    [navigate, showToast, t],
+    [counts.archived, navigate, setStatusFilter, showToast, statusFilter, t],
   );
 
   /**
@@ -841,8 +885,9 @@ export default function NotesView() {
                 {t('notes.title')}
                 <span className="rounded-full bg-neutral-200/70 px-1.5 text-[10.5px] font-medium tabular-nums text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
                   {/* Server-side count for the status being shown: "笔记 7" over a
-                      list of three drafts reads as a bug. */}
-                  {counts[statusFilter] ?? allNotes.length}
+                      list of three drafts reads as a bug. Compacted above a thousand
+                      for the same reason as the badges below it. */}
+                  {formatCount(counts[statusFilter] ?? allNotes.length, i18n.language)}
                 </span>
               </h1>
               {error && (
@@ -862,8 +907,11 @@ export default function NotesView() {
               )}
             </div>
             {/* The actions breathe with the column: at 364px three controls plus the
-                title need every pixel, full-width there is room to separate them. */}
-            <div className="flex shrink-0 items-center gap-2 @2xl:gap-3">
+                title need every pixel, full-width there is room to separate them.
+                They wrap rather than overflow: the badges are compacted, so this only
+                bites on a five-digit library, and a wrapped 新建笔记 is a better
+                failure than a button clipped by the column's edge. */}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 @2xl:gap-3">
               {/* No ball switch here: hiding is `notes.ball.show` in config.yaml and
                   the settings page is its one visible control. An in-page restore
                   button looked reasonable until it vanished with the list column on
@@ -872,26 +920,39 @@ export default function NotesView() {
               {/* Still a toggle, not a fourth select: "archived" is a *place* in the
                   library rather than a value of a field, and a select would offer
                   "Archived: all" next to "Archived: 3", which says nothing. It sits
-                  beside 草稿箱 because both are places you go, not filters you narrow. */}
-              {counts.archived > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStatusFilter((current) => (current === 'archived' ? 'active' : 'archived'))
-                  }
-                  aria-pressed={statusFilter === 'archived'}
-                  className={cn(
-                    'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[11px] font-medium tabular-nums transition-colors',
-                    // The same active state as 草稿箱: both are places you go, so the
-                    // pressed look is one vocabulary, not a slightly quieter second one.
-                    statusFilter === 'archived'
-                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300'
-                      : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  {t('notes.archivedToggle', { count: counts.archived })}
-                </button>
-              )}
+                  beside 草稿箱 because both are places you go, not filters you narrow.
+
+                  And it is always on screen, even at zero. Hiding the door while the
+                  user stands behind it was the bug: restoring the only archived note
+                  emptied the list *and* removed the button that led back to the
+                  library, leaving 没有归档的笔记 as a one-way room. The count rides in a
+                  quiet pill — the drafts button's vocabulary — so a large archive
+                  cannot stretch the label and the row keeps one width. */}
+              <button
+                type="button"
+                onClick={() =>
+                  setStatusFilter((current) => (current === 'archived' ? 'active' : 'archived'))
+                }
+                aria-pressed={statusFilter === 'archived'}
+                title={t('notes.archivedToggleHint')}
+                className={cn(
+                  'inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors',
+                  // The same active state as 草稿箱: both are places you go, so the
+                  // pressed look is one vocabulary, not a slightly quieter second one.
+                  statusFilter === 'archived'
+                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300'
+                    : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                )}
+              >
+                {t('notes.archivedButton')}
+                {counts.archived > 0 && (
+                  // Quieter than the drafts badge: an archive is a place to revisit,
+                  // not a queue waiting on the user.
+                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-200/80 px-1 text-[10px] font-semibold tabular-nums text-neutral-600 dark:bg-neutral-700/70 dark:text-neutral-300">
+                    {formatCount(counts.archived, i18n.language)}
+                  </span>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -909,8 +970,8 @@ export default function NotesView() {
                 <Inbox className="h-3.5 w-3.5" strokeWidth={1.75} />
                 {t('notes.draftsButton')}
                 {counts.draft > 0 && (
-                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-semibold text-white">
-                    {counts.draft}
+                  <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[10px] font-semibold tabular-nums text-white">
+                    {formatCount(counts.draft, i18n.language)}
                   </span>
                 )}
               </button>

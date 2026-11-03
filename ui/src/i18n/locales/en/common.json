@@ -1641,7 +1641,7 @@
       "title": "similar title",
       "tags": "shared tags"
     },
-    "empty": "No notes yet. Tap the ball in the corner, or press Ctrl+Shift+N.",
+    "empty": "No notes yet. Use the floating ball to capture notes, or create one manually.",
     "disabledTitle": "Notes are turned off",
     "disabledBody": "This server has not registered the notes API, so there is nothing to read here. Notes are distilled from a conversation and only enter the library once you approve them — with the switch off nothing is captured or stored.",
     "disabledOpenSettings": "Open settings",
@@ -1649,7 +1649,8 @@
     "emptySearch": "No notes match",
     "emptyDrafts": "No drafts waiting for approval",
     "emptyArchived": "No archived notes",
-    "archivedToggle": "Archived {{count}}",
+    "archivedButton": "Archived",
+    "archivedToggleHint": "Show archived notes only",
     "unsaved": {
       "title": "This note is not saved",
       "body": "You changed this note but have not saved it. Save it and go back, or drop the changes?",

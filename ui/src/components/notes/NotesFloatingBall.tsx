@@ -194,20 +194,6 @@ export default function NotesFloatingBall() {
     };
   }, [menuOpen, closeMenu]);
 
-  // Ctrl/Cmd+Shift+N opens the capture menu from anywhere inside a conversation.
-  useEffect(() => {
-    if (!onConversationPage) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const combo = (event.metaKey || event.ctrlKey) && event.shiftKey;
-      if (combo && event.key.toLowerCase() === 'n') {
-        event.preventDefault();
-        setMenuOpen((value) => !value);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onConversationPage]);
-
   // `dragover` fires a few times a second, which is enough to notice Alt being
   // pressed but too coarse to feel like a response. While the drop target is under
   // the pointer, the key events themselves update the hint.
