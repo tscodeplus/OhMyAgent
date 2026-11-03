@@ -153,6 +153,13 @@ describe('batch session delete', () => {
     expect(typeof replacement).toBe('string');
     expect(replacement).not.toBe('oc_1');
     expect(sessionIds()).toEqual([replacement]);
+    // Flagged as a placeholder (v38) so 收件箱 / 归档 do not render the empty row
+    // the operator never created; the first turn clears the flag.
+    expect(db.prepare('SELECT is_placeholder FROM sessions WHERE id = ?').get(replacement)).toEqual(
+      {
+        is_placeholder: 1,
+      },
+    );
   });
 
   it('deletes an archived row too — 归档 has no separate delete path', async () => {

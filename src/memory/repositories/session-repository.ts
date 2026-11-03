@@ -12,6 +12,11 @@ export interface Session {
   external_chat_id: string | null;
   /** Plain title column; `metadata.title` remains the source of truth for old rows. */
   title: string | null;
+  /**
+   * 1 when the row is the empty transcript a delete left behind (v38) — see
+   * `HIDE_PLACEHOLDER`. Never rendered: the lists skip it until it has messages.
+   */
+  is_placeholder: number;
   created_at: string;
   updated_at: string;
   metadata: string | null;
@@ -26,6 +31,8 @@ export interface CreateSessionInput {
   channel?: string | null;
   external_chat_id?: string | null;
   title?: string | null;
+  /** 1 for the empty transcript `ConversationSessions.forget` opens after a delete. */
+  is_placeholder?: number;
 }
 
 export interface UpdateSessionInput {
@@ -136,6 +143,24 @@ export interface ArchivedOwnerCount {
 const PREVIEW_MAX_CHARS = 120;
 
 /**
+ * Predicate the two WebUI lists (收件箱, 归档) and their counts share.
+ *
+ * Deleting an IM transcript cannot drop the chat's slot entirely:
+ * `ConversationSessions.forget` immediately opens the slot's next generation,
+ * because `messages.session_id` is a foreign key (the row must exist before a
+ * message can be written) and because the next incoming message must not resolve
+ * back to the transcript the operator just deleted. That replacement is
+ * bookkeeping, so it carries `is_placeholder` and is not listed: deleting
+ * everything used to leave the sidebar reading 收件箱 3 with three 新会话 / 0 条消息
+ * rows the operator never created.
+ *
+ * The `EXISTS` half is the safety net on top of the flag being cleared at turn
+ * start: a row that somehow kept the flag while holding messages is still shown,
+ * so a stale flag can only ever hide an empty conversation.
+ */
+const HIDE_PLACEHOLDER = `NOT (s.is_placeholder = 1 AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id = s.id))`;
+
+/**
  * Cursor predicate for the paged session lists, i.e. "everything after the row
  * the client last saw" under `ORDER BY updated_at DESC, id DESC`.
  *
@@ -195,8 +220,8 @@ export class SessionRepository {
 
   create(input: CreateSessionInput): Session {
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, chat_id, thread_id, user_id, metadata, channel, external_chat_id, title)
-      VALUES (@id, @chat_id, @thread_id, @user_id, @metadata, @channel, @external_chat_id, @title)
+      INSERT INTO sessions (id, chat_id, thread_id, user_id, metadata, channel, external_chat_id, title, is_placeholder)
+      VALUES (@id, @chat_id, @thread_id, @user_id, @metadata, @channel, @external_chat_id, @title, @is_placeholder)
     `);
     stmt.run({
       id: input.id,
@@ -207,6 +232,7 @@ export class SessionRepository {
       channel: input.channel ?? null,
       external_chat_id: input.external_chat_id ?? null,
       title: input.title ?? null,
+      is_placeholder: input.is_placeholder ?? 0,
     });
     return this.findById(input.id)!;
   }
@@ -270,6 +296,17 @@ export class SessionRepository {
   delete(id: string): boolean {
     const stmt = this.db.prepare('DELETE FROM sessions WHERE id = ?');
     const result = stmt.run(id);
+    return result.changes > 0;
+  }
+
+  /**
+   * The transcript received its first turn: it is a conversation now, not the
+   * placeholder a delete left behind. Returns true when the flag was set.
+   */
+  clearPlaceholder(id: string): boolean {
+    const result = this.db
+      .prepare('UPDATE sessions SET is_placeholder = 0 WHERE id = ? AND is_placeholder = 1')
+      .run(id);
     return result.changes > 0;
   }
 
@@ -350,7 +387,7 @@ export class SessionRepository {
    * idx_messages_session instead of N+1 round trips.
    */
   listInbox(options: ListInboxOptions): InboxSessionSummary[] {
-    const where: string[] = ['s.project_id IS NULL'];
+    const where: string[] = ['s.project_id IS NULL', HIDE_PLACEHOLDER];
     const params: Record<string, unknown> = { limit: options.limit };
 
     if (!options.includeArchived) {
@@ -406,13 +443,13 @@ export class SessionRepository {
     channel: string;
     count: number;
   }> {
-    const archivedFilter = options.includeArchived ? '' : 'AND archived_at IS NULL';
+    const archivedFilter = options.includeArchived ? '' : 'AND s.archived_at IS NULL';
     return this.db
       .prepare(
-        `SELECT COALESCE(channel, 'unknown') AS channel, COUNT(*) AS count
-           FROM sessions
-          WHERE project_id IS NULL ${archivedFilter}
-          GROUP BY COALESCE(channel, 'unknown')
+        `SELECT COALESCE(s.channel, 'unknown') AS channel, COUNT(*) AS count
+           FROM sessions s
+          WHERE s.project_id IS NULL ${archivedFilter} AND ${HIDE_PLACEHOLDER}
+          GROUP BY COALESCE(s.channel, 'unknown')
           ORDER BY count DESC`,
       )
       .all() as Array<{ channel: string; count: number }>;
@@ -494,7 +531,7 @@ export class SessionRepository {
    * drift from the sort.
    */
   listArchived(options: ListArchivedOptions): ArchivedSessionRow[] {
-    const where: string[] = ['s.archived_at IS NOT NULL'];
+    const where: string[] = ['s.archived_at IS NOT NULL', HIDE_PLACEHOLDER];
     const params: Record<string, unknown> = { limit: options.limit };
 
     if (options.kind === 'project') {
@@ -614,7 +651,7 @@ export class SessionRepository {
                 COUNT(*)     AS count
            FROM sessions s
            LEFT JOIN projects p ON p.id = s.project_id
-          WHERE s.archived_at IS NOT NULL
+          WHERE s.archived_at IS NOT NULL AND ${HIDE_PLACEHOLDER}
           GROUP BY kind, s.project_id, channel
           ORDER BY count DESC, s.project_id, channel`,
       )

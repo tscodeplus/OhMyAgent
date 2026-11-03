@@ -253,6 +253,9 @@ export function registerInboxRoutes(
     return reply.send({
       ok: true,
       messages: result.messages,
+      // Empty, flag-hidden next transcript of the chat slot. Kept in the payload
+      // because it is where the chat's messages will land, not because the UI
+      // should open it — the delete handler navigates to a listed row instead.
       replacement_id: result.replacementId,
     });
   });

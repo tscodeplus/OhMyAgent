@@ -23,6 +23,23 @@ const POLL_MS = 30_000;
 /** Inbox rows live on the `/inbox/:sessionId` route. */
 const INBOX_PATH = '/inbox/';
 
+/**
+ * The newest loaded transcript of the same chat (transport handle) as `item`,
+ * skipping ids in `skip`. Rows already leave this list optimistically after a
+ * delete, so `skip` is what keeps a batch delete from picking a deleted row.
+ */
+function newestTranscriptOfChat(
+  items: InboxSessionSummary[],
+  item: InboxSessionSummary,
+  skip?: Set<string>,
+): string | undefined {
+  const chat = item.external_chat_id;
+  if (!chat) return undefined;
+  return items.find(
+    (row) => row.id !== item.id && !skip?.has(row.id) && row.external_chat_id === chat,
+  )?.id;
+}
+
 interface InboxSidebarProps {
   /** Bumped by the shell when projects/sessions change. */
   refreshKey?: number;
@@ -192,16 +209,21 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
       setConfirmDelete(null);
       setBusyId(item.id);
       try {
-        const res = await apiRequest<{ ok: boolean; replacement_id: string | null }>(
+        await apiRequest<{ ok: boolean; replacement_id: string | null }>(
           '/api/inbox/' + encodeURIComponent(item.id),
           { method: 'DELETE' },
         );
         setItems((prev) => prev.filter((row) => row.id !== item.id));
         if (activeId === item.id) {
-          // The server may have opened the chat's next conversation; otherwise
-          // fall back to the newest remaining row so the pane is never blank.
+          // The server opens the deleted slot's next transcript, but that row is an
+          // empty placeholder and is not listed — navigating there would land the
+          // pane on a conversation the sidebar does not show. Stay on the same chat
+          // (its newest remaining transcript) when there is one, else take the
+          // newest remaining row so the pane is never blank.
           const next =
-            res.replacement_id ?? items.find((row) => row.id !== item.id)?.id ?? undefined;
+            newestTranscriptOfChat(items, item) ??
+            items.find((row) => row.id !== item.id)?.id ??
+            undefined;
           navigate(next ? INBOX_PATH + encodeURIComponent(next) : '/');
         }
         void fetchFirstPage(false);
@@ -264,8 +286,12 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
         selection.exit();
         onChanged?.();
         if (activeId && removed.has(activeId)) {
+          // Same rule as a single delete: the replacement transcript the server
+          // opened is a hidden placeholder, so fall back to a visible row — the
+          // same chat first, then whatever is newest.
+          const current = items.find((row) => row.id === activeId);
           const next =
-            res.replacements[activeId] ??
+            (current ? newestTranscriptOfChat(items, current, removed) : undefined) ??
             items.find((row) => !removed.has(row.id))?.id ??
             undefined;
           navigate(next ? INBOX_PATH + encodeURIComponent(next) : '/');

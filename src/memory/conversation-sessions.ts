@@ -185,6 +185,13 @@ export class ConversationSessions {
       userId: string;
       channel: SessionChannel;
       minimumGeneration: number;
+      /**
+       * True for the transcript a delete opens. It has no messages and is not a
+       * conversation the operator asked for, so it is flagged as a placeholder
+       * (`sessions.is_placeholder`, v38) and neither list renders it until the
+       * first turn arrives and clears the flag.
+       */
+      placeholder?: boolean;
     },
   ): StartedConversation {
     const insert = this.db.transaction((): StartedConversation => {
@@ -203,6 +210,7 @@ export class ConversationSessions {
         channel: options.channel,
         external_chat_id: options.externalChatId,
         title: options.title,
+        is_placeholder: options.placeholder ? 1 : 0,
       });
       return { id, slot, generation, title: options.title };
     });
@@ -228,6 +236,8 @@ export class ConversationSessions {
     const { messages } = deleteSessionCascade(this.db, sessionId);
 
     // Strictly above the deleted generation, so the removed id is never reused.
+    // The replacement is a placeholder: it exists so the next message lands in a
+    // fresh transcript, not so the operator sees an empty 新会话 row.
     const replacement = wasCurrent
       ? this.openGeneration(slot, {
           title: null,
@@ -235,6 +245,7 @@ export class ConversationSessions {
           userId: row.user_id,
           channel: inferChannel(slot, row.external_chat_id ?? slot),
           minimumGeneration: conversationGeneration(sessionId) + 1,
+          placeholder: true,
         })
       : null;
     const replacementId = replacement?.id ?? null;

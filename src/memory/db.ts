@@ -22,6 +22,7 @@ import { migrateV34 } from './migration-v34.js';
 import { migrateV35 } from './migration-v35.js';
 import { migrateV36 } from './migration-v36.js';
 import { migrateV37 } from './migration-v37.js';
+import { migrateV38 } from './migration-v38.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -128,6 +129,23 @@ export function openDatabase(dbPath: string): Database.Database {
   const v12Result = migrateV12(db);
   if (v12Result.added.length > 0) {
     logger.info(`[V12] Session migration: added columns: ${v12Result.added.join(', ')}`);
+  }
+
+  // V38 migration: sessions.is_placeholder, the flag that keeps the empty row a
+  // delete leaves behind out of 收件箱 / 归档. Same ordering constraint as V11/V12:
+  // the column is declared in schema.ts, which cannot add it to an existing table.
+  // Also the one-time cleanup for the placeholder rows earlier releases already
+  // wrote (see the module docstring).
+  try {
+    const v38Result = migrateV38(db);
+    if (v38Result.added.length > 0) {
+      logger.info(`[V38] Session migration: added columns: ${v38Result.added.join(', ')}`);
+    }
+    if (v38Result.flagged > 0) {
+      logger.info(`[V38] Session migration: flagged ${v38Result.flagged} placeholder row(s)`);
+    }
+  } catch (err) {
+    logger.warn({ err }, '[V38] placeholder flag migration failed — continuing');
   }
 
   // V2 + V3 migrations: the same ordering constraint as V4, for `memories`.

@@ -25,6 +25,8 @@ interface SessionSeed {
   updated_at?: number;
   created_at?: number;
   metadata?: string | null;
+  /** 1 for the empty transcript a delete opens (ConversationSessions.forget). */
+  is_placeholder?: number;
 }
 
 describe('IM inbox routes', () => {
@@ -49,8 +51,8 @@ describe('IM inbox routes', () => {
     db.prepare(
       `INSERT INTO sessions
          (id, chat_id, user_id, project_id, channel, external_chat_id, title, metadata,
-          created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          is_placeholder, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       seed.id,
       seed.chat_id ?? seed.id,
@@ -60,6 +62,7 @@ describe('IM inbox routes', () => {
       seed.chat_id ?? seed.id,
       seed.title ?? null,
       seed.metadata ?? null,
+      seed.is_placeholder ?? 0,
       String(seed.created_at ?? 1000),
       String(seed.updated_at ?? 1000),
     );
@@ -155,6 +158,48 @@ describe('IM inbox routes', () => {
       message_count: 0,
       external_chat_id: 'oc_2',
     });
+  });
+
+  it('does not list the placeholder a delete leaves behind', async () => {
+    // DELETE of the current transcript opens the slot's next generation (see
+    // ConversationSessions.forget) so the next message cannot resume what was
+    // removed. That row is bookkeeping: it has no messages and the operator never
+    // asked for it. Listing it was the bug — deleting everything left the sidebar
+    // reading 收件箱 3 with three 新会话 / 0 条消息 rows.
+    seedSession({ id: 'oc_1', chat_id: 'oc_1', channel: 'feishu', updated_at: 2000 });
+    seedMessage('m1', 'oc_1', 'user', 'old', 2000);
+    seedSession({
+      id: 'oc_1~2',
+      chat_id: 'oc_1',
+      channel: 'feishu',
+      updated_at: 3000,
+      is_placeholder: 1,
+    });
+
+    const body = (await app.inject({ method: 'GET', url: '/api/inbox' })).json();
+
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual(['oc_1']);
+    // The channel badge counts what the list shows, otherwise the header would
+    // announce a group with no rows under it.
+    expect(body.channels).toEqual([{ channel: 'feishu', count: 1 }]);
+  });
+
+  it('lists the replacement once it holds a message', async () => {
+    // The flag is cleared at turn start; the extra `EXISTS` in the query is the
+    // safety net, so a stale flag can only ever hide an *empty* conversation.
+    seedSession({
+      id: 'oc_1~2',
+      chat_id: 'oc_1',
+      channel: 'feishu',
+      updated_at: 3000,
+      is_placeholder: 1,
+    });
+    seedMessage('m1', 'oc_1~2', 'user', 'hello again', 3000);
+
+    const body = (await app.inject({ method: 'GET', url: '/api/inbox' })).json();
+
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual(['oc_1~2']);
+    expect(body.items[0]).toMatchObject({ message_count: 1, preview: 'hello again' });
   });
 
   it('serves a suffixed transcript id over the plain route', async () => {

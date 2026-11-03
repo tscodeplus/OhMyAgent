@@ -27,6 +27,8 @@ interface Seed {
   title?: string | null;
   project_id?: string | null;
   updated_at?: number;
+  /** 1 for the empty transcript a delete opens (ConversationSessions.forget). */
+  is_placeholder?: number;
 }
 
 describe('archive routes', () => {
@@ -59,8 +61,9 @@ describe('archive routes', () => {
   function seedSession(seed: Seed): void {
     db.prepare(
       `INSERT INTO sessions
-         (id, chat_id, user_id, project_id, channel, external_chat_id, title, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, chat_id, user_id, project_id, channel, external_chat_id, title,
+          is_placeholder, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       seed.id,
       seed.chat_id ?? seed.id,
@@ -69,6 +72,7 @@ describe('archive routes', () => {
       seed.channel ?? null,
       seed.chat_id ?? seed.id,
       seed.title ?? null,
+      seed.is_placeholder ?? 0,
       String(seed.updated_at ?? 1000),
       String(seed.updated_at ?? 1000),
     );
@@ -135,6 +139,35 @@ describe('archive routes', () => {
         },
       ]),
     );
+  });
+
+  it('keeps the placeholder a delete leaves behind out of the archive and its counts', async () => {
+    // Deleting every archived IM transcript used to leave one empty 新会话 row per
+    // chat in 归档 > 收件箱 (the slot's replacement transcript). It is bookkeeping,
+    // so neither the list nor the group count may show it.
+    seedSession({ id: 'oc_1', channel: 'feishu', title: '公众号文案', updated_at: 2000 });
+    seedSession({
+      id: 'oc_1~2',
+      chat_id: 'oc_1',
+      channel: 'feishu',
+      updated_at: 3000,
+      is_placeholder: 1,
+    });
+    await archive(['oc_1', 'oc_1~2']);
+
+    const body = (await app.inject({ method: 'GET', url: '/api/archive' })).json();
+
+    expect(body.items.map((i: { id: string }) => i.id)).toEqual(['oc_1']);
+    expect(body.owners).toEqual([
+      {
+        kind: 'inbox',
+        project_id: null,
+        project_name: null,
+        channel: 'feishu',
+        count: 1,
+        bot_name: '小书',
+      },
+    ]);
   });
 
   it('removes archived rows from the inbox and from the project session list', async () => {

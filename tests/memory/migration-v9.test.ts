@@ -18,6 +18,7 @@ import path from 'node:path';
 import { migrateV9 } from '../../src/memory/migration-v9';
 import { migrateV11 } from '../../src/memory/migration-v11';
 import { migrateV12 } from '../../src/memory/migration-v12';
+import { migrateV38 } from '../../src/memory/migration-v38';
 import { applySchema } from '../../src/memory/schema';
 import { openDatabase } from '../../src/memory/db';
 import { SessionRepository } from '../../src/memory/repositories/session-repository';
@@ -91,6 +92,7 @@ describe('migration-v9: schema', () => {
     // Later sessions migrations run too, so this compares against the schema the
     // current version actually produces on a fresh install.
     migrateV12(migrated);
+    migrateV38(migrated);
 
     fresh = new Database(':memory:');
     applySchema(fresh);

@@ -26,6 +26,8 @@ function makeDb(): Database.Database {
       channel TEXT,
       external_chat_id TEXT,
       title TEXT,
+      -- v38: the flag that keeps the empty row a delete opens out of 新会话 / 归档.
+      is_placeholder INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
       updated_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
       metadata TEXT
@@ -207,6 +209,28 @@ describe('ConversationSessions', () => {
     expect(conversations.resolve('oc_d')).toBe('oc_d~3');
     expect(db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE id = 'oc_d~2'").get()).toEqual({
       n: 0,
+    });
+  });
+
+  it('forget() flags the replacement as a placeholder, /new does not', () => {
+    // The replacement exists for the next message, not for the sidebar: v38 marks
+    // it so 收件箱 / 归档 skip the empty row (the first turn clears the flag).
+    const opened = conversations.start('oc_p');
+    expect(opened?.id).toBe('oc_p');
+    expect(db.prepare("SELECT is_placeholder FROM sessions WHERE id = 'oc_p'").get()).toEqual({
+      is_placeholder: 0,
+    });
+
+    const replacementId = conversations.forget('oc_p').replacementId;
+    expect(replacementId).toBe('oc_p~2');
+    expect(
+      db.prepare('SELECT is_placeholder FROM sessions WHERE id = ?').get(replacementId),
+    ).toEqual({ is_placeholder: 1 });
+
+    // A /new conversation is one the operator asked for, so it stays listed.
+    expect(conversations.start('oc_p')?.id).toBe('oc_p~3');
+    expect(db.prepare("SELECT is_placeholder FROM sessions WHERE id = 'oc_p~3'").get()).toEqual({
+      is_placeholder: 0,
     });
   });
 

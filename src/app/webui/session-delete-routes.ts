@@ -11,7 +11,8 @@
  *   - Project chat: `deleteSessionCascade` — the row and all its children go.
  *   - IM transcript: `ConversationSessions.forget` — same cascade, plus a new
  *     generation of the chat's transcript, so incoming messages cannot silently
- *     resume the conversation that was just removed.
+ *     resume the conversation that was just removed. That new generation is
+ *     flagged as a placeholder, so no list renders it as an empty 会话.
  *
  * A batch is *partial by design*. Deleting 20 selected rows must not fail as a
  * whole because one of them is mid-reply or was already deleted on another
@@ -50,9 +51,12 @@ export interface DeleteSessionsResult {
   deleted: number;
   skipped: SkippedSession[];
   /**
-   * Replacement transcript opened for a deleted IM conversation that was the
-   * chat's current one, keyed by the deleted id. Lets the inbox keep the pane on
-   * the same chat instead of jumping to whatever row happens to be newest.
+   * Transcript opened for a deleted IM conversation that was the chat's current
+   * one, keyed by the deleted id. It is empty by construction and flagged as a
+   * placeholder (`sessions.is_placeholder`, v38), so neither 收件箱 nor 归档 lists
+   * it — the UI navigates to a visible row instead. It exists so the chat's next
+   * message lands in a fresh transcript rather than resolving back to the one the
+   * operator just deleted.
    */
   replacements: Record<string, string | null>;
 }

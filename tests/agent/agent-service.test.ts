@@ -736,6 +736,7 @@ describe('AgentService', () => {
       // execute() clears the archive flag at turn start: a new message means the
       // conversation is active again, so it must leave 归档.
       clearArchive: vi.fn(),
+      clearPlaceholder: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -806,6 +807,7 @@ describe('AgentService', () => {
       // execute() clears the archive flag at turn start: a new message means the
       // conversation is active again, so it must leave 归档.
       clearArchive: vi.fn(),
+      clearPlaceholder: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -865,6 +867,7 @@ describe('AgentService', () => {
       // execute() clears the archive flag at turn start: a new message means the
       // conversation is active again, so it must leave 归档.
       clearArchive: vi.fn(),
+      clearPlaceholder: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(),
       touch: vi.fn(),
@@ -965,6 +968,10 @@ describe('AgentService', () => {
         order.push('clearArchive');
         return true;
       }),
+      clearPlaceholder: vi.fn(() => {
+        order.push('clearPlaceholder');
+        return true;
+      }),
     };
     const episodeRepository = { findBySessionId: vi.fn(() => []) };
     const memorySummarizer = { summarizeSession: vi.fn(async () => {}) };
@@ -996,9 +1003,13 @@ describe('AgentService', () => {
     // the turn-end persistence pass touched it again, but no clear followed.
     expect(sessionRepository.clearArchive).toHaveBeenCalledTimes(1);
     expect(sessionRepository.clearArchive).toHaveBeenCalledWith('session-1');
+    // The turn turns a delete placeholder into a conversation, so the flag the
+    // lists skip it on is dropped at the same moment (and only there).
+    expect(sessionRepository.clearPlaceholder).toHaveBeenCalledTimes(1);
+    expect(sessionRepository.clearPlaceholder).toHaveBeenCalledWith('session-1');
     // Called right after the turn-start ensureSession() touched the row, i.e.
     // before the turn ran — and never again after the turn-end persistence pass.
-    expect(order).toEqual(['touch', 'clearArchive', 'touch']);
+    expect(order).toEqual(['touch', 'clearArchive', 'clearPlaceholder', 'touch']);
   });
 
   it('creates the session before writing tool audit rows', async () => {
@@ -1013,6 +1024,7 @@ describe('AgentService', () => {
       // execute() clears the archive flag at turn start: a new message means the
       // conversation is active again, so it must leave 归档.
       clearArchive: vi.fn(),
+      clearPlaceholder: vi.fn(),
       findById: vi.fn(() => undefined),
       create: vi.fn(() => {
         callOrder.push('session.create');
@@ -1394,6 +1406,7 @@ describe('AgentService', () => {
       const persistence = {
         sessionRepository: {
           clearArchive: vi.fn(),
+          clearPlaceholder: vi.fn(),
           findById: vi.fn(() => undefined),
           create: vi.fn(),
           touch: vi.fn(),
