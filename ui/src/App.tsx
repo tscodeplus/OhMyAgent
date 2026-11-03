@@ -15,6 +15,7 @@ import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest, fetchProjectSessions } from './utils/api';
 import { syncLanguageToServer } from './utils/syncLanguage';
+import i18n from './i18n/config';
 import type { Session } from './types/session';
 
 function HomePage() {
@@ -50,6 +51,7 @@ function HomePage() {
       try {
         const session = await apiRequest<Session>(`/api/projects/${pid}/sessions`, {
           method: 'POST',
+          body: JSON.stringify({ baseTitle: i18n.t('chat.newSession') }),
         });
         setSelectedSessionId(session.id);
         navigate(`/p/${pid}/s/${session.id}`, { replace: true });

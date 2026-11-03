@@ -216,6 +216,7 @@ export default function ChatView() {
       try {
         const session = await apiRequest<Session>(`/api/projects/${projectId}/sessions`, {
           method: 'POST',
+          body: JSON.stringify({ baseTitle: t('chat.newSession') }),
         });
         bumpSessionsRefreshKey();
         navigate(`/p/${projectId}/s/${session.id}`, { state: { initialMessage: text.trim() } });

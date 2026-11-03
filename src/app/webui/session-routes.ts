@@ -11,6 +11,7 @@ import type { FooterConfig } from '../types.js';
 import { loadSessionMessages, refreshPersistedDownloadUrls } from './session-message-view.js';
 import { deleteSessionCascade } from '../../memory/session-delete.js';
 import { SessionRepository } from '../../memory/repositories/session-repository.js';
+import { i18n } from '../../i18n/index.js';
 
 /** Sessions per list page (the endpoint accepts 1..200). */
 const LIST_DEFAULT_LIMIT = 50;
@@ -54,7 +55,8 @@ export function registerSessionRoutes(
 
     const id = uuidv4();
     const chatId = `webui:${projectId}`;
-    const baseTitle = body?.baseTitle || 'New Chat';
+    const defaultBaseTitle = i18n.locale === 'zh-CN' ? '新对话' : 'New Chat';
+    const baseTitle = body?.baseTitle || defaultBaseTitle;
 
     // Generate unique title by appending incrementing number if needed
     const existing = db
