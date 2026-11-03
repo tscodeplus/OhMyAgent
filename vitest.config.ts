@@ -6,6 +6,8 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   resolve: {
     alias: [
+      { find: '@earendil-works/pi-schema/formats', replacement: path.resolve(__dirname, 'src/pi-mono/schema/formats/index.ts') },
+      { find: '@earendil-works/pi-schema', replacement: path.resolve(__dirname, 'src/pi-mono/schema/index.ts') },
       { find: '@earendil-works/pi-ai/compat', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
       { find: '@earendil-works/pi-ai', replacement: path.resolve(__dirname, 'src/pi-mono/ai/compat.ts') },
       { find: '@earendil-works/pi-agent-core', replacement: path.resolve(__dirname, 'src/pi-mono/agent/index.ts') },

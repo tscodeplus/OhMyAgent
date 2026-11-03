@@ -1,6 +1,3 @@
-export type { Static, TSchema } from "typebox";
-export { Type } from "typebox";
-
 // Core only, side-effect free: no generated catalogs, no provider factories,
 // no api-registry, no OAuth implementations, no compat. Provider factories
 // live under "@earendil-works/pi-ai/providers/*", API implementations under
@@ -41,9 +38,10 @@ export * from "./utils/identity.js";
 export * from "./utils/json-parse.js";
 export * from "./utils/overflow.js";
 export * from "./utils/retry.js";
+export * from "./utils/streaming-json.js";
+export * from "./utils/string-enum.js";
 export { contentText, getSystemMessageText, renderSystemMessageUpdate } from "./utils/text.js";
 export * from "./utils/transcript.js";
-export * from "./utils/typebox-helpers.js";
 export { uuidv7 } from "./utils/uuid.js";
 export * from "./utils/validation.js";
 export { PI_AI_VERSION } from "./utils/version.js";

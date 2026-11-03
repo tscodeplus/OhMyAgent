@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-telemetry";
 import type { LazyStreamObserver } from "./api/lazy.js";
 import type { Api, Model } from "./types.js";
+import { ownedSlice } from "./utils/text.js";
 
 const provider = { type: "string", description: "Provider identifier.", required: true } as const;
 const model = { type: "string", description: "Requested model identifier.", required: true } as const;
@@ -191,7 +192,7 @@ export function observeModelRequest(
 				if (message.stopReason === "error") {
 					span.setStatus({
 						status: "error",
-						error: { name: "provider_error", message: message.errorMessage?.slice(0, 500) ?? "" },
+						error: { name: "provider_error", message: ownedSlice(message.errorMessage ?? "", 0, 500) },
 					});
 				}
 				requestDuration.record(performance.now() - started, { ...attributes, stop: message.stopReason }, span);
