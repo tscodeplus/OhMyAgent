@@ -514,8 +514,16 @@ async function streamAssistantResponse(
 
 	const llmContext = normalizeContext({ messages: llmMessages });
 
-	// Build model list: primary + fallbacks (OhMyAgent extension)
-	const models = [config.model, ...(config.fallbackModels ?? [])];
+	// Build model list: primary + fallbacks (OhMyAgent extension).
+	// Deduped by provider+id: sticky fallback pins config.model to a fallback it
+	// already used, so the un-deduped list would retry that model twice in a row.
+	const seenModels = new Set<string>();
+	const models = [config.model, ...(config.fallbackModels ?? [])].filter((m) => {
+		const key = `${m.provider}\u0000${m.id}`;
+		if (seenModels.has(key)) return false;
+		seenModels.add(key);
+		return true;
+	});
 	const baseLen = context.messages.length;
 	let lastError: AssistantMessage | null = null;
 

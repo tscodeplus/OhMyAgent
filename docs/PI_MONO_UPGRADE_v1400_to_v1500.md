@@ -48,6 +48,23 @@
 4. aisync 整树 ai(204 文件，删 `utils/typebox-helpers.ts`) / agent(6) / mcp(18) / telemetry(8)；
    补丁文件随后从合并结果覆盖回去。
 5. import 归一化（静态 `from "…"` + 动态 `import("…")` 的 `.ts`/`.js`）。
+   **本次踩坑**：只匹配 `from "…"` / `import("…")` 会漏掉两类说明符 ——
+   - **副作用导入**：`import "./providers/images/register-builtins.ts"`（`ai/images.ts:1`，无 `from`）
+   - **包装器实参**：`importNodeOnlyApi("./x.ts")` / `importOAuthModule("./x.ts")`
+     （`ai/api/*.lazy.ts`、`ai/auth/oauth/load.ts`）
+
+   后果是 `pnpm build` 通过、`tsc` 通过、`tsx` 下 dev server 正常，但 **`node dist/src/index.js`
+   启动即 `ERR_MODULE_NOT_FOUND`**（dist 里没有 `.ts`）。正确的归一化是**任何**双引号相对
+   说明符结尾的 `.ts`：
+
+   ```bash
+   grep -rlE '"[.][.]?/[^"]*\.ts"' src/pi-mono --include="*.ts" \
+     | xargs sed -i -E 's/"(\.[^"]*)\.ts"/"\1.js"/g'
+   ```
+
+   **校验闸门**：`grep -rnoE '"[.][.]?/[^"]*\.ts"' src/pi-mono --include="*.ts" | wc -l` 必须为 0，
+   且必须真的 `node dist/src/index.js` 起一次（不止 `pnpm dev`）—— 只有 dist 会暴露这类漏转。
+
 6. bedrock 两处 `as any`（`middlewareStack.add`）重打。
 7. `providers/data` 从 npm tarball `@earendil-works/pi-ai@1.5.0` 重同步（42 JSON）。
 
@@ -66,6 +83,15 @@
 - `pnpm lint` 0 errors（570 warnings）；`pnpm typecheck:tests` 通过；`pnpm format:check` 通过（`src/pi-mono` 在
   `.prettierignore` 中）。
 - `pnpm build` 成功；`dist/src/pi-mono/schema/` 与 `dist/src/pi-mono/ai/utils/validation.js` 齐备。
+- **dist 实机启动**：`OHMYAGENT_PORT=9195 node dist/src/index.js` → `/api/health` ok，
+  `POST /api/judge/test` `ok:true`（1481ms）。这一步在 review 中首次失败（见步骤 5 的踩坑），
+  修复后重跑通过 —— **dev(tsx) 绿不代表 dist 绿**。
+- **pi-schema 运行时探针**（TypeBox schema 经 pi-schema 校验）：
+  `compile(Type.Object({a: Type.Number()}), {formats, coerce:true, unresolvedRefs:'reject'}).parse({a:'42'})`
+  → `{ok:true,value:{a:42}}`；`{a:'nope'}` → 路径化错误 `/a expected number, got string`。
+- review 的 3 个只读子代理中 1 路完成（三方合并审计：结论「OD，upstream 内容 100% 保留」），
+  另 2 路因工具调用路径错误/上下文耗尽失败；其提出的 2 个 nit（union 闭合符转为 tabs、
+  `maxRetries` 注释措辞）已当场修掉。
 
 ## 判断内核实弹
 

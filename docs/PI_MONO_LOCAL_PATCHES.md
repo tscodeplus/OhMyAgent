@@ -35,10 +35,10 @@ upstream in v1.0.0 and is no longer local):
    Two injected user-role steering messages (`createGuardMessage`):
    - after **3 identical consecutive tool failures** → "stop repeating it";
    - when `config.maxToolCycles` is reached → "tool execution is stopped, answer the user".
-   Without this a looping agent spins until the turn watchdog kills the request.
+     Without this a looping agent spins until the turn watchdog kills the request.
 
 2. **Sticky fallback** (right after the assistant message is produced)
-   Upstream's retry/fallback walk in `streamAssistantResponse` is *per LLM call*. This pins
+   Upstream's retry/fallback walk in `streamAssistantResponse` is _per LLM call_. This pins
    whichever fallback actually answered as `config.model` for the remainder of the **run**, so
    each tool round does not re-walk the whole failure chain against a dead primary. Deliberately
    run-scoped — the next user message starts from the configured primary again.
@@ -113,7 +113,7 @@ regress when re-implementing:
 `@earendil-works/pi-mcp` v1.0.0 is embedded the same way as `pi-ai` and `pi-agent-core`, but it
 carries **zero** first-party edits — `grep -rn "OhMyAgent" src/pi-mono/mcp` returns nothing.
 That makes it the cheapest of the three to upgrade: replace the tree wholesale, then re-apply
-the `.ts` → `.js` import rewrite, which it *does* need (41 internal specifiers).
+the `.ts` → `.js` import rewrite, which it _does_ need (41 internal specifiers).
 
 Two things to keep in step when copying it in:
 
@@ -138,7 +138,7 @@ surface — if this event goes missing after an upgrade, long provider outages l
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'
    ```
-   — the file list must match the inventory above (v1.0.0: 5 files / 27 markers).
+   — the file list must match the inventory above (v1.5.0: 5 files / 27 markers).
 4. Build, then run the loop-behaviour tests specifically:
    ```bash
    pnpm build && npx vitest run tests/agent

@@ -70,13 +70,18 @@ const pendingCustomModels = new Map<string, Model<Api>[]>();
 /**
  * Register a custom model for a provider so `getModel` and `getModels`
  * can find them, without requiring callers to migrate to `createProvider`
- * immediately.
+ * immediately. Re-registering the same id replaces the entry: callers include
+ * on-demand registration of an unlisted model, which can legitimately repeat.
  */
 export function registerModel(providerId: string, modelId: string, model: Model<Api>): void {
-	if (!pendingCustomModels.has(providerId)) {
-		pendingCustomModels.set(providerId, []);
+	const models = pendingCustomModels.get(providerId) ?? [];
+	const existing = models.findIndex((m) => m.id === modelId);
+	if (existing >= 0) {
+		models[existing] = model;
+	} else {
+		models.push(model);
 	}
-	pendingCustomModels.get(providerId)!.push(model);
+	pendingCustomModels.set(providerId, models);
 }
 
 export const getModel = (providerId: string, modelId: string): Model<Api> | undefined => {
