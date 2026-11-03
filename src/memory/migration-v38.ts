@@ -7,7 +7,7 @@
  * references `sessions(id)`, so a transcript has to exist before a message can be
  * written, and (b) the next incoming message must not resolve back to the older
  * transcript the operator just deleted. The visible consequence was three empty
- * rows reading 新会话 / 0 条消息 in 收件箱 and 归档 after deleting everything —
+ * rows reading 新会话 / 0 条消息 in 渠道会话 and 归档 after deleting everything —
  * rows the operator never created and cannot use.
  *
  * The flag marks those rows so the two lists (`listInbox`, `listArchived` and the

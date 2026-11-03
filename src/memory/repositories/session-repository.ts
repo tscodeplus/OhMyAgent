@@ -143,7 +143,7 @@ export interface ArchivedOwnerCount {
 const PREVIEW_MAX_CHARS = 120;
 
 /**
- * Predicate the two WebUI lists (收件箱, 归档) and their counts share.
+ * Predicate the two WebUI lists (渠道会话, 归档) and their counts share.
  *
  * Deleting an IM transcript cannot drop the chat's slot entirely:
  * `ConversationSessions.forget` immediately opens the slot's next generation,
@@ -151,7 +151,7 @@ const PREVIEW_MAX_CHARS = 120;
  * message can be written) and because the next incoming message must not resolve
  * back to the transcript the operator just deleted. That replacement is
  * bookkeeping, so it carries `is_placeholder` and is not listed: deleting
- * everything used to leave the sidebar reading 收件箱 3 with three 新会话 / 0 条消息
+ * everything used to leave the sidebar reading 渠道会话 3 with three 新会话 / 0 条消息
  * rows the operator never created.
  *
  * The `EXISTS` half is the safety net on top of the flag being cleared at turn
@@ -177,7 +177,7 @@ const HIDE_PLACEHOLDER = `NOT (s.is_placeholder = 1 AND NOT EXISTS (SELECT 1 FRO
  *     and lets the cursor row itself through on the next page.
  *
  * Returns `null` when there is no cursor. Mirrored by the two WebUI lists
- * (收件箱 / 归档), which send the last row's `updated_at` *and* `id`.
+ * (渠道会话 / 归档), which send the last row's `updated_at` *and* `id`.
  */
 function sessionCursorWhere(
   options: { before?: number; beforeId?: string },

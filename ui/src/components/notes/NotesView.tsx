@@ -326,7 +326,7 @@ export default function NotesView() {
   const [contextHit, setContextHit] = useState<SearchResult | null>(null);
   /**
    * The sheet's box on wide screens: the notes area — list plus detail — inset on
-   * both sides. Only the app's navigation sidebar (对话 / 收件箱 / 技能 …) stays
+   * both sides. Only the app's navigation sidebar (对话 / 渠道会话 / 技能 …) stays
    * uncovered.
    *
    * The width the sheet tracks is this page's own column, not the note panel: a

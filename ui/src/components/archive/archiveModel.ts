@@ -77,7 +77,7 @@ export function archivedIds(items: ArchivedSessionSummary[]): string[] {
  * Splits the archived page into the two trees, then into owner buckets.
  *
  * Ordering rules, all chosen so the sidebar does not reshuffle as rows move:
- *   - the two trees always render in the same order (对话, then 收件箱);
+ *   - the two trees always render in the same order (对话, then 渠道会话);
  *   - project buckets follow the server's owner order (largest archive first);
  *   - inbox buckets follow the fixed channel order;
  *   - rows inside a bucket are newest-archive-first (the server already sorts

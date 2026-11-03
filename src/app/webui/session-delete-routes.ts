@@ -53,7 +53,7 @@ export interface DeleteSessionsResult {
   /**
    * Transcript opened for a deleted IM conversation that was the chat's current
    * one, keyed by the deleted id. It is empty by construction and flagged as a
-   * placeholder (`sessions.is_placeholder`, v38), so neither 收件箱 nor 归档 lists
+   * placeholder (`sessions.is_placeholder`, v38), so neither 渠道会话 nor 归档 lists
    * it — the UI navigates to a visible row instead. It exists so the chat's next
    * message lands in a fresh transcript rather than resolving back to the one the
    * operator just deleted.

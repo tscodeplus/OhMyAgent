@@ -214,7 +214,7 @@ describe('ConversationSessions', () => {
 
   it('forget() flags the replacement as a placeholder, /new does not', () => {
     // The replacement exists for the next message, not for the sidebar: v38 marks
-    // it so 收件箱 / 归档 skip the empty row (the first turn clears the flag).
+    // it so 渠道会话 / 归档 skip the empty row (the first turn clears the flag).
     const opened = conversations.start('oc_p');
     expect(opened?.id).toBe('oc_p');
     expect(db.prepare("SELECT is_placeholder FROM sessions WHERE id = 'oc_p'").get()).toEqual({

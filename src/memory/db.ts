@@ -132,7 +132,7 @@ export function openDatabase(dbPath: string): Database.Database {
   }
 
   // V38 migration: sessions.is_placeholder, the flag that keeps the empty row a
-  // delete leaves behind out of 收件箱 / 归档. Same ordering constraint as V11/V12:
+  // delete leaves behind out of 渠道会话 / 归档. Same ordering constraint as V11/V12:
   // the column is declared in schema.ts, which cannot add it to an existing table.
   // Also the one-time cleanup for the placeholder rows earlier releases already
   // wrote (see the module docstring).

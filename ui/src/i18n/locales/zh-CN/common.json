@@ -1495,9 +1495,9 @@
     "close": "关闭"
   },
   "inbox": {
-    "title": "收件箱",
+    "title": "渠道会话",
     "empty": "还没有来自 IM 渠道的会话",
-    "loadError": "收件箱加载失败",
+    "loadError": "渠道会话加载失败",
     "loadMore": "加载更多",
     "messageCount": "{{count}} 条消息",
     "readOnly": "只读",
@@ -1523,7 +1523,7 @@
   "archive": {
     "title": "归档",
     "kindProject": "对话",
-    "kindInbox": "收件箱",
+    "kindInbox": "渠道会话",
     "empty": "还没有归档的会话",
     "loadError": "归档加载失败",
     "loadMore": "加载更多",

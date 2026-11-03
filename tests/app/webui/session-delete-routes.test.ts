@@ -153,7 +153,7 @@ describe('batch session delete', () => {
     expect(typeof replacement).toBe('string');
     expect(replacement).not.toBe('oc_1');
     expect(sessionIds()).toEqual([replacement]);
-    // Flagged as a placeholder (v38) so 收件箱 / 归档 do not render the empty row
+    // Flagged as a placeholder (v38) so 渠道会话 / 归档 do not render the empty row
     // the operator never created; the first turn clears the flag.
     expect(db.prepare('SELECT is_placeholder FROM sessions WHERE id = ?').get(replacement)).toEqual(
       {

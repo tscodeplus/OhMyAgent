@@ -40,7 +40,7 @@ interface ArchiveSidebarProps {
 }
 
 /**
- * 归档 — the section below 收件箱 in the sidebar.
+ * 归档 — the section below 渠道会话 in the sidebar.
  *
  * Contents are grouped by the ownership the conversation had *before* it was
  * archived: project chats stay under their project, IM transcripts stay under

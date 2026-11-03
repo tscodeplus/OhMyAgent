@@ -143,7 +143,7 @@ describe('archive routes', () => {
 
   it('keeps the placeholder a delete leaves behind out of the archive and its counts', async () => {
     // Deleting every archived IM transcript used to leave one empty 新会话 row per
-    // chat in 归档 > 收件箱 (the slot's replacement transcript). It is bookkeeping,
+    // chat in 归档 > 渠道会话 (the slot's replacement transcript). It is bookkeeping,
     // so neither the list nor the group count may show it.
     seedSession({ id: 'oc_1', channel: 'feishu', title: '公众号文案', updated_at: 2000 });
     seedSession({

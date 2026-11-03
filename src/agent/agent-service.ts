@@ -855,7 +855,7 @@ export class AgentService {
         // operator made while the reply was still streaming.
         this.persistence.sessionRepository.clearArchive(sessionId);
         // The empty transcript a delete left behind becomes a conversation as
-        // soon as it holds a turn, so 收件箱 / 归档 list it again (v38). Done here
+        // soon as it holds a turn, so 渠道会话 / 归档 list it again (v38). Done here
         // and not in ensureSession: that one also runs when the turn *ends*.
         this.persistence.sessionRepository.clearPlaceholder(sessionId);
         // Auto-title the conversation from its first user message. Fire-and-forget:

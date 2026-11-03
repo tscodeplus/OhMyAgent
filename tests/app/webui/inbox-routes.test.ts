@@ -165,7 +165,7 @@ describe('IM inbox routes', () => {
     // ConversationSessions.forget) so the next message cannot resume what was
     // removed. That row is bookkeeping: it has no messages and the operator never
     // asked for it. Listing it was the bug — deleting everything left the sidebar
-    // reading 收件箱 3 with three 新会话 / 0 条消息 rows.
+    // reading 渠道会话 3 with three 新会话 / 0 条消息 rows.
     seedSession({ id: 'oc_1', chat_id: 'oc_1', channel: 'feishu', updated_at: 2000 });
     seedMessage('m1', 'oc_1', 'user', 'old', 2000);
     seedSession({
