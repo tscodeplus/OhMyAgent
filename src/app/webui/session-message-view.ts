@@ -123,6 +123,23 @@ export function loadSessionMessages(
 }
 
 /**
+ * Drop the `⚡️ <label>：**<skill>**\n\n` banner the message persister prepends
+ * to the flat assistant `content`.
+ *
+ * The banner is plain-text-only: channels without segment rendering need it,
+ * while the WebUI draws the same information as a skill card. Only the exact
+ * one-line banner shape is removed — a model answer that happens to open with
+ * `⚡️` is left alone.
+ */
+function stripSkillBanner(text: string): string {
+  if (!text.startsWith('⚡️')) return text;
+  const blank = text.indexOf('\n\n');
+  if (blank === -1) return '';
+  const heading = text.slice(0, blank);
+  return heading.includes('**') ? text.slice(blank + 2) : text;
+}
+
+/**
  * Format raw `messages` rows into the API/UI shape: stripped time prefixes,
  * media collected from the three sources, segments rebuilt from block order and
  * a footer taken from the snapshot stored with the message.
@@ -298,6 +315,19 @@ export function formatMessageRows(rows: any[], getFooterConfig?: () => FooterCon
       }
 
       if (segments.length > 0) {
+        // Rows written by the no-tool-call persist path before it learned to
+        // emit the body carry only the skill segment while `content` holds the
+        // whole answer. Rendering a segments array that contains no text drops
+        // the reply entirely, so restore the body here instead of leaving a
+        // page of history permanently blank. (The persister now writes both;
+        // this keeps rows persisted before the fix readable.)
+        const hasTextSegment = segments.some(
+          (s) => s.type === 'text' && String(s.content ?? '').trim().length > 0,
+        );
+        if (!hasTextSegment && segments.some((s) => s.type === 'skill')) {
+          const body = stripSkillBanner(String(content ?? ''));
+          if (body.trim()) segments.push({ type: 'text', content: body });
+        }
         result.segments = segments;
       }
     }

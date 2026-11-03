@@ -1459,6 +1459,39 @@ describe('AgentService', () => {
       expect(seeded.map((m: any) => m.content)).toEqual(['q1', [{ type: 'text', text: 'a1' }]]);
     });
 
+    it('gives restored assistant rows a usage block (pi-mono reads usage.totalTokens unguarded)', async () => {
+      // Without it the first model call of a cold session threw
+      // "Cannot read properties of undefined (reading 'totalTokens')" for every
+      // model in the fallback chain, so the turn ended with an empty reply.
+      const { svc, factory } = buildService({
+        rows: [
+          { role: 'user', content: 'q1', created_at: '500' },
+          {
+            role: 'assistant',
+            content: 'a1',
+            created_at: '600',
+            metadata: JSON.stringify({
+              usage: { input: 10, output: 5, cacheRead: 2, cacheWrite: 1 },
+              model: 'agnes/agnes-3.0-flash',
+            }),
+          },
+        ],
+      });
+
+      await svc.execute('hello', { sessionId: 'session-1' });
+
+      const seeded = (factory.create as any).mock.calls[0][0].historyMessages as any[];
+      expect(seeded[1].usage).toMatchObject({
+        input: 10,
+        output: 5,
+        cacheRead: 2,
+        cacheWrite: 1,
+        totalTokens: 18,
+      });
+      expect(seeded[1].stopReason).toBe('stop');
+      expect(seeded[1]).toMatchObject({ provider: 'agnes', model: 'agnes-3.0-flash' });
+    });
+
     it('starts empty for a session cleared by /new', async () => {
       const { svc, factory } = buildService({
         rows: [{ role: 'user', content: 'q1', created_at: '500' }],

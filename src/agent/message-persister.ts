@@ -379,16 +379,28 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           const noTcSkillPrefix = noTcSkillLabel
             ? `⚡️ ${noTcSkillLabel}：**${runtime.skillActivatedName}**\n\n`
             : '';
-          if (noTcSkillPrefix && content.trim()) {
-            content = noTcSkillPrefix + content;
+          // Keep the answer body separate from the flat `content` string: the
+          // banner exists only for plain-text rendering (IM channels,
+          // `content` fallbacks), while `segments` renders the card itself.
+          const body = content;
+          if (noTcSkillPrefix && body.trim()) {
+            content = noTcSkillPrefix + body;
           }
           if (content.trim() || noTcSkillPrefix) {
             const meta: Record<string, unknown> = {};
             // Skill activation notification — attached to first assistant message, then cleared
             if (runtime.skillActivatedName) {
               meta.skill_activated = runtime.skillActivatedName;
-              // Add a skill segment so the frontend can render it as a card
-              meta.segments = [{ type: 'skill', name: runtime.skillActivatedName }];
+              // Add a skill segment so the frontend can render it as a card.
+              // The answer body must follow as its own text segment: a
+              // segments array that holds ONLY the skill card makes the UI
+              // render the card and drop every word of the reply, which is
+              // exactly how a streamed answer "disappeared" after the
+              // post-turn refetch replaced it with the persisted row.
+              meta.segments = [
+                { type: 'skill', name: runtime.skillActivatedName },
+                ...(body.trim() ? [{ type: 'text', content: body }] : []),
+              ];
               runtime.skillActivatedName = undefined;
             }
             const errMsg = (msg as { errorMessage?: string }).errorMessage;

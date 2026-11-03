@@ -144,6 +144,58 @@ interface HistoryItem {
   role: string;
   content: string | Array<{ type: string; text?: string }>;
   timestamp: number;
+  /**
+   * Assistant rows are handed to pi-mono as `AgentMessage`s, so they must carry
+   * the fields its context accounting reads. `estimateContextTokens` calls
+   * `calculateContextTokens(assistant.usage)` unguarded, and a restored row
+   * without `usage` therefore failed the FIRST model call of every cold session
+   * with "Cannot read properties of undefined (reading 'totalTokens')" — once
+   * per model attempt, so the fallback chain burned through every model with the
+   * same error and the turn produced an empty reply.
+   */
+  usage?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  };
+  stopReason?: string;
+  errorMessage?: string;
+  provider?: string;
+  model?: string;
+}
+
+/** Zero-cost usage block for a restored assistant row, from its persisted counters. */
+function restoredUsage(meta: Record<string, any>): NonNullable<HistoryItem['usage']> {
+  const raw = meta?.usage ?? {};
+  const input = Number(raw.input) || 0;
+  const output = Number(raw.output) || 0;
+  const cacheRead = Number(raw.cacheRead) || 0;
+  const cacheWrite = Number(raw.cacheWrite) || 0;
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens: input + output + cacheRead + cacheWrite,
+    // Cost is not persisted per turn — it is not an input to any context or
+    // routing decision, and a fabricated number would be worse than zero.
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
+
+/**
+ * Split a qualified `provider/model` ref from persisted metadata.
+ *
+ * The model half may itself contain slashes (`nvidia/deepseek-ai/...`), so the
+ * first separator is the only one that carries meaning.
+ */
+function splitModelRef(ref: string): { provider?: string; model?: string } {
+  const slash = ref.indexOf('/');
+  if (slash <= 0 || slash === ref.length - 1) return { model: ref };
+  return { provider: ref.slice(0, slash), model: ref.slice(slash + 1) };
 }
 
 /**
@@ -202,21 +254,30 @@ function historyRowToItem(
   const timestamp = parseEpochMs(row.created_at);
   if (row.role !== 'assistant') return { role: row.role, content: row.content, timestamp };
 
-  const fallback: HistoryItem = {
-    role: 'assistant',
-    content: [{ type: 'text', text: row.content }],
-    timestamp,
-  };
-
   let meta: Record<string, any> = {};
   try {
     meta = row.metadata ? JSON.parse(row.metadata) : {};
   } catch {
-    return fallback;
+    meta = {};
   }
+  // Fields every restored assistant row carries, whatever its shape. A
+  // persisted row is a transcript record, not a live stream result: `stop`
+  // (or `error` when the row holds a failed turn) is the honest reason a
+  // generation ended, and `error` rows are skipped by the context estimator.
+  const assistantMeta = typeof meta.model === 'string' ? splitModelRef(meta.model) : {};
+  const restored: HistoryItem = {
+    role: 'assistant',
+    content: [{ type: 'text', text: row.content }],
+    timestamp,
+    usage: restoredUsage(meta),
+    stopReason: meta.error ? 'error' : 'stop',
+    ...(typeof meta.error?.rawError === 'string' ? { errorMessage: meta.error.rawError } : {}),
+    ...assistantMeta,
+  };
+
   const segments = meta.segments;
   const calls = meta.tool_calls;
-  if (!Array.isArray(segments) || !Array.isArray(calls) || calls.length === 0) return fallback;
+  if (!Array.isArray(segments) || !Array.isArray(calls) || calls.length === 0) return restored;
 
   const callsById = new Map<string, { name?: string; arguments?: unknown }>(
     calls.filter((c: any) => c && typeof c.id === 'string').map((c: any) => [c.id, c]),
@@ -252,7 +313,7 @@ function historyRowToItem(
     traces++;
     blocks.push({ type: 'text', text: formatToolTrace({}, turnRuns[runIndex]) });
   }
-  return blocks.length > 0 ? { role: 'assistant', content: blocks, timestamp } : fallback;
+  return blocks.length > 0 ? { ...restored, content: blocks } : restored;
 }
 
 /**

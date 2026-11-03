@@ -115,4 +115,33 @@ describe('persistMessages counter semantics', () => {
     } as never);
     expect(rows.map((r) => r.content)).toEqual(['a1', 'q2', 'a2']);
   });
+
+  it('keeps the answer as a text segment when a skill is activated without tool calls', async () => {
+    // A segments array holding only the skill card makes the WebUI render the
+    // card and drop the reply — the streamed answer then "disappears" once the
+    // post-turn refetch swaps in the persisted row.
+    const { rows, repo } = setup();
+    await persistMessages({
+      agent: makeAgent([userMsg('调研一下'), assistantMsg('这是调研结论')]),
+      sessionKey: 's-skill',
+      runtime: { persistedMessageCount: 1, skillActivatedName: 'Researcher' },
+      messageRepository: repo,
+      logger: makeLogger(),
+      ensureSession: () => {},
+    } as never);
+
+    const assistant = rows.find((r) => r.role === 'assistant')!;
+    const meta = JSON.parse(String(assistant.metadata)) as {
+      segments?: unknown[];
+      skill_activated?: string;
+    };
+    expect(meta.skill_activated).toBe('Researcher');
+    expect(meta.segments).toEqual([
+      { type: 'skill', name: 'Researcher' },
+      { type: 'text', content: '这是调研结论' },
+    ]);
+    // Flat content keeps the banner for channels that render text only.
+    expect(assistant.content).toContain('这是调研结论');
+    expect(assistant.content.startsWith('⚡️')).toBe(true);
+  });
 });
