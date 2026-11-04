@@ -19,6 +19,7 @@ import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { copyTextToClipboard } from '../../utils/clipboard';
+import MarkdownCodeBlock from '../ui/MarkdownCodeBlock';
 import MarkdownTable from '../ui/MarkdownTable';
 import type { Note, NoteChannel, NoteSource } from './types';
 
@@ -183,46 +184,6 @@ export function relativeTime(ts: number, language: string): string {
   return rtf.format(Math.round(diff / 1000), 'second');
 }
 
-/** Pull the raw text out of a React subtree, so `pre` can copy its own source. */
-function toText(node: ReactNode): string {
-  if (node == null || typeof node === 'boolean') return '';
-  if (typeof node === 'string' || typeof node === 'number') return String(node);
-  if (Array.isArray(node)) return node.map(toText).join('');
-  if (typeof node === 'object' && 'props' in (node as never)) {
-    const props = (node as { props?: { children?: ReactNode } }).props;
-    return toText(props?.children);
-  }
-  return '';
-}
-
-function CopyButton({ value }: { value: string }) {
-  const { t } = useTranslation('common');
-  const [copied, setCopied] = useState(false);
-  // `copyTextToClipboard`, not `navigator.clipboard`: over the LAN the app is served on
-  // plain HTTP, where the Clipboard API is missing and the old call threw into an empty
-  // catch — the button was clickable and did nothing (see `utils/clipboard.ts`).
-  const copy = useCallback(async () => {
-    if (!(await copyTextToClipboard(value))) return;
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  }, [value]);
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      title={t('notes.copy')}
-      aria-label={t('notes.copy')}
-      // Visible without hover below `sm`: a phone has no pointer to hover with, and a
-      // copy control that only exists on hover does not exist on touch at all. The
-      // colours follow the block: light grey behind it in light mode, terminal black in
-      // dark, so the two sets are inverted rather than one white-on-dark pair.
-      className="absolute right-2 top-2 rounded-md border border-neutral-300 bg-white/80 p-1 text-neutral-500 opacity-100 transition-opacity hover:bg-white hover:text-neutral-800 focus:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 dark:border-white/20 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/20 dark:hover:text-white"
-    >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-    </button>
-  );
-}
-
 /**
  * Note body. Markdown is the authoritative field (`body`), so it renders through
  * the same `.markdown-content` styles the chat bubble uses, plus a copy button
@@ -232,18 +193,15 @@ export function NoteBody({ body }: { body: string }) {
   const components = useMemo(
     () => ({
       pre: ({ children }: { children?: ReactNode }) => (
-        <div className="group relative my-2">
-          {/* Colours live in index.css (`.markdown-content pre.oma-code-block`):
-              `.markdown-content pre` sets its own background at a specificity a
-              Tailwind utility cannot beat, and the block has a light-mode tone and a
-              dark-mode tone rather than one inline pair for both. */}
-          <pre className="oma-code-block overflow-x-auto rounded-lg p-3 text-[12px] leading-relaxed">
-            {children}
-          </pre>
-          {/* The newline before the closing fence is markdown syntax, not part of the
-              command: `pnpm dev\n` pasted into a shell runs one extra empty line. */}
-          <CopyButton value={toText(children).replace(/(?:\r?\n)+$/, '')} />
-        </div>
+        <MarkdownCodeBlock
+          // The colours live in index.css (`.markdown-content pre.oma-code-block`):
+          // `.markdown-content pre` sets its own background at a specificity a
+          // Tailwind utility cannot beat, and the block has a light-mode tone and a
+          // dark-mode tone rather than one pair for both.
+          preClassName="oma-code-block overflow-x-auto rounded-lg p-3 text-[12px] leading-relaxed"
+        >
+          {children}
+        </MarkdownCodeBlock>
       ),
       // Wrapped so a table with more columns than the card is wide scrolls inside the
       // body instead of widening the whole notes pane.

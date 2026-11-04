@@ -11,6 +11,7 @@ import HarnessImprovementCard from './HarnessImprovementCard';
 import { apiRequest, getToken } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
+import MarkdownCodeBlock from '../ui/MarkdownCodeBlock';
 import MarkdownTable from '../ui/MarkdownTable';
 import { useTranslation } from 'react-i18next';
 import { isChatMediaUrl } from '../../utils/chatMedia';
@@ -224,7 +225,11 @@ function MessageBubble({ message, readOnly }: MessageBubbleProps) {
 
   // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
-    // Scrolls inside the bubble: a wide table used to widen the whole message column.
+    // Both wrappers exist for the same reason: what the bubble renders has to scroll
+    // (or be copied) inside the bubble instead of pushing the message column around.
+    // Chat keeps the shared `.markdown-content pre` colours — a code block in a
+    // conversation is a block of text, not a terminal panel.
+    pre: MarkdownCodeBlock,
     table: MarkdownTable,
     img: ({ src, alt, ...props }: any) => {
       // Only gateway-served images render inline. External image links (e.g.
