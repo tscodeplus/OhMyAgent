@@ -553,6 +553,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // card is where a draft is judged, and a verbatim drop needs the same
         // decision (approve it, edit it, or let the agent tidy it up).
         if (response.notes[0]) setDraftCardId(response.notes[0].id);
+        // The badge reads `counts.draft`, which is the server's tally as of the last
+        // refetch — so without this the ball claimed "0 pending" for a draft that was
+        // sitting right there, most visibly after the card was dismissed and the
+        // queue was the only place left to find it. The overlay above holds the row
+        // for rendering; it deliberately does not invent a count (see `drafts`).
+        void refresh();
         return {
           ok: true,
           notes: response.notes,

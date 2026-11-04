@@ -1668,6 +1668,8 @@
       "regenerate": "Another take",
       "discard": "Delete",
       "tidy": "Let the agent tidy it",
+      "expand": "Read full size",
+      "collapse": "Collapse",
       "group": "{{count}} in total"
     },
     "capture": {

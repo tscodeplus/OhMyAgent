@@ -49,13 +49,16 @@
  * A capture that produces several notes shows **one** card, so the card says how
  * many there were: the rest are already in the drafts view, and a single card with
  * no count reads as "one note was kept".
+ *
+ * The card itself lives in `DraftCard.tsx` — it grew a second, full-height layout,
+ * and it no longer retracts on a timer: a review card that vanishes while it is
+ * being read is a card nobody approves.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Check,
   EyeOff,
   Inbox,
   Loader2,
@@ -63,7 +66,6 @@ import {
   NotebookPen,
   Plus,
   Quote,
-  RefreshCw,
   Sparkles,
   Square,
   Wand2,
@@ -72,11 +74,9 @@ import {
 import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import { useNotes } from './NotesContext';
-import { FacetRow, relativeTime } from './NoteBits';
+import DraftCard from './DraftCard';
 import { useBallPlacement } from './useBallPlacement';
 
-/** How long the review card stays before it retracts. The draft itself never expires. */
-const CARD_AUTO_HIDE_MS = 30_000;
 /** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
 const BALL_HEIGHT = 56;
 const BALL_HEIGHT_COMPACT = 28;
@@ -177,6 +177,30 @@ export default function NotesFloatingBall() {
   const ballTop = viewportHeight - Number(placement.style.bottom) - ballHeight;
   const stackDown = viewportHeight - ballTop - ballHeight > ballTop;
 
+  /**
+   * How tall the review card may be, in px, measured off the ball it hangs from.
+   *
+   * A `dvh` cap is not enough. The ball is anchored above the composer, so on a tall
+   * window with a multiline composer its `bottom` alone can be a couple of hundred
+   * px; `56dvh` plus the card's own header and verb row then reached past the top of
+   * the viewport, and the card opened with its top border and its close button
+   * off-screen — on a large monitor, a card that looks undismissable. The ceiling is
+   * therefore the room the card really has: above the ball when the stack opens up,
+   * below it when it opens down (see `stackDown`), minus the stack's own gap.
+   *
+   * The `0.62` is not a safety margin but a preference: on a tall display the room is
+   * large enough to hide the conversation behind the card, which is not what a
+   * review card is for.
+   */
+  const cardMaxHeight = useMemo(() => {
+    // `gap-2` on the stack below, plus 8px of breathing room at the viewport edge:
+    // without it the card starts flush against the top of a short window, which
+    // reads as clipped even when it is not.
+    const gap = 16;
+    const room = stackDown ? viewportHeight - (ballTop + ballHeight) - gap : ballTop - gap;
+    return Math.max(120, Math.min(room, Math.round(viewportHeight * 0.62)));
+  }, [stackDown, viewportHeight, ballTop, ballHeight]);
+
   // Click outside closes the menu; Esc closes whichever layer is topmost.
   useEffect(() => {
     if (!menuOpen) return;
@@ -207,12 +231,6 @@ export default function NotesFloatingBall() {
       window.removeEventListener('keyup', sync);
     };
   }, [dropHover]);
-
-  useEffect(() => {
-    if (!draftCardId) return;
-    const timer = window.setTimeout(dismissDraftCard, CARD_AUTO_HIDE_MS);
-    return () => window.clearTimeout(timer);
-  }, [draftCardId, dismissDraftCard]);
 
   /**
    * What to say when a capture produced no card.
@@ -257,7 +275,20 @@ export default function NotesFloatingBall() {
     const timer = window.setTimeout(() => setNotice(null), NOTICE_AUTO_HIDE_MS);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  const draft = drafts.find((item) => item.id === draftCardId) ?? null;
+  /**
+   * The draft the card is showing — if it still belongs to the conversation on
+   * screen.
+   *
+   * The card no longer retracts on a timer (see `DraftCard`), so without this it
+   * would follow the user into whichever conversation they opened next and stand in
+   * front of a transcript its draft never came from. The badge still counts it and
+   * the drafts view still lists it, so nothing is lost by not drawing it here.
+   */
+  const draft =
+    drafts.find(
+      (item) =>
+        item.id === draftCardId && (!item.sessionId || !sessionId || item.sessionId === sessionId),
+    ) ?? null;
 
   /** One place that turns a capture outcome into what the user sees. */
   /**
@@ -514,6 +545,7 @@ export default function NotesFloatingBall() {
             draft={draft}
             groupSize={cardGroup}
             scope={cardScope}
+            maxHeight={cardMaxHeight}
             storeError={error}
             onSave={() => saveDraft(draft.id)}
             onEdit={() => {
@@ -821,178 +853,5 @@ function MenuItem({
         </span>
       )}
     </button>
-  );
-}
-
-/**
- * The review card. It appears at the end of a capture instead of a modal: the
- * user's attention is already in the conversation, and a dialog would demand a
- * decision before the next sentence.
- */
-function DraftCard({
-  draft,
-  groupSize,
-  scope,
-  storeError,
-  onSave,
-  onEdit,
-  onRegenerate,
-  onDiscard,
-  onClose,
-}: {
-  draft: NonNullable<ReturnType<typeof useNotes>['drafts'][number]>;
-  /** How many drafts this capture produced; `> 1` gets a line saying where the rest are. */
-  groupSize: number;
-  /**
-   * The window the draft came from, when it was not the whole conversation. Rendering
-   * it on the card (not in a toast) is deliberate: the toast disappears in five
-   * seconds, and this is information for the decision the card is asking for.
-   */
-  scope: { read: number; dropped: number; head?: number } | null;
-  /**
-   * The store's `error` line at render time.
-   *
-   * A refused write resolves `false` and puts its sentence there (the same line the
-   * notes page prints at the top), so the card explains the refusal with the server's
-   * own words instead of inventing a second vocabulary for it.
-   */
-  storeError: string | null;
-  /** Resolves `false` when the server refused the approval. */
-  onSave: () => Promise<boolean>;
-  onEdit: () => void;
-  onRegenerate: () => void;
-  /** Resolves `false` when the server refused the rejection. */
-  onDiscard: () => Promise<boolean>;
-  onClose: () => void;
-}) {
-  const { t, i18n } = useTranslation('common');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  /**
-   * A write the server refused. The card is deliberately *not* closed on it: a
-   * draft that could not be approved still exists, and closing the card over a red
-   * line the reader never saw is how "approved" and "still a draft" got confused.
-   */
-  const [refused, setRefused] = useState(false);
-
-  const approve = () => {
-    if (saving) return;
-    setRefused(false);
-    setSaving(true);
-    void onSave().then((ok) => {
-      setSaving(false);
-      if (!ok) {
-        setRefused(true);
-        return;
-      }
-      setSaved(true);
-      window.setTimeout(onClose, 600);
-    });
-  };
-
-  const discard = () => {
-    if (saving) return;
-    setRefused(false);
-    setSaving(true);
-    void onDiscard().then((ok) => {
-      setSaving(false);
-      if (!ok) setRefused(true);
-    });
-  };
-
-  return (
-    <div className="pointer-events-auto w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900">
-      <div className="flex items-center gap-1.5 border-b border-neutral-100 px-3 py-2 dark:border-neutral-800">
-        <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-          {t('notes.draftCard.title')}
-        </span>
-        <span className="ml-auto text-[10px] text-neutral-400">
-          {/* The card can only show one draft, and a capture routinely produces two or
-              three. One card with no count reads as "one note was kept". */}
-          {groupSize > 1 && (
-            <span className="mr-1.5">{t('notes.draftCard.group', { count: groupSize })}</span>
-          )}
-          {relativeTime(draft.updatedAt, i18n.language)}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('notes.close')}
-          className="rounded p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* The card is a preview of something editable: tapping the text opens the
-          editor, because reading a draft is usually the first step of fixing it.
-          The buttons below stay separate so approving is never a mis-tap. */}
-      <button
-        type="button"
-        onClick={onEdit}
-        className="block w-full px-3 py-2 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
-        title={t('notes.draftCard.edit')}
-      >
-        <p className="text-[13px] font-medium leading-snug text-neutral-900 dark:text-neutral-100">
-          {draft.title}
-        </p>
-        {draft.summary && (
-          <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-            {draft.summary}
-          </p>
-        )}
-        {draft.fields[0] && (
-          <pre className="mt-2 overflow-x-auto rounded-md bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100">
-            {draft.fields[0].value}
-          </pre>
-        )}
-        <FacetRow note={draft} className="mt-2" />
-      </button>
-
-      {/* Not on the review card's face but directly under it: the note above may be
-          about the tail of the conversation, and the reviewer decides with that in
-          mind — or opens the note page to write the missing half themselves. */}
-      {scope && (
-        <p className="border-t border-amber-100 bg-amber-50/60 px-3 py-1.5 text-[10.5px] leading-snug text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
-          {scope.head
-            ? t('notes.capture.windowSampled', {
-                head: scope.head,
-                tail: Math.max(scope.read - scope.head, 0),
-                dropped: scope.dropped,
-              })
-            : t('notes.capture.windowTruncated', { read: scope.read, dropped: scope.dropped })}
-        </p>
-      )}
-
-      {refused && storeError && (
-        <p className="border-t border-red-100 bg-red-50/60 px-3 py-1.5 text-[10.5px] leading-snug text-red-700 dark:border-red-900/40 dark:bg-red-900/10 dark:text-red-300">
-          {storeError}
-        </p>
-      )}
-
-      <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
-        <Button size="sm" onClick={approve} loading={saving} disabled={saved} className="h-7">
-          {saved ? <Check className="h-3.5 w-3.5" /> : null}
-          {t('notes.draftCard.save')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onEdit} className="h-7">
-          {t('notes.draftCard.edit')}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onRegenerate} className="h-7">
-          <RefreshCw className="h-3 w-3" />
-          {/* A draft distilled from the window is re-read; a draft the user dragged
-              in is raw material, so the honest label is "tidy this up". */}
-          {draft.origin === 'user' ? t('notes.draftCard.tidy') : t('notes.draftCard.regenerate')}
-        </Button>
-        <button
-          type="button"
-          onClick={discard}
-          disabled={saving || saved}
-          className="ml-auto rounded-md px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-500/10 dark:hover:text-red-400"
-        >
-          {t('notes.draftCard.discard')}
-        </button>
-      </div>
-    </div>
   );
 }

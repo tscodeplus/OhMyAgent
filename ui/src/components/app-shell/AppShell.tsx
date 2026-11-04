@@ -624,7 +624,10 @@ export default function AppShell() {
               {captionText}
             </span>
           </div>
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* `data-notes-column` is the conversation column, read by the notes review
+            drawer so that expanding a draft card on a wide screen lands on the same
+            rails as the conversation instead of floating over the sidebar. */}
+          <main data-notes-column className="flex min-h-0 min-w-0 flex-1 flex-col">
             <DesktopCaption mac={isMac} text={captionText} />
             <div className="min-h-0 flex-1 overflow-hidden">
               <Outlet />
