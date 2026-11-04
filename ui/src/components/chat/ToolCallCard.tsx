@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Wrench, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import CopyIconButton from '../ui/CopyIconButton';
 import type { ToolCall } from '../../types/session';
 
 interface ToolCallCardProps {
@@ -33,17 +34,31 @@ export default function ToolCallCard({ toolCall }: ToolCallCardProps) {
       </button>
       {expanded && (
         <div className="px-4 py-2 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800/50 text-xs space-y-2">
+          {/* Both blocks get a copy button: the parameters of a `bash` call are the
+              command, and the output is the receipt — a tool card is the one place in a
+              session where the text exists to be pasted somewhere else. */}
           <div>
-            <span className="font-semibold text-neutral-500 dark:text-neutral-400">
-              Parameters:
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-neutral-500 dark:text-neutral-400">
+                Parameters:
+              </span>
+              <CopyIconButton
+                value={JSON.stringify(toolCall.arguments, null, 2)}
+                className="ml-auto"
+              />
+            </div>
             <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">
               {JSON.stringify(toolCall.arguments, null, 2)}
             </pre>
           </div>
           {toolCall.output && (
             <div>
-              <span className="font-semibold text-neutral-500 dark:text-neutral-400">Output:</span>
+              <div className="flex items-center gap-1">
+                <span className="font-semibold text-neutral-500 dark:text-neutral-400">
+                  Output:
+                </span>
+                <CopyIconButton value={toolCall.output} className="ml-auto" />
+              </div>
               <pre className="mt-1 whitespace-pre-wrap text-neutral-900 dark:text-neutral-100">
                 {toolCall.output}
               </pre>

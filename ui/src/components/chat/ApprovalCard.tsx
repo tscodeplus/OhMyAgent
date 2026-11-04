@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, Check, Star, X } from 'lucide-react';
 import Button from '../ui/Button';
+import CopyIconButton from '../ui/CopyIconButton';
 
 export type ApprovalDecision =
   'approve_once' | 'approve_session' | 'approve_always' | 'reject_once';
@@ -93,9 +94,15 @@ export default function ApprovalCard({
           {t('chat.approvalRequest')}: {toolName}
         </span>
       </div>
-      <pre className="text-xs mb-2 whitespace-pre-wrap bg-black/10 rounded px-2 py-1">
-        {commandText}
-      </pre>
+      {/* The command being approved is the thing the reader may want to run (or hand to
+          someone else), so it gets the same copy control the transcript's code blocks
+          have; `pr-8` keeps the text out from under it. */}
+      <div className="relative mb-2">
+        <pre className="text-xs whitespace-pre-wrap rounded bg-black/10 px-2 py-1 pr-8">
+          {commandText}
+        </pre>
+        <CopyIconButton value={commandText} className="absolute right-1 top-1" />
+      </div>
       {reason && <p className="text-xs mb-3">{reason}</p>}
       <div className="flex flex-wrap gap-1.5 sm:gap-2">
         {(
