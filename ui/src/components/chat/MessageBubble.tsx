@@ -11,6 +11,7 @@ import HarnessImprovementCard from './HarnessImprovementCard';
 import { apiRequest, getToken } from '../../utils/api';
 import { isElectron, getElectronAPI } from '../../utils/env';
 import { useToast } from '../ui/Toast';
+import MarkdownTable from '../ui/MarkdownTable';
 import { useTranslation } from 'react-i18next';
 import { isChatMediaUrl } from '../../utils/chatMedia';
 
@@ -223,6 +224,8 @@ function MessageBubble({ message, readOnly }: MessageBubbleProps) {
 
   // Custom markdown rendering: desktop-bridge links → download buttons, images → constrained size
   const markdownComponents = {
+    // Scrolls inside the bubble: a wide table used to widen the whole message column.
+    table: MarkdownTable,
     img: ({ src, alt, ...props }: any) => {
       // Only gateway-served images render inline. External image links (e.g.
       // scraped into web_search result snippets) would otherwise flood the

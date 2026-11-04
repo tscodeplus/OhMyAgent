@@ -5,6 +5,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Button from '../ui/Button';
 import Textarea from '../ui/Textarea';
+import MarkdownTable from '../ui/MarkdownTable';
+
+/** Module-level, so a re-render does not hand ReactMarkdown a new components object. */
+const markdownComponents = { table: MarkdownTable };
 
 export type HarnessDecision = 'approve' | 'reject' | 'ignore' | 'edit_submit';
 
@@ -191,7 +195,9 @@ export default function HarnessImprovementCard({
         {/* Detail (markdown rendered) */}
         {proposal.detail && (
           <div className="text-sm text-neutral-600 dark:text-neutral-400 markdown-content prose prose-sm max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{proposal.detail}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {proposal.detail}
+            </ReactMarkdown>
           </div>
         )}
 

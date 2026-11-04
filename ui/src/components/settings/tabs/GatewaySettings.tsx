@@ -144,7 +144,9 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
 
   // ── Copy to clipboard (token / access URLs) ──
   const handleCopy = useCallback(async (key: string, text: string) => {
-    await copyTextToClipboard(text);
+    // `false` means the browser refused both the API and the textarea fallback — do not
+    // print "已复制" over a clipboard that is still holding the previous value.
+    if (!(await copyTextToClipboard(text))) return;
     setCopiedKey(key);
     setTimeout(() => setCopiedKey((cur) => (cur === key ? null : cur)), 2000);
   }, []);

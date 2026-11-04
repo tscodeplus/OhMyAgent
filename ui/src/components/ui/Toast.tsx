@@ -10,6 +10,10 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import MarkdownTable from './MarkdownTable';
+
+/** Module-level, so a re-render does not hand ReactMarkdown a new components object. */
+const markdownComponents = { table: MarkdownTable };
 
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
@@ -144,7 +148,9 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: () => void }) 
         <Icon size={18} className={`shrink-0 mt-0.5 ${ic}`} />
         {toast.markdown ? (
           <div className="text-sm flex-1 leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words markdown-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{toast.message}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {toast.message}
+            </ReactMarkdown>
           </div>
         ) : (
           <span className="text-sm flex-1 whitespace-pre-wrap leading-snug text-neutral-900 dark:text-neutral-100 max-h-[55vh] overflow-y-auto break-words">

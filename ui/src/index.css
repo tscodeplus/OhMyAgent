@@ -232,7 +232,15 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   background: #e5e5e5;
 }
 html.dark .markdown-content code {
-  background: var(--color-neutral-800);
+  /* Was `var(--color-neutral-800)` — the same fill as the user bubble, so an inline
+     code chip inside a user message had no visible edge at all. A translucent grey
+     reads as a chip on every dark surface the app renders text on. */
+  background: rgba(110, 118, 129, 0.4);
+}
+html.dark .markdown-content pre code {
+  /* The dark inline-code rule above outranks the shared `.markdown-content pre code`
+     reset, which would otherwise paint a chip inside every fenced block. */
+  background: none;
 }
 .markdown-content pre {
   padding: 0.75rem;
@@ -240,26 +248,66 @@ html.dark .markdown-content code {
   overflow-x: auto;
   margin: 0.5rem 0;
   background: #e5e5e5;
+  /* A hairline rather than a shade: in dark mode the block's fill and the user
+     bubble's fill are the same neutral-800, so without an edge a code block reads
+     as ordinary paragraph text. */
+  border: 1px solid #d4d4d4;
 }
 html.dark .markdown-content pre {
   background: var(--color-neutral-800);
+  border-color: var(--color-neutral-700);
 }
 .markdown-content pre code {
   background: none;
   padding: 0;
 }
+/* The notes code block: paper in light mode, a terminal in dark. A note about a
+   command is read at a desk as often as it is run from a phone, and a black slab on
+   a white page is the one thing on that page that cannot be read comfortably.
+   Declared as a class because a Tailwind `bg-*` utility loses to
+   `.markdown-content pre`'s own background at the same specificity. */
+.markdown-content pre.oma-code-block {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-800);
+}
+html.dark .markdown-content pre.oma-code-block {
+  /* Dark is deliberately unchanged: #1c1c1c is darker than the neutral-800 the
+     shared rule uses, which is what makes a command stand out in a dark card. */
+  background: #1c1c1c;
+  color: #f5f5f5;
+}
 .markdown-content blockquote {
   border-left: 2px solid #2563eb;
   padding-left: 0.75rem;
   margin: 0.375rem 0;
-  color: #737373;
+  /* Was #737373: 4.3:1 on the notes card fill, under AA for 14px text. */
+  color: #525252;
   font-size: 0.875rem;
+}
+html.dark .markdown-content blockquote {
+  /* #737373 on #161b22 is 4.47:1 — the dimmest text in a dark bubble, and it is
+     still body copy. */
+  color: var(--color-neutral-400);
 }
 .markdown-content table {
   width: 100%;
   border-collapse: collapse;
   margin: 0.5rem 0;
   font-size: 0.8125rem;
+}
+/* The scroller `MarkdownTable` puts around every rendered table. The table itself keeps
+   `width: 100%`: a table can only be its own scroller by becoming `display: block`,
+   which collapses a two-column table to a ~90px stub, and giving the table
+   `overflow-x` while it stays a table does not clip — the table grows past the card
+   instead. So the wrapper scrolls and the table stays a table. */
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.md-table-scroll > table {
+  width: 100%;
+  margin: 0;
 }
 .markdown-content th,
 .markdown-content td {
@@ -270,6 +318,11 @@ html.dark .markdown-content pre {
 .markdown-content th {
   background: #f5f5f5;
   font-weight: 600;
+  /* The column count, not the length of one cell, is what should push a table wider
+     than the card: a header wrapped to one character per line is a column nobody can
+     scan. Data cells still wrap, so a long path or command does not turn a two-column
+     table into a scroller. */
+  white-space: nowrap;
 }
 html.dark .markdown-content th {
   background: var(--color-neutral-800);
@@ -278,9 +331,39 @@ html.dark .markdown-content th,
 html.dark .markdown-content td {
   border-color: var(--color-neutral-700);
 }
+.markdown-content hr {
+  border: 0;
+  border-top: 1px solid #e5e5e5;
+  margin: 0.75rem 0;
+}
+html.dark .markdown-content hr {
+  border-top-color: var(--color-neutral-700);
+}
+/* remark-gfm renders `- [ ]` as a list item holding a disabled checkbox. Without
+   these rules the bullet marker and the box both render, so one item reads as two
+   markers, and the box keeps the browser's default tone in a dark card. */
+.markdown-content .contains-task-list {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.markdown-content .task-list-item {
+  list-style: none;
+}
+.markdown-content .task-list-item input[type='checkbox'] {
+  margin-right: 0.375rem;
+  accent-color: #2563eb;
+  vertical-align: middle;
+}
+html.dark .markdown-content .task-list-item input[type='checkbox'] {
+  accent-color: #3b82f6;
+}
 .markdown-content a {
   color: #2563eb;
   text-decoration: underline;
+}
+html.dark .markdown-content a {
+  /* blue-600 is 3.35:1 on #161b22 — the least readable text in a dark bubble. */
+  color: #60a5fa;
 }
 .markdown-content img {
   max-width: 100%;

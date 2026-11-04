@@ -24,9 +24,10 @@
  * - **The preview is `NoteBody`**, the renderer the reading view uses, so what
  *   you see while writing is what gets rendered after saving.
  *
- * The toolbar scrolls horizontally instead of wrapping: nine formatting buttons
- * plus two modes do not fit a 414px phone, and a second toolbar row would eat
- * the writing area, which is the point of the panel.
+ * The toolbar is one scrolling row on a phone and wraps into a second row from `sm`
+ * up: sixteen formatting buttons plus two modes do not fit 414px, and a second row
+ * there would eat the writing area, which is the point of the panel — but a strip that
+ * only scrolls hides half of them on a screen that has room to show them.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,14 +35,21 @@ import { useTranslation } from 'react-i18next';
 import {
   Bold,
   Code,
+  Heading1,
   Heading2,
+  Heading3,
+  Image,
   Italic,
   Link2,
   List,
   ListOrdered,
+  ListTodo,
+  Minus,
   Quote,
   Redo2,
   SquareCode,
+  Strikethrough,
+  Table,
   Undo2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -201,8 +209,9 @@ export default function MarkdownEditor({
     [applyValue],
   );
 
-  const prefixLines = useCallback(
-    (prefix: string) => {
+  /** Rewrite the selected lines (whole lines, never mid-line), reusing the undo plumbing. */
+  const rewriteLines = useCallback(
+    (rewrite: (lines: string[]) => string[]) => {
       const el = textareaRef.current;
       if (!el) return;
       const { selectionStart: start, selectionEnd: end, value: text } = el;
@@ -210,13 +219,7 @@ export default function MarkdownEditor({
       const nextBreak = text.indexOf('\n', end);
       const lineEnd = nextBreak === -1 ? text.length : nextBreak;
       const lines = text.slice(lineStart, lineEnd).split('\n');
-      const allPrefixed = lines.every((line) => line.startsWith(prefix));
-      const rewritten = lines
-        .map((line) => {
-          if (allPrefixed) return line.slice(prefix.length);
-          return line.startsWith(prefix) ? line : `${prefix}${line}`;
-        })
-        .join('\n');
+      const rewritten = rewrite(lines).join('\n');
       applyValue(
         text.slice(0, lineStart) + rewritten + text.slice(lineEnd),
         lineStart,
@@ -226,15 +229,83 @@ export default function MarkdownEditor({
     [applyValue],
   );
 
+  const prefixLines = useCallback(
+    (prefix: string) =>
+      rewriteLines((lines) => {
+        const allPrefixed = lines.every((line) => line.startsWith(prefix));
+        return lines.map((line) => {
+          if (allPrefixed) return line.slice(prefix.length);
+          return line.startsWith(prefix) ? line : `${prefix}${line}`;
+        });
+      }),
+    [rewriteLines],
+  );
+
+  /**
+   * One toggle per heading level, replacing any existing marker: a button that only
+   * prepended would turn `## 标题` into `### ## 标题` when someone changes the level,
+   * and a second press on the same level has to mean "no heading".
+   */
+  const toggleHeading = useCallback(
+    (level: number) =>
+      rewriteLines((lines) => {
+        const atLevel = lines.every((line) => new RegExp(`^#{${level}}(?!#)\\s`).test(line));
+        return lines.map((line) => {
+          const bare = line.replace(/^#{1,6}\s+/, '');
+          return atLevel ? bare : `${'#'.repeat(level)} ${bare}`;
+        });
+      }),
+    [rewriteLines],
+  );
+
+  /** `- [ ]` rows; an existing `- item` becomes a task instead of `- [ ] - item`. */
+  const taskList = useCallback(
+    () =>
+      rewriteLines((lines) => {
+        const allTasks = lines.every((line) => /^\s*[-*] \[[ xX]\] /.test(line));
+        return lines.map((line) => {
+          const bare = line.replace(/^\s*[-*] \[[ xX]\] /, '').replace(/^\s*[-*] /, '');
+          return allTasks ? bare : `- [ ] ${bare}`;
+        });
+      }),
+    [rewriteLines],
+  );
+
+  /**
+   * Insert a whole block on lines of its own, then leave a selection `length` long at
+   * `offset`. One helper for fences, tables and rules: each is nonsense glued to the
+   * middle of a paragraph, and each needs the caret left somewhere specific — inside
+   * the fence, in the first header cell, after the rule.
+   */
+  const insertBlock = useCallback(
+    (rawBlock: string, offset: number, length: number) => {
+      const el = textareaRef.current;
+      if (!el) return;
+      const { selectionStart: start, selectionEnd: end, value: text } = el;
+      const lead = start > 0 && text[start - 1] !== '\n' ? '\n' : '';
+      const block = `${rawBlock.replace(/\n+$/, '')}\n`;
+      const tail = end < text.length && text[end] !== '\n' ? '\n' : '';
+      const at = start + lead.length + offset;
+      applyValue(text.slice(0, start) + lead + block + tail + text.slice(end), at, at + length);
+    },
+    [applyValue],
+  );
+
   const fence = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
-    const { selectionStart: start, selectionEnd: end, value: text } = el;
-    const selected = text.slice(start, end);
-    const block = selected ? `\`\`\`\n${selected}\n\`\`\`\n` : '```\n\n```\n';
-    const caret = selected ? start + block.length : start + 4;
-    applyValue(text.slice(0, start) + block + text.slice(end), caret, caret);
-  }, [applyValue]);
+    const selected = el.value.slice(el.selectionStart, el.selectionEnd);
+    // Four characters in is the fence's first body line: the one the user types on.
+    insertBlock(selected ? `\`\`\`\n${selected}\n\`\`\`` : '```\n\n```', 4, selected.length);
+  }, [insertBlock]);
+
+  const insertTable = useCallback(() => {
+    const head = t('notes.editor.tableHeader');
+    // Select the first header cell: a template nobody can type over is not a template.
+    insertBlock(`| ${head} 1 | ${head} 2 |\n| --- | --- |\n|  |  |`, 2, `${head} 1`.length);
+  }, [insertBlock, t]);
+
+  const insertDivider = useCallback(() => insertBlock('---', 4, 0), [insertBlock]);
 
   const insertLink = useCallback(() => {
     const el = textareaRef.current;
@@ -256,6 +327,17 @@ export default function MarkdownEditor({
     }
   }, [applyValue, t]);
 
+  /** `![alt](url)`: the alt text is selected, for the same reason `insertLink` selects it. */
+  const insertImage = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const { selectionStart: start, selectionEnd: end, value: text } = el;
+    const alt = text.slice(start, end) || t('notes.editor.imageText');
+    const snippet = `![${alt}](https://)`;
+    const from = start + 2;
+    applyValue(text.slice(0, start) + snippet + text.slice(end), from, from + alt.length);
+  }, [applyValue, t]);
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
     const key = event.key.toLowerCase();
@@ -275,19 +357,33 @@ export default function MarkdownEditor({
     } else if (key === 'k') {
       event.preventDefault();
       insertLink();
+    } else if (key === 'e') {
+      event.preventDefault();
+      wrap('`', '`');
+    } else if (key === 'x' && event.shiftKey) {
+      // The markdown editors people already use put strikethrough here.
+      event.preventDefault();
+      wrap('~~', '~~');
     }
   };
 
   const tools = [
     { icon: Bold, label: t('notes.editor.bold'), run: () => wrap('**', '**') },
     { icon: Italic, label: t('notes.editor.italic'), run: () => wrap('*', '*') },
+    { icon: Strikethrough, label: t('notes.editor.strike'), run: () => wrap('~~', '~~') },
     { icon: Code, label: t('notes.editor.inlineCode'), run: () => wrap('`', '`') },
-    { icon: Heading2, label: t('notes.editor.heading'), run: () => prefixLines('## ') },
+    { icon: Heading1, label: t('notes.editor.heading1'), run: () => toggleHeading(1) },
+    { icon: Heading2, label: t('notes.editor.heading2'), run: () => toggleHeading(2) },
+    { icon: Heading3, label: t('notes.editor.heading3'), run: () => toggleHeading(3) },
     { icon: List, label: t('notes.editor.bulletList'), run: () => prefixLines('- ') },
     { icon: ListOrdered, label: t('notes.editor.orderedList'), run: () => prefixLines('1. ') },
+    { icon: ListTodo, label: t('notes.editor.taskList'), run: taskList },
     { icon: Quote, label: t('notes.editor.quote'), run: () => prefixLines('> ') },
     { icon: SquareCode, label: t('notes.editor.codeBlock'), run: fence },
     { icon: Link2, label: t('notes.editor.link'), run: insertLink },
+    { icon: Image, label: t('notes.editor.image'), run: insertImage },
+    { icon: Table, label: t('notes.editor.table'), run: insertTable },
+    { icon: Minus, label: t('notes.editor.horizontalRule'), run: insertDivider },
   ];
 
   return (
@@ -311,14 +407,15 @@ export default function MarkdownEditor({
         </div>
 
         <div className="relative min-w-0 flex-1">
-          <div className="flex items-center gap-0.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-0.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
             {tools.map(({ icon: Icon, label, run }) => (
               <ToolButton key={label} icon={Icon} label={label} onClick={run} />
             ))}
           </div>
           {/* The fade is the only hint that there are more buttons to the right;
-              a strip clipped mid-icon reads as broken rather than scrollable. */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-neutral-50/95 to-transparent dark:from-neutral-900/95" />
+              a strip clipped mid-icon reads as broken rather than scrollable. It is
+              pointless once the bar wraps, where every button is on screen. */}
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-neutral-50/95 to-transparent sm:hidden dark:from-neutral-900/95" />
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5 border-l border-neutral-200 pl-1 dark:border-neutral-800">

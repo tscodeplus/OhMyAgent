@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Copy, Check } from 'lucide-react';
 import Button from '../ui/Button';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface DeviceCodeModalProps {
   providerName: string;
@@ -22,13 +23,11 @@ export default function DeviceCodeModal({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(userCode);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback: select the text
-    }
+    // Same path the rest of the app uses: `navigator.clipboard` is missing on the
+    // plain-HTTP LAN origin, where the raw call used to throw into an empty catch.
+    if (!(await copyTextToClipboard(userCode))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, [userCode]);
 
   const handleOpenUrl = useCallback(() => {
