@@ -80,8 +80,29 @@ import { useBallPlacement } from './useBallPlacement';
 /** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
 const BALL_HEIGHT = 56;
 const BALL_HEIGHT_COMPACT = 28;
-/** How long a "nothing worth keeping" notice stays; long enough to read, short enough to ignore. */
-const NOTICE_AUTO_HIDE_MS = 8_000;
+
+/**
+ * What the server's failure codes say to a person.
+ *
+ * The route answers with a code and an English operator sentence; the notice is
+ * read by the user, so the code picks the wording and the HTTP status is never
+ * printed. An unknown code falls back to the server's sentence, stripped of its
+ * `422: ` prefix — a status number is diagnostic detail, not a message.
+ */
+const CAPTURE_FAILURE_KEYS: Record<string, string> = {
+  no_notes: 'notes.capture.failure.noNotes',
+  invalid: 'notes.capture.failure.invalid',
+  model_failed: 'notes.capture.failure.modelFailed',
+  empty_window: 'notes.capture.failure.emptyWindow',
+  no_session: 'notes.capture.noSession',
+  duplicate: 'notes.capture.duplicate',
+  disabled: 'notes.capture.failure.disabled',
+};
+
+/** Strip a leading `NNN: ` from a server sentence; the code is not the message. */
+function withoutStatus(message: string | undefined): string | undefined {
+  return message?.replace(/^\d{3}:\s*/, '');
+}
 
 export default function NotesFloatingBall() {
   const { t } = useTranslation('common');
@@ -110,6 +131,17 @@ export default function NotesFloatingBall() {
   /** The "tidy this up my way" dialog; `null` when closed. */
   const [instruction, setInstruction] = useState<string | null>(null);
   const [instructionError, setInstructionError] = useState<string | null>(null);
+  /**
+   * The brief in the dialog is being distilled right now.
+   *
+   * The dialog's one button is a toggle — 开始整理 becomes 取消 — so this is also
+   * what decides which verb is on it. Kept local rather than read from `capturing`:
+   * that flag is the whole layer's, and a capture started elsewhere must not
+   * relabel a dialog it knows nothing about.
+   */
+  const [instructionPending, setInstructionPending] = useState(false);
+  /** The controller of the run in flight, so 取消 has something to abort. */
+  const instructionAbort = useRef<AbortController | null>(null);
   /** True while a text selection is hovering the ball as a drop target. */
   const [dropHover, setDropHover] = useState(false);
   /** Alt is held: the release will distil rather than store verbatim. */
@@ -124,6 +156,8 @@ export default function NotesFloatingBall() {
    */
   const [selectionText, setSelectionText] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
+  /** The notice card, so a press elsewhere on the page can dismiss it. */
+  const noticeRef = useRef<HTMLDivElement>(null);
 
   /**
    * Where the ball belongs: a conversation. `/p/*` covers project chats (both
@@ -270,11 +304,25 @@ export default function NotesFloatingBall() {
   } | null>(null);
   // A capture outcome that is not a draft still has to be *said*, or the button
   // looks broken: "nothing worth keeping here" is an answer, not a failure.
+  //
+  // The notice never retires on a timer: it used to, which meant the one sentence
+  // explaining why nothing appeared could vanish while it was being read. It goes
+  // away when its × is pressed, or when the reader presses anywhere else — the
+  // same "click outside dismisses it" every other popover in the app follows.
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(null), NOTICE_AUTO_HIDE_MS);
-    return () => window.clearTimeout(timer);
+    const onPointerDown = (event: MouseEvent) => {
+      if (!noticeRef.current?.contains(event.target as Node)) setNotice(null);
+    };
+    // `mousedown`, like the menu beside it: the press is the dismissal, so a click
+    // that started outside does not land on whatever it happened to end up over.
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
   }, [notice]);
+
+  // Navigating away abandons a brief in flight: the dialog is gone, and a capture
+  // nobody is waiting for would draw its card over a conversation the user left.
+  useEffect(() => () => instructionAbort.current?.abort(), []);
   /**
    * The draft the card is showing — if it still belongs to the conversation on
    * screen.
@@ -309,9 +357,16 @@ export default function NotesFloatingBall() {
     return { read: outcome.readMessages ?? 0, dropped, ...(head > 0 ? { head } : {}) };
   };
 
+  /** The sentence for a failed capture: its code, else the server's own words. */
+  const failureText = (outcome: { code?: string; message?: string }): string => {
+    const key = outcome.code ? CAPTURE_FAILURE_KEYS[outcome.code] : undefined;
+    return key ? t(key) : (withoutStatus(outcome.message) ?? t('notes.capture.failed'));
+  };
+
   const report = (outcome: {
     ok: boolean;
     notes: unknown[];
+    code?: string;
     existingId?: string;
     message?: string;
   }) => {
@@ -319,9 +374,7 @@ export default function NotesFloatingBall() {
     // "Already have it" is the one refusal with somewhere to go, so it is offered as
     // a door: open the note the library already holds under that title.
     setNotice({
-      text: outcome.existingId
-        ? t('notes.capture.duplicate')
-        : (outcome.message ?? t('notes.capture.failed')),
+      text: outcome.existingId ? t('notes.capture.duplicate') : failureText(outcome),
       existingId: outcome.existingId,
       tone: outcome.existingId ? 'info' : 'error',
     });
@@ -353,22 +406,59 @@ export default function NotesFloatingBall() {
     });
   };
 
+  /** Close the brief dialog, ending any run it started. */
+  const closeInstruction = () => {
+    instructionAbort.current?.abort();
+    setInstruction(null);
+    setInstructionError(null);
+  };
+
+  /**
+   * The dialog's one button, in both of its verbs.
+   *
+   * Idle it distils; in flight it cancels. Cancelling aborts the request, which
+   * stops the client from waiting on a distillation the user has walked away from;
+   * the dialog keeps the brief so the same words can be sent again.
+   */
   const submitInstruction = () => {
+    if (instructionPending) {
+      instructionAbort.current?.abort();
+      return;
+    }
     const text = (instruction ?? '').trim();
     if (!text) {
       setInstructionError(t('notes.capture.instructionEmpty'));
       return;
     }
-    void capture({ mode: 'instruction', sessionId, instruction: text }).then((outcome) => {
-      if (outcome.ok) {
-        setCardGroup(outcome.notes.length);
-        setCardScope(scopeOf(outcome));
-        setInstruction(null);
-        setInstructionError(null);
-        return;
-      }
-      setInstructionError(outcome.message ?? t('notes.capture.failed'));
-    });
+    const controller = new AbortController();
+    instructionAbort.current = controller;
+    setInstructionPending(true);
+    setInstructionError(null);
+    void capture({
+      mode: 'instruction',
+      sessionId,
+      instruction: text,
+      signal: controller.signal,
+    })
+      .then((outcome) => {
+        // A cancelled run is not an answer: the user's own stop needs no sentence.
+        if (outcome.canceled) return;
+        if (outcome.ok) {
+          setCardGroup(outcome.notes.length);
+          setCardScope(scopeOf(outcome));
+          // The drafts are on screen as a review card now; a dialog that stays
+          // open next to it asks to be dismissed for no reason.
+          setInstruction(null);
+          setInstructionError(null);
+          return;
+        }
+        // Nothing generated: the brief stays so it can be adjusted and retried.
+        setInstructionError(failureText(outcome));
+      })
+      .finally(() => {
+        if (instructionAbort.current === controller) instructionAbort.current = null;
+        setInstructionPending(false);
+      });
   };
 
   /**
@@ -440,6 +530,7 @@ export default function NotesFloatingBall() {
       >
         {notice && !menuOpen && (
           <div
+            ref={noticeRef}
             role="status"
             className={cn(
               // The same popover surface as the instruction panel and the draft card
@@ -491,7 +582,7 @@ export default function NotesFloatingBall() {
               </span>
               <button
                 type="button"
-                onClick={() => setInstruction(null)}
+                onClick={closeInstruction}
                 aria-label={t('notes.close')}
                 className="ml-auto rounded p-0.5 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               >
@@ -502,10 +593,15 @@ export default function NotesFloatingBall() {
               <textarea
                 autoFocus
                 value={instruction}
+                // The brief is what the run in flight is working from, so it is not
+                // editable until that run ends — cancel first, then change it.
+                disabled={instructionPending}
                 onChange={(event) => setInstruction(event.target.value)}
                 onKeyDown={(event) => {
                   // Enter asks; Shift+Enter is a new line — the same rule as the
-                  // chat composer beside it.
+                  // chat composer beside it. While a run is in flight the key does
+                  // nothing: Enter must not double as the cancel button.
+                  if (instructionPending) return;
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault();
                     submitInstruction();
@@ -513,7 +609,7 @@ export default function NotesFloatingBall() {
                 }}
                 rows={3}
                 placeholder={t('notes.capture.instructionPlaceholder')}
-                className="w-full resize-y rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-[12.5px] leading-relaxed text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
+                className="w-full resize-y rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-[12.5px] leading-relaxed text-neutral-800 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100"
               />
               {instructionError && (
                 <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
@@ -522,16 +618,20 @@ export default function NotesFloatingBall() {
               )}
             </div>
             <div className="flex items-center gap-1 border-t border-neutral-100 px-2 py-1.5 dark:border-neutral-800">
-              <Button size="sm" onClick={submitInstruction} className="h-7">
-                {t('notes.capture.instructionSubmit')}
-              </Button>
+              {/*
+                One button, two verbs, in the spot the cancel button already
+                occupied: 开始整理 sends the brief, and while that runs the same
+                button becomes 取消. Two buttons would mean one of them is dead at
+                any given moment, and a control that changes what it does is worth a
+                label the user can read at a glance.
+              */}
               <Button
                 size="sm"
-                variant="ghost"
-                onClick={() => setInstruction(null)}
+                variant={instructionPending ? 'ghost' : 'primary'}
+                onClick={submitInstruction}
                 className="h-7 ml-auto"
               >
-                {t('notes.cancel')}
+                {t(instructionPending ? 'notes.cancel' : 'notes.capture.instructionSubmit')}
               </Button>
             </div>
           </div>

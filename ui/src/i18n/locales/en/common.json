@@ -1677,6 +1677,13 @@
       "manual": "Write it myself",
       "drafts": "Drafts",
       "failed": "Nothing usable came out of that — write one by hand?",
+      "failure": {
+        "noNotes": "Nothing in this conversation was worth keeping as a note",
+        "invalid": "The distilled answer could not be read, so no note was written",
+        "modelFailed": "Distilling failed (the model call errored) — try again in a moment",
+        "emptyWindow": "This conversation has nothing to distil yet — say a few things first",
+        "disabled": "Notes are switched off"
+      },
       "noSession": "No conversation is open here — capture from a chat",
       "working": "Distilling…",
       "instruction": "Distil notes from your own brief",

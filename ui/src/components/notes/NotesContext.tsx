@@ -65,6 +65,15 @@ export interface CaptureIntent {
   text?: string;
   /** `drop` mode. Defaults to `verbatim` — the user dragged words, not a request. */
   treatment?: CaptureTreatment;
+  /**
+   * Aborts the request behind the capture.
+   *
+   * A distillation runs tens of seconds, and the one dialog that shows a progress
+   * state (the brief dialog) is also the one that has to be able to say stop. The
+   * server does not cancel its own work — a draft may still land later — but the
+   * caller stops waiting for it, which is what the button promises.
+   */
+  signal?: AbortSignal;
 }
 
 /** Filters the page sends; the server owns the actual query. */
@@ -86,8 +95,18 @@ export interface DuplicateRef {
 
 export interface CaptureOutcome {
   ok: boolean;
-  /** Server sentence, already localized server-side; shown as-is. */
+  /**
+   * The server's failure code (`no_notes`, `model_failed`, …).
+   *
+   * The UI owns the sentence, so this — not the wire's English `message` — is what
+   * a notice is translated from. `message` stays as the operator-facing fallback
+   * for a code this build does not know yet.
+   */
+  code?: string;
+  /** Server sentence; only a fallback for a code the UI has no wording for. */
   message?: string;
+  /** The user pressed cancel: an abort, not a failure, so nothing is reported. */
+  canceled?: boolean;
   /** Drafts produced (never active). */
   notes: Note[];
   /** Candidates skipped because the library already holds that title (§5.5). */
@@ -509,6 +528,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       if (!sessionId) {
         return {
           ok: false,
+          code: 'no_session',
           notes: [],
           duplicates: [],
           redacted: 0,
@@ -543,6 +563,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           // One model call, but measured at 30–90s against a remote provider; the
           // 10s default would abandon a capture that is still running server-side.
           timeoutMs: treatment === 'distill' ? 150_000 : 30_000,
+          // Composed with the timeout by `apiRequest`, so a cancel and a timeout
+          // share one controller instead of overwriting each other.
+          signal: intent.signal,
         });
         setCaptured((prev) => [...response.notes, ...prev]);
         // Every new row is the newest row, so it lives on page 1 — the overlay renders
@@ -573,6 +596,11 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         // land a moment later, so refetch before reporting the failure — otherwise
         // the badge stays at 0 while a review is waiting.
         void refresh();
+        // The user pressed cancel: the abort *is* the outcome, and a sentence about
+        // it would be the app arguing with a decision the user just made.
+        if (intent.signal?.aborted) {
+          return { ok: false, canceled: true, notes: [], duplicates: [], redacted: 0 };
+        }
         // "This already exists" is an answer with somewhere to go, so it is lifted out
         // of the error string: the caller links to the row that owns the title instead
         // of telling the user off for pressing a button twice.
@@ -582,6 +610,9 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           : [];
         return {
           ok: false,
+          // The failure codes travel in the response body, and they are the key the
+          // UI translates from — the raw `status: message` string is never shown.
+          code: typeof body?.code === 'string' ? body.code : undefined,
           notes: [],
           duplicates,
           existingId: duplicates[0]?.existingId,
