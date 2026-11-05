@@ -65,7 +65,7 @@ function formatPlanBlocks(content: string, label: string, tr?: (key: string) => 
     }
     return out;
   };
-  return content.replace(/<plan>([\s\S]*?)<\/plan>/g, (_: string, inner: string) => {
+  const renderPlan = (inner: string): string => {
     const trimmed = localize(inner).trim();
     if (!trimmed) return '';
     const lines = trimmed
@@ -73,7 +73,27 @@ function formatPlanBlocks(content: string, label: string, tr?: (key: string) => 
       .map((line) => `> ${line}`)
       .join('\n');
     return `\n\n> 📋 **${label}**\n> \n${lines}\n\n`;
-  });
+  };
+
+  let out = content.replace(/<plan>([\s\S]*?)<\/plan>/g, (_: string, inner: string) =>
+    renderPlan(inner),
+  );
+  // A plan whose closing tag has not arrived yet (still streaming) must render
+  // as a block too — otherwise the opening tag shows up literally, and a
+  // closing tag split as `</plan` (final `>` in the next chunk) is shown as
+  // text instead of closing the block.
+  out = out.replace(/<plan>([\s\S]*)$/, (_: string, inner: string) => renderPlan(inner));
+  // Stray/unbalanced closing tags (no opener left) are noise.
+  out = out.replace(/<\/plan>/g, '');
+  // Dangling partial tag at the very end of a truncated stream: `<pla`, `</pla`…
+  const PARTIAL_TAGS = ['<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</plan'];
+  for (const prefix of PARTIAL_TAGS) {
+    if (out.endsWith(prefix)) {
+      out = out.slice(0, -prefix.length);
+      break;
+    }
+  }
+  return out;
 }
 
 /** Strip file/image reference markdown from user message content so raw

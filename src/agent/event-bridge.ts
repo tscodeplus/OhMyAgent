@@ -11,6 +11,28 @@ import { computeCacheHitRate } from '../channel/usage-summary.js';
 import { i18n } from '../i18n/index.js';
 import { buildFriendlyErrorMessage, qualifyModelRef } from './provider-error.js';
 
+/** Tags whose text must never reach the user verbatim. */
+const THINK_TAGS = ['<think>', '</think>'] as const;
+const PLAN_TAGS = ['<plan>', '</plan>'] as const;
+
+/**
+ * Longest trailing suffix of `text` that is a proper prefix of one of `tags`.
+ *
+ * A streaming delta can end mid-tag (`"…合并成</pl"`). That tail must be held
+ * back until the rest of the tag arrives, otherwise the leftover `</plan`
+ * leaks into the rendered text because the final `>` lands in a later delta.
+ * The longest match wins: `"</plan"` is also a suffix of `"</"`, and picking
+ * the shorter one would emit the already-seen `plan` characters literally.
+ */
+function trailingTagPrefix(text: string, tags: readonly string[]): string {
+  const max = Math.min(text.length, Math.max(...tags.map((t) => t.length)) - 1);
+  for (let len = max; len > 0; len--) {
+    const suffix = text.slice(-len);
+    if (tags.some((tag) => tag.length > len && tag.startsWith(suffix))) return suffix;
+  }
+  return '';
+}
+
 export class EventBridge {
   private unsubscribe?: () => void;
   /** Track nesting depth for <think> blocks across streaming deltas. */
@@ -131,27 +153,19 @@ export class EventBridge {
       break;
     }
 
-    // Buffer the tail in case a <think> / </think> tag is split across deltas
-    const TAG_STARTS = [
-      '<',
-      '</',
-      '<t',
-      '</t',
-      '<th',
-      '</th',
-      '<thi',
-      '</thi',
-      '<thin',
-      '</thin',
-      '<think',
-      '</think',
-    ];
-    for (const prefix of TAG_STARTS) {
-      if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
-        result = result.slice(0, result.length - prefix.length);
-        this.thinkPartial = prefix;
-        break;
+    // Buffer the tail in case a <think> / </think> tag is split across deltas.
+    // Strip it from wherever that tail actually went: inside a think block the
+    // text was appended to thinkBuffer, not to result, so an unconditional
+    // slice of `result` would eat real output characters while the partial tag
+    // stayed buffered and later leaked.
+    const partial = trailingTagPrefix(fullDelta, THINK_TAGS);
+    if (partial) {
+      if (this.thinkDepth > 0 && this.thinkBuffer.endsWith(partial)) {
+        this.thinkBuffer = this.thinkBuffer.slice(0, -partial.length);
+      } else if (result.endsWith(partial)) {
+        result = result.slice(0, -partial.length);
       }
+      this.thinkPartial = partial;
     }
 
     return result;
@@ -248,17 +262,19 @@ export class EventBridge {
     }
 
     // Buffer partial tag prefix in case it's split across deltas.
-    // Check against fullDelta (pre-transformation) but strip from result
-    // (post-transformation) — prefix length is the same either way because
-    // the "\n> " transform only adds bytes before newlines, and tag
-    // prefixes never contain newlines.
-    const TAG_STARTS = ['<', '</', '<p', '</p', '<pl', '</pl', '<pla', '</pla', '<plan', '</plan'];
-    for (const prefix of TAG_STARTS) {
-      if (fullDelta.endsWith(prefix) && fullDelta.length >= prefix.length) {
-        result = result.slice(0, result.length - prefix.length);
-        this.planPartial = prefix;
-        break;
+    // Inside a plan block only complete lines are emitted, so the tail of the
+    // delta is sitting in planLineBuffer — not in `result`. Strip it there;
+    // slicing `result` unconditionally removed real output characters while the
+    // buffered `</plan` fragments re-accumulated and were flushed literally
+    // (`…随后合并成</p</pl</pla</plan`).
+    const partial = trailingTagPrefix(fullDelta, PLAN_TAGS);
+    if (partial) {
+      if (this.planDepth > 0 && this.planLineBuffer.endsWith(partial)) {
+        this.planLineBuffer = this.planLineBuffer.slice(0, -partial.length);
+      } else if (result.endsWith(partial)) {
+        result = result.slice(0, -partial.length);
       }
+      this.planPartial = partial;
     }
 
     return result;

@@ -494,6 +494,45 @@ describe('EventBridge', () => {
     }
   });
 
+  it('never leaks a </plan> tag split across streaming deltas', async () => {
+    bridge.start(agent as any);
+    // The tail `</pl` used to stay in the line buffer while the strip loop
+    // sliced unrelated characters off the emitted output, so the rendered card
+    // ended with `…随后合并成</pl</pla</plan` — the final `>` was missing
+    // because it arrived in a later delta.
+    const text =
+      '<plan>\n### Parallel Strategy\nAll-parallel (independent), then merge</plan>After';
+    for (const ch of text) await emitText(ch);
+    const out = emittedText();
+    expect(out).not.toContain('<');
+    expect(out).not.toContain('</pl');
+    expect(out).toContain('All-parallel (independent), then merge');
+    expect(out.trimEnd().endsWith('After')).toBe(true);
+  });
+
+  it('keeps plan text intact when the close tag is split at every offset', async () => {
+    const text = '<plan>\n### Plan body line\n</plan> tail';
+    const cut = text.indexOf('</plan>');
+    for (let i = 1; i < 7; i++) {
+      // Fresh bridge per split point so per-run filter state stays isolated.
+      dispatcher = createMockDispatcher();
+      bridge = new EventBridge(dispatcher);
+      bridge.start(agent as any);
+      await emitText(text.slice(0, cut + i));
+      await emitText(text.slice(cut + i));
+      const out = emittedText();
+      expect(out).not.toContain('<');
+      expect(out).toContain('### Plan body line');
+      expect(out.trimEnd().endsWith('tail')).toBe(true);
+    }
+  });
+
+  it('never leaks a <think> tag split across streaming deltas', async () => {
+    bridge.start(agent as any);
+    for (const ch of '<think>hidden</think>visible') await emitText(ch);
+    expect(emittedText()).toBe('visible');
+  });
+
   it('leaves plan content unchanged under the en locale', async () => {
     bridge.start(agent as any);
     await emitText('<plan>\n### Subtask Decomposition\n1. Search files\n</plan>');
