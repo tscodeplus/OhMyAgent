@@ -21,7 +21,9 @@
     // (TS6142), so the config has to be able to parse JSX even though nothing
     // here renders it.
     "jsx": "react-jsx",
-    "types": ["node", "vitest/globals"]
+    // `vite/client` is what types `import.meta.env` for the `ui/src` modules a
+    // test pulls in (they are built by Vite, not by this config).
+    "types": ["node", "vitest/globals", "vite/client"]
   },
   "include": ["src/**/*.ts", "extensions/**/*.ts", "tests/**/*.ts"],
   "exclude": [

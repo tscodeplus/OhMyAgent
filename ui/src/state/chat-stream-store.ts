@@ -760,6 +760,11 @@ class SessionStream {
         } else {
           this.beginTurn();
         }
+        // turn_start publishes no bubble, and React reads the snapshot through
+        // a revision cache — without this notification the flag stayed false
+        // in the snapshot and the "thinking…" row never appeared (the first
+        // text_delta that did notify had already cleared the flag again).
+        this.notify();
         break;
 
       case 'skill_activated': {
@@ -772,12 +777,17 @@ class SessionStream {
           // the marker lands after it instead of erasing it.
           this.timeline.beginFragment({ type: 'skill', name: skillName });
           this.emitAssistantUpdate();
+        } else {
+          // No card to publish — still surface the cleared flag (see turn_start).
+          this.notify();
         }
         break;
       }
 
       case 'text_delta': {
         this.timeline.appendText(event.data || '');
+        // Cleared here, rendered by the throttled flush below — same 20fps
+        // budget as the text itself.
         this.thinkingFlag = false;
         this.retryStatusValue = null;
         // Throttled flush: every update re-renders and re-parses the whole
