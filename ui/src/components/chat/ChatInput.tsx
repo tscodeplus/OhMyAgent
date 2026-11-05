@@ -13,23 +13,14 @@ import {
   Brain,
   Settings,
 } from 'lucide-react';
-import { createSSEClient, type SSEEvent } from '../../utils/sse-client';
 import { apiRequest, getToken } from '../../utils/api';
 import Toggle from '../ui/Toggle';
 import { useSettings } from '../../contexts/SettingsContext';
 import { devLog } from '../../utils/logger';
-import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../../utils/chatMedia';
 import { useMediaQuery } from '../../utils/useMediaQuery';
-import type {
-  Message,
-  MessageApproval,
-  UserQuestion,
-  ToolCall,
-  MessageFooter,
-  MessageSegment,
-  MediaSegmentItem,
-  MessageFile,
-} from '../../types/session';
+import { chatStreamStore } from '../../state/chat-stream-store';
+import { useChatSending } from '../../state/useChatStream';
+import type { Message, MessageFile } from '../../types/session';
 
 interface SlashCommand {
   id: string;
@@ -50,25 +41,6 @@ interface ChatInputProps {
    *  the gateway creates a session and navigates to it; the typed text is
    *  auto-sent as the first message via navigation state. */
   onQuickStart?: (text: string) => void;
-  /** Called when new messages arrive (streaming or user).
-   *  Optional second param controls whether previous streaming messages
-   *  are cleared. Default true — pass false for steer/follow-up to
-   *  preserve messages from the current turn. */
-  onMessages?: (messages: Message[], clearPrevious?: boolean) => void;
-  /** Called when a new SSE stream starts (to switch to streaming mode). */
-  onStreamStart?: () => void;
-  /** Called when the gateway starts thinking (turn_start) / stops (first response content). */
-  onThinkingChange?: (thinking: boolean) => void;
-  /** Stream retry/fallback status line (null = clear). Shown while a model
-   *  attempt failed and the gateway is retrying or switching to a fallback. */
-  onRetryStatusChange?: (status: string | null) => void;
-  /** Called when the SSE stream completes (done or error). */
-  onDone?: () => void;
-  /** Called when an assistant turn has fully completed (done/error received).
-   *  The server persists the turn content BEFORE dispatching those events,
-   *  so the parent can prune the local streaming bubble once its refetch
-   *  returns the same content under the server-generated id. */
-  onTurnPersisted?: (assistantMsgId: string) => void;
 }
 
 interface FileUploadItem {
@@ -95,11 +67,6 @@ interface ModelGroup {
 /** Full thinking-level set exposed by the reasoning selector (pi-mono
  *  ThinkingLevel + 'off'). Mirrors the server-side validator in chat-routes. */
 const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-
-const sseClient = createSSEClient();
-
-/** Throttle interval for text_delta → React state updates (~20fps). */
-const DELTA_FLUSH_INTERVAL_MS = 50;
 
 /**
  * Generate a random UUID v4 string. Uses crypto.randomUUID() when available
@@ -128,12 +95,6 @@ export default function ChatInput({
   sessionId,
   centered,
   onQuickStart,
-  onMessages,
-  onStreamStart,
-  onThinkingChange,
-  onRetryStatusChange,
-  onDone,
-  onTurnPersisted,
 }: ChatInputProps) {
   const { t } = useTranslation('common');
   const { openSettings } = useSettings();
@@ -146,40 +107,17 @@ export default function ChatInput({
   // control font-size to 16px. Below md — the same breakpoint the font-size
   // rule uses — show a short one.
   const isCompactViewport = useMediaQuery('(max-width: 768px)');
-  const [sending, setSending] = useState(false);
+  // A turn's running state lives in the session-scoped stream store, not in
+  // this component: switching sessions must not reset it (the stream keeps
+  // running), and the composer only needs the boolean for its send/stop swap.
+  const sending = useChatSending(sessionId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoSentRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Refs for SSE streaming state — captured by the event handler closure.
-  // Reset on turn_start so steer/follow-up responses create separate bubbles.
-  const assistantIdRef = useRef('');
-  const assistantContentRef = useRef('');
-  const assistantCreatedAtRef = useRef('');
-  const toolCallsRef = useRef<ToolCall[]>([]);
-  const runningToolsRef = useRef(new Map<string, ToolCall>());
-  /** Chronological timeline of text and tool calls within the current turn. */
-  const segmentsRef = useRef<MessageSegment[]>([]);
-  /** Length of cleaned assistant text that has already been "flushed" into
-   *  segments. Used to compute only the new portion for the current text
-   *  segment after a tool-call boundary. */
-  const flushedCleanLenRef = useRef(0);
-  /** Set to true when steerMessage eagerly creates a bubble so the later
-   *  turn_start from the agent reuses it instead of creating a duplicate. */
-  const steerBubbleRef = useRef(false);
-  const approvalMessagesRef = useRef(new Map<string, Message>());
-  const questionMessagesRef = useRef(new Map<string, Message>());
-  // Count active turns: incremented on turn_start, decremented on done.
-  // sending resets to false only when all turns have completed.
-  const activeTurnsRef = useRef(0);
 
   // Render-time mirror of fileUploads so retryFileUpload can read the latest
   // item WITHOUT side effects inside a state updater (updaters must stay pure
   // — React StrictMode runs them twice, which would double-upload files).
   const fileUploadsRef = useRef<FileUploadItem[]>([]);
-
-  // Pending trailing flush timer for throttled text_delta updates.
-  const deltaFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // File upload state
   const [fileUploads, setFileUploads] = useState<FileUploadItem[]>([]);
@@ -624,73 +562,17 @@ export default function ChatInput({
     }
   }, [input, sessionId]);
 
-  // Reset the streaming state machine when switching sessions.
-  // This component is NOT remounted on route param changes (same Route
-  // position in the tree), so without this, a stream left running in
-  // session A keeps sending=true here — and sends in session B get
-  // hijacked into steer mode (no new SSE connection, no turn_start,
-  // no thinking indicator, no reply). Abort A's SSE and reset all refs;
-  // the agent keeps running server-side and the WS agent_turn_complete
-  // push refreshes A's history when the user returns.
-  const streamSessionResetRef = useRef(sessionId);
+  // Streaming state is session-scoped in the chat stream store, so switching
+  // sessions no longer aborts anything or resets a shared state machine —
+  // the previous session's stream keeps running and its bubble is intact
+  // when the user comes back (the store remembers it per session).
+  const prevStreamSessionRef = useRef(sessionId);
   useEffect(() => {
-    if (streamSessionResetRef.current === sessionId) return;
-    streamSessionResetRef.current = sessionId;
-    abortRef.current?.abort();
-    abortRef.current = null;
-    if (deltaFlushTimerRef.current) {
-      clearTimeout(deltaFlushTimerRef.current);
-      deltaFlushTimerRef.current = null;
-    }
-    assistantIdRef.current = '';
-    assistantContentRef.current = '';
-    assistantCreatedAtRef.current = '';
-    toolCallsRef.current = [];
-    runningToolsRef.current.clear();
-    segmentsRef.current = [];
-    flushedCleanLenRef.current = 0;
-    steerBubbleRef.current = false;
-    approvalMessagesRef.current.clear();
-    questionMessagesRef.current.clear();
-    activeTurnsRef.current = 0;
-    lastSseEventRef.current = Date.now();
+    if (prevStreamSessionRef.current === sessionId) return;
+    prevStreamSessionRef.current = sessionId;
+    // Auto-send of a navigation-state first message belongs to one session.
     autoSentRef.current = false;
-    setSending(false);
-    // A mid-retry status line belongs to the old session's stream — don't
-    // let it bleed into the newly selected session.
-    onRetryStatusChange?.(null);
   }, [sessionId]);
-
-  /** Start a fresh turn — new assistant message bubble for this response. */
-  const beginTurn = () => {
-    const newId = uid();
-    devLog('[ChatInput] beginTurn', {
-      newId: newId.slice(0, 8),
-      prevId: assistantIdRef.current.slice(0, 8),
-      activeTurns: activeTurnsRef.current + 1,
-    });
-    assistantIdRef.current = newId;
-    assistantContentRef.current = '';
-    assistantCreatedAtRef.current = new Date().toISOString();
-    toolCallsRef.current = [];
-    segmentsRef.current = [];
-    flushedCleanLenRef.current = 0;
-    // NOTE: runningToolsRef and approvalMessagesRef are intentionally NOT
-    // cleared here. beginTurn is called on both the initial SSE and
-    // steer/follow-up, and clearing them would cause tool_call_end and
-    // approval_resolved events arriving after steer to be silently dropped.
-    activeTurnsRef.current++;
-  };
-
-  /** End the current turn. Returns true if this was the last active turn. */
-  const endTurn = () => {
-    activeTurnsRef.current--;
-    if (activeTurnsRef.current <= 0) {
-      activeTurnsRef.current = 0;
-      return true;
-    }
-    return false;
-  };
 
   /** Upload a single file to the server. */
   const uploadFile = useCallback(async (item: FileUploadItem): Promise<FileUploadItem> => {
@@ -804,13 +686,6 @@ export default function ChatInput({
   const sendMessage = useCallback(
     (messageText: string, opts?: { preserveContent?: boolean }) => {
       if (!messageText.trim() || !projectId || !sessionId) return;
-      abortRef.current?.abort();
-      setSending(true);
-      // Don't clear existing streaming content when sending slash commands
-      // during an active stream (e.g. /steer, /btw). Regular sends always reset.
-      if (!opts?.preserveContent) {
-        onStreamStart?.();
-      }
 
       // Append uploaded file references to the message
       const doneUploads = fileUploads.filter((u) => u.status === 'done' && u.path);
@@ -832,532 +707,29 @@ export default function ChatInput({
         ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
         created_at: new Date().toISOString(),
       };
-      if (onMessages) onMessages([userMessage], true); // clearPrevious: new SSE connection
 
-      // First turn is started by the turn_start SSE event (dispatcher.onStart),
-      // so we don't call beginTurn() here — doing so would double-count turns
-      // and prevent the done handler from resetting the sending state.
-
-      const streamStartTime = Date.now();
-
-      // Trailing-flush throttle state for text_delta updates.
-      let lastDeltaFlushTs = 0;
-      const cancelPendingDeltaFlush = () => {
-        if (deltaFlushTimerRef.current) {
-          clearTimeout(deltaFlushTimerRef.current);
-          deltaFlushTimerRef.current = null;
-        }
-      };
-      devLog('[ChatInput] SSE stream starting', {
+      // The turn and its stream belong to the session-scoped store, not to
+      // this component: the response keeps streaming while the user is in
+      // another conversation and is still there when they come back.
+      devLog('[ChatInput] starting turn via stream store', {
         sessionId,
-        messagePreview: messageText.slice(0, 40),
+        preview: messageText.slice(0, 40),
       });
-
-      // ── Assistant bubble update helpers ──
-      // Strip reasoning blocks from the accumulated raw content.
-      const cleanAssistantContent = () =>
-        assistantContentRef.current
-          .replace(/<思考>[^]*?<\/思考>/g, '')
-          .replace(/<thinking>[^]*?<\/thinking>/gi, '');
-      const buildAssistantMessage = (extra?: Partial<Message>): Message => ({
-        id: assistantIdRef.current,
-        session_id: sessionId,
-        role: 'assistant',
-        content: assistantContentRef.current,
-        tool_calls: toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-        segments: [...segmentsRef.current],
-        created_at: assistantCreatedAtRef.current,
-        ...extra,
+      chatStreamStore.send(sessionId, projectId, {
+        content: fullContent,
+        clientMsgId: userMessage.id,
+        userMessage,
+        agentId: effectiveAgentId ?? undefined,
+        // Null (not undefined) signals "user is back on the defaults" — the
+        // server clears the session pin. A value pins it to the session.
+        model: selectedModel,
+        reasoningLevel: selectedReasoningLevel,
+        preserveContent: opts?.preserveContent,
       });
-      const emitAssistantUpdate = () => {
-        const cleaned = cleanAssistantContent();
-        // Only the portion after the last flush point belongs to the
-        // current text segment (text after the most recent tool call).
-        const currentText = cleaned.slice(flushedCleanLenRef.current);
-        const lastSeg = segmentsRef.current[segmentsRef.current.length - 1];
-        if (lastSeg?.type === 'text') {
-          lastSeg.content = currentText;
-        } else if (currentText) {
-          segmentsRef.current.push({ type: 'text', content: currentText });
-        }
-        if (onMessages) {
-          onMessages([buildAssistantMessage({ content: cleaned })]);
-        }
-      };
-
-      abortRef.current = sseClient.start(
-        `/api/projects/${projectId}/chat`,
-        {
-          sessionId,
-          message: userMessage.content,
-          clientMsgId: userMessage.id,
-          agentId: effectiveAgentId ?? undefined,
-          // Null (not undefined) signals "user is back on the defaults" — the
-          // server clears the session pin. A value pins it to the session.
-          model: selectedModel,
-          reasoningLevel: selectedReasoningLevel,
-        },
-        (event: SSEEvent) => {
-          devLog('[ChatInput] SSE event', { type: event.type, ts: Date.now() - streamStartTime });
-          switch (event.type) {
-            case 'turn_start':
-              // Gateway received the message — start "thinking" indicator.
-              onThinkingChange?.(true);
-              // Reuse the bubble eagerly created by steerMessage.
-              if (steerBubbleRef.current) {
-                steerBubbleRef.current = false;
-                activeTurnsRef.current = 1;
-              } else {
-                beginTurn();
-              }
-              break;
-
-            case 'skill_activated': {
-              // Stop the "thinking" indicator — skill activation is a response
-              onThinkingChange?.(false);
-              onRetryStatusChange?.(null);
-              const skillName = event.data || '';
-              if (skillName) {
-                segmentsRef.current.push({ type: 'skill', name: skillName });
-                cancelPendingDeltaFlush();
-                emitAssistantUpdate();
-              }
-              break;
-            }
-
-            case 'text_delta': {
-              assistantContentRef.current += event.data || '';
-              // Stop the "thinking" indicator once the assistant starts responding
-              onThinkingChange?.(false);
-              // Model recovered — clear any retry/fallback status line.
-              onRetryStatusChange?.(null);
-              {
-                // Throttle React updates to ~20fps — every update re-renders and
-                // re-parses the full markdown of the active bubble, which gets
-                // expensive on long replies. The trailing timer guarantees the
-                // final delta always renders.
-                const now = Date.now();
-                if (now - lastDeltaFlushTs >= DELTA_FLUSH_INTERVAL_MS) {
-                  lastDeltaFlushTs = now;
-                  emitAssistantUpdate();
-                } else if (!deltaFlushTimerRef.current) {
-                  deltaFlushTimerRef.current = setTimeout(() => {
-                    deltaFlushTimerRef.current = null;
-                    lastDeltaFlushTs = Date.now();
-                    emitAssistantUpdate();
-                  }, DELTA_FLUSH_INTERVAL_MS);
-                }
-              }
-              break;
-            }
-
-            case 'stream_retry': {
-              // A model attempt failed — the gateway is retrying it or has
-              // switched to the next fallback model. Show a transient status so
-              // the silent retry/fallback window doesn't look like a hang.
-              onThinkingChange?.(false);
-              try {
-                const info = (
-                  typeof event.data === 'string' ? JSON.parse(event.data) : event.data
-                ) as
-                  | {
-                      scope?: string;
-                      failedModel?: string;
-                      model?: string;
-                      attempt?: number;
-                      maxRetries?: number;
-                    }
-                  | null
-                  | undefined;
-                if (info && typeof info === 'object') {
-                  const failed = info.failedModel || '';
-                  if (info.scope === 'fallback') {
-                    onRetryStatusChange?.(
-                      t('chat.streamRetryFallback', { failed, model: info.model || '' }),
-                    );
-                  } else {
-                    onRetryStatusChange?.(
-                      t('chat.streamRetryRetry', {
-                        failed,
-                        attempt: info.attempt ?? 1,
-                        max: (info.maxRetries ?? 0) + 1,
-                      }),
-                    );
-                  }
-                }
-              } catch {
-                /* ignore malformed retry status */
-              }
-              break;
-            }
-
-            case 'tool_call_start': {
-              // Stop the "thinking" indicator since the assistant is now acting
-              onThinkingChange?.(false);
-              onRetryStatusChange?.(null);
-              cancelPendingDeltaFlush();
-              const tc: ToolCall = {
-                id: event.toolCallId || uid(),
-                name: event.toolName || 'unknown',
-                // Malformed JSON args must not throw here — an exception would
-                // propagate through the SSE reader loop and kill the stream.
-                arguments: (() => {
-                  try {
-                    return (
-                      (typeof event.data === 'string' ? JSON.parse(event.data) : event.data) || {}
-                    );
-                  } catch {
-                    return { _raw: event.data };
-                  }
-                })(),
-                status: 'running',
-              };
-              runningToolsRef.current.set(tc.id, tc);
-              toolCallsRef.current.push(tc);
-              // Flush current cleaned text so the next text_delta starts a
-              // fresh text segment after this tool call.
-              flushedCleanLenRef.current = cleanAssistantContent().length;
-              segmentsRef.current.push({ type: 'tool_call', toolCall: tc });
-              emitAssistantUpdate();
-              break;
-            }
-
-            case 'tool_call_end': {
-              const toolCallId = event.toolCallId;
-              const existing = toolCallId ? runningToolsRef.current.get(toolCallId) : undefined;
-              if (existing && toolCallId) {
-                existing.status = event.isError ? 'error' : 'success';
-                existing.output = event.data ?? '';
-                runningToolsRef.current.delete(toolCallId);
-              }
-              cancelPendingDeltaFlush();
-              // Update the matching segment so the tool card re-renders
-              // with the final status / output.
-              if (existing) {
-                for (let i = segmentsRef.current.length - 1; i >= 0; i--) {
-                  const seg = segmentsRef.current[i]!;
-                  if (seg.type === 'tool_call' && seg.toolCall?.id === toolCallId) {
-                    seg.toolCall = { ...existing };
-                    // Immediately extract media from webui_send_media / computer_use
-                    // (send_screenshot) output for inline display
-                    if (
-                      (existing.name === 'webui_send_media' || existing.name === 'computer_use') &&
-                      existing.status === 'success' &&
-                      existing.output
-                    ) {
-                      const output = existing.output;
-                      // Match both /api/files/serve?path=... and /dl/<token>/<filename> URLs
-                      // Use [^\[\]] (exclude both [ and ]) instead of [^\]] to prevent
-                      // greedy matching from JSON array brackets like [{...}] in the output.
-                      const imgMatch = output.match(
-                        /!\[([^\[\]]*)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/,
-                      );
-                      const linkMatch =
-                        !imgMatch &&
-                        output.match(
-                          /\[([^\[\]]+)\]\((\/(?:api\/files\/serve\?path=[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/,
-                        );
-                      const match = imgMatch || linkMatch;
-                      if (match) {
-                        const alt = match[1] || '';
-                        const serveUrl = match[2];
-                        const fileName = (() => {
-                          try {
-                            if (serveUrl.startsWith('/dl/')) {
-                              return decodeURIComponent(serveUrl.split('/').pop() || alt);
-                            }
-                            const params = new URLSearchParams(
-                              new URL(serveUrl, window.location.origin).search,
-                            );
-                            const p = params.get('path') || '';
-                            return decodeURIComponent(p).split('/').pop() || alt;
-                          } catch {
-                            return alt;
-                          }
-                        })();
-                        const isImage = !!imgMatch;
-                        const isVideo = /\.(mp4|webm|mov|avi|mkv)$/i.test(fileName);
-                        const mediaSegment: MessageSegment = {
-                          type: 'media',
-                          media: {
-                            url: serveUrl,
-                            alt: alt || fileName,
-                            name: fileName,
-                            type: isVideo ? 'video' : isImage ? 'image' : 'file',
-                          },
-                        };
-                        // Insert media segment right after the tool_call segment
-                        segmentsRef.current.splice(i + 1, 0, mediaSegment);
-                      }
-                    }
-                    break;
-                  }
-                }
-              }
-              emitAssistantUpdate();
-              break;
-            }
-
-            case 'approval_required': {
-              const approvalData: MessageApproval = {
-                approvalId: event.approvalId || '',
-                command: event.command || event.toolName || '',
-                risk: event.risk || 'medium',
-                reason: event.reason,
-                status: 'pending',
-              };
-              const approvalMsg: Message = {
-                id: `approval-${approvalData.approvalId}`,
-                session_id: sessionId,
-                role: 'assistant',
-                content: '',
-                approval: approvalData,
-                created_at: new Date().toISOString(),
-              };
-              approvalMessagesRef.current.set(approvalData.approvalId, approvalMsg);
-              if (onMessages) onMessages([approvalMsg]);
-              break;
-            }
-
-            case 'approval_resolved': {
-              const aid = event.approvalId || '';
-              const existing = approvalMessagesRef.current.get(aid);
-              if (existing && existing.approval) {
-                const resolved: Message = {
-                  ...existing,
-                  approval: {
-                    ...existing.approval,
-                    status: (event.decision || '').startsWith('approve') ? 'approved' : 'rejected',
-                    decision: event.decision,
-                    timeoutReason: event.reason || existing.approval.timeoutReason,
-                  },
-                };
-                approvalMessagesRef.current.set(aid, resolved);
-                if (onMessages) onMessages([resolved]);
-              }
-              break;
-            }
-
-            case 'user_question': {
-              const questionData: UserQuestion = {
-                requestId: event.requestId || '',
-                question: event.question || '',
-                options: event.options || [],
-                status: 'pending',
-              };
-              const questionMsg: Message = {
-                id: `question-${questionData.requestId}`,
-                session_id: sessionId,
-                role: 'assistant',
-                content: '',
-                userQuestion: questionData,
-                created_at: new Date().toISOString(),
-              };
-              questionMessagesRef.current.set(questionData.requestId, questionMsg);
-              if (onMessages) onMessages([questionMsg]);
-              break;
-            }
-
-            case 'user_question_resolved': {
-              const qid = event.requestId || '';
-              const existing = questionMessagesRef.current.get(qid);
-              if (existing && existing.userQuestion) {
-                const resolved: Message = {
-                  ...existing,
-                  userQuestion: {
-                    ...existing.userQuestion,
-                    status: 'answered',
-                    answer: event.answer,
-                  },
-                };
-                questionMessagesRef.current.set(qid, resolved);
-                if (onMessages) onMessages([resolved]);
-              }
-              break;
-            }
-
-            case 'harness_improvement': {
-              if (!event.proposal) break;
-              const proposalMsg: Message = {
-                id: `harness-${event.proposal.id}`,
-                session_id: sessionId,
-                role: 'assistant',
-                content: '',
-                harnessImprovement: event.proposal,
-                created_at: new Date().toISOString(),
-              };
-              if (onMessages) onMessages([proposalMsg]);
-              break;
-            }
-
-            case 'thinking':
-              // Reasoning content is deliberately suppressed in WebUI.
-              break;
-
-            case 'done': {
-              cancelPendingDeltaFlush();
-              onRetryStatusChange?.(null);
-              const footer = (event as any).footer as MessageFooter | undefined;
-              // Extract images from markdown in content and tool outputs
-              const images: { url: string; alt?: string }[] = [];
-              const imgRegex = /!\[([^\[\]]*)\]\(([^)\s]+)\)/g;
-              let imgMatch: RegExpExecArray | null;
-              const extractImages = (text: string) => {
-                imgRegex.lastIndex = 0;
-                while ((imgMatch = imgRegex.exec(text)) !== null) {
-                  const url = imgMatch[2];
-                  // Only locally-served chat media renders as images — arbitrary
-                  // external URLs (e.g. from web_search snippets) must not flood
-                  // the chat with image bubbles.
-                  if (isChatMediaUrl(url)) {
-                    images.push({ alt: imgMatch[1] || undefined, url });
-                  }
-                }
-              };
-              extractImages(assistantContentRef.current);
-              for (const tc of toolCallsRef.current) {
-                // Only media-emitting tools may surface images in chat.
-                if (tc.status === 'success' && tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
-                  extractImages(tc.output);
-                }
-              }
-              if (images.length > 0)
-                devLog(
-                  '[ChatInput] done — extracted images',
-                  images.length,
-                  images.map((i) => i.url.slice(0, 50)),
-                );
-              // Extract file download links
-              const files: { name: string; path: string; size?: number }[] = [];
-              const seenFiles = new Set<string>();
-              // Use [^\[\]]+ to avoid greedy match from JSON array brackets in tool output
-              const linkRegex =
-                /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
-              let linkMatch: RegExpExecArray | null;
-              while ((linkMatch = linkRegex.exec(assistantContentRef.current)) !== null) {
-                const label = linkMatch[1].trim();
-                const url = linkMatch[2];
-                if (!seenFiles.has(url)) {
-                  seenFiles.add(url);
-                  files.push({ name: label, path: url });
-                }
-              }
-              // Also scan tool call outputs for file links
-              for (const tc of toolCallsRef.current) {
-                if (tc.status === 'success' && tc.output) {
-                  linkRegex.lastIndex = 0;
-                  while ((linkMatch = linkRegex.exec(tc.output)) !== null) {
-                    const url = linkMatch[2];
-                    if (!seenFiles.has(url)) {
-                      seenFiles.add(url);
-                      files.push({ name: linkMatch[1].trim(), path: url });
-                    }
-                  }
-                }
-              }
-              // Deduplicate: remove images/files already shown as inline media segments
-              const mediaUrls = new Set<string>();
-              for (const seg of segmentsRef.current) {
-                if (seg.type === 'media' && seg.media?.url) {
-                  mediaUrls.add(seg.media.url);
-                }
-              }
-              const dedupedImages =
-                mediaUrls.size > 0 ? images.filter((img) => !mediaUrls.has(img.url)) : images;
-              const dedupedFiles =
-                mediaUrls.size > 0 ? files.filter((f) => !mediaUrls.has(f.path)) : files;
-              if (onMessages) {
-                onMessages([
-                  buildAssistantMessage({
-                    content: assistantContentRef.current,
-                    footer: footer || undefined,
-                    images: dedupedImages.length > 0 ? dedupedImages : undefined,
-                    files: dedupedFiles.length > 0 ? dedupedFiles : undefined,
-                    // Keep the original creation time so this bubble stays in
-                    // its correct chronological position relative to user messages.
-                    created_at: assistantCreatedAtRef.current || new Date().toISOString(),
-                  }),
-                ]);
-              }
-              // The server persisted this turn's content BEFORE dispatching done
-              // (pre-complete callback) — mark the bubble so the parent can prune
-              // it once its refetch returns the persisted copy.
-              if (assistantIdRef.current) onTurnPersisted?.(assistantIdRef.current);
-              // Only set sending=false when ALL turns have completed.
-              devLog('[ChatInput] done — endTurn', { activeTurns: activeTurnsRef.current });
-              if (endTurn()) {
-                devLog('[ChatInput] done — last turn, sending=false');
-                setSending(false);
-                onDone?.();
-              }
-              break;
-            }
-
-            case 'error': {
-              cancelPendingDeltaFlush();
-              onRetryStatusChange?.(null);
-              // Reset everything on stream error
-              activeTurnsRef.current = 0;
-              setSending(false);
-              onDone?.();
-              const errorText = event.error || '';
-              // NOTE: deliberately NOT marking this bubble as persisted here.
-              // The EventBridge error path persists first, but the route-level
-              // catch path (execute() threw) sends 'error' WITHOUT persisting —
-              // marking then would let the post-error refetch delete an
-              // unpersisted bubble. The conservative fuzzy match in
-              // ChatView.handleRefetched covers the persisted case instead.
-              // Surface the provider/stream error on the current bubble so the
-              // task does not appear to "stop by itself" without explanation.
-              // User-initiated stops arrive as "Aborted" — that's expected, not
-              // an error worth stamping onto the bubble.
-              if (
-                errorText &&
-                errorText !== 'Aborted' &&
-                assistantCreatedAtRef.current &&
-                onMessages
-              ) {
-                onMessages([
-                  {
-                    id: assistantIdRef.current,
-                    session_id: sessionId,
-                    role: 'assistant',
-                    content: assistantContentRef.current,
-                    tool_calls:
-                      toolCallsRef.current.length > 0 ? [...toolCallsRef.current] : undefined,
-                    segments: [...segmentsRef.current],
-                    error: errorText,
-                    created_at: assistantCreatedAtRef.current || new Date().toISOString(),
-                  },
-                ]);
-              }
-              break;
-            }
-          }
-        },
-        () => {
-          // Stream-level failure (network drop, HTTP error, heartbeat timeout).
-          cancelPendingDeltaFlush();
-          activeTurnsRef.current = 0;
-          setSending(false);
-          onDone?.();
-        },
-        // Heartbeat: feed the no-event watchdog from the RAW read loop so the
-        // server's ": ping" keepalive comments count too. Without this, long
-        // silent phases (running tools, approval/question waits) would trip the
-        // 60s timeout and kill the UI stream mid-turn.
-        () => {
-          lastSseEventRef.current = Date.now();
-        },
-      );
     },
     [
       projectId,
       sessionId,
-      onMessages,
-      onStreamStart,
-      onDone,
-      onTurnPersisted,
       fileUploads,
       buildFileRefs,
       effectiveAgentId,
@@ -1367,26 +739,18 @@ export default function ChatInput({
   );
 
   /** Send a steer message while the agent is already running. Does NOT abort
-   *  the existing SSE — the steer response streams through the same connection. */
+   *  the existing stream — the steer response streams through the same
+   *  connection, so the store stays the one owner of this session's bubbles. */
   const steerMessage = useCallback(
     async (messageText: string) => {
       if (!messageText.trim() || !projectId || !sessionId) return;
 
-      devLog('[ChatInput] steerMessage — queueing steer', {
-        msg: messageText.slice(0, 30),
-        activeTurns: activeTurnsRef.current,
-      });
+      devLog('[ChatInput] steerMessage — queueing steer', { msg: messageText.slice(0, 30) });
 
-      // Signal that a new stream of output is starting (for the steer response).
-      onStreamStart?.();
-
-      // The original turn was interrupted by this steer — its 'done' event
-      // may never arrive. Reset the turn counter so the steer turn's 'done'
-      // can properly set sending=false. beginTurn() increments to 1, and
-      // the steer turn's 'done' will decrement it back to 0.
-      activeTurnsRef.current = 0;
-      beginTurn();
-      steerBubbleRef.current = true;
+      // The original turn was interrupted by this steer — its 'done' event may
+      // never arrive, so the store resets its turn counter and opens the
+      // steer response's bubble now; the later turn_start reuses it.
+      chatStreamStore.beginSteerTurn(sessionId, projectId);
 
       // Append uploaded file references and clear input / uploads
       const doneUploads = fileUploads.filter((u) => u.status === 'done' && u.path);
@@ -1403,9 +767,10 @@ export default function ChatInput({
         ...(uploadedFiles.length > 0 ? { files: uploadedFiles } : {}),
         created_at: new Date().toISOString(),
       };
-      if (onMessages) onMessages([userMessage], false); // clearPrevious: false — keep current-turn messages
+      // clearPrevious: false — keep the current turn's bubbles on screen.
+      chatStreamStore.echo(sessionId, projectId, [userMessage], false);
 
-      // Send steer request (non-blocking — the existing SSE handles the response)
+      // Send steer request (non-blocking — the existing stream handles the response)
       const token = getToken();
       try {
         await fetch(`/api/projects/${projectId}/chat/steer`, {
@@ -1417,18 +782,18 @@ export default function ChatInput({
           body: JSON.stringify({ sessionId, message: fullContent }),
         });
       } catch {
-        // Steer is best-effort; the existing SSE continues regardless
+        // Steer is best-effort; the existing stream continues regardless
       }
     },
-    [projectId, sessionId, onMessages, fileUploads, buildFileRefs],
+    [projectId, sessionId, fileUploads, buildFileRefs],
   );
 
   /** Send a slash command while the agent is already running.
-   *  Routes through POST /chat/steer so the RUNNING SSE connection is NOT
+   *  Routes through POST /chat/steer so the RUNNING stream connection is NOT
    *  aborted — previously this path opened a second SSE which killed the
    *  active stream's UI while the agent kept running server-side. The
-   *  command reply (when the command completes synchronously) is rendered
-   *  locally; steered/forwarded commands respond via the existing stream. */
+   *  command reply (when the command completes synchronously) is echoed into
+   *  the store; steered/forwarded commands respond via the existing stream. */
   const sendCommandViaSteer = useCallback(
     async (messageText: string) => {
       if (!messageText.trim() || !projectId || !sessionId) return;
@@ -1436,27 +801,29 @@ export default function ChatInput({
       // Local echo of the command itself — the steer endpoint does not persist
       // command messages, so without this the user's input would vanish from
       // the conversation view.
-      if (onMessages) {
-        onMessages(
-          [
-            {
-              id: uid(),
-              session_id: sessionId,
-              role: 'user',
-              content: messageText,
-              created_at: new Date().toISOString(),
-            },
-          ],
-          false,
-        );
-      }
+      chatStreamStore.echo(
+        sessionId,
+        projectId,
+        [
+          {
+            id: uid(),
+            session_id: sessionId,
+            role: 'user',
+            content: messageText,
+            created_at: new Date().toISOString(),
+          },
+        ],
+        false,
+      );
       try {
         const data = await apiRequest<{ ok: boolean; reply?: string }>(
           `/api/projects/${projectId}/chat/steer`,
           { method: 'POST', body: JSON.stringify({ sessionId, message: messageText }) },
         );
-        if (data?.reply && onMessages) {
-          onMessages(
+        if (data?.reply) {
+          chatStreamStore.echo(
+            sessionId,
+            projectId,
             [
               {
                 id: uid(),
@@ -1473,7 +840,7 @@ export default function ChatInput({
         console.warn('[ChatInput] command via steer failed:', err);
       }
     },
-    [projectId, sessionId, onMessages],
+    [projectId, sessionId],
   );
 
   const handleSend = useCallback(() => {
@@ -1524,38 +891,12 @@ export default function ChatInput({
     }
   }, [projectId, sessionId, sendMessage, location.state]);
 
-  // Abort SSE stream on unmount — prevents stale connections from
-  // leaking messages into a different conversation after a session switch.
-  useEffect(() => {
-    return () => {
-      devLog('[ChatInput] unmounting — aborting SSE stream');
-      abortRef.current?.abort();
-      if (deltaFlushTimerRef.current) {
-        clearTimeout(deltaFlushTimerRef.current);
-        deltaFlushTimerRef.current = null;
-      }
-      activeTurnsRef.current = 0;
-      setSending(false);
-    };
-  }, []);
-
-  // Safety timeout: reset sending state if SSE stream hangs (no events
-  // for 60s). Uses a heartbeat ref updated on every SSE event so long-
-  // running tools (e.g. image generation) don't trigger a false timeout.
-  const lastSseEventRef = useRef(Date.now());
-  useEffect(() => {
-    if (!sending) return;
-    const interval = setInterval(() => {
-      if (Date.now() - lastSseEventRef.current > 60_000) {
-        console.warn('[ChatInput] SSE heartbeat timeout — no events for 60s');
-        abortRef.current?.abort();
-        activeTurnsRef.current = 0;
-        setSending(false);
-        onRetryStatusChange?.(null);
-      }
-    }, 10_000);
-    return () => clearInterval(interval);
-  }, [sending]);
+  // Nothing to abort on unmount: the turn's stream lives in the session-scoped
+  // store, keyed by session id. Leaving this screen (or switching sessions)
+  // no longer kills a running turn's UI — that is what makes returning to a
+  // conversation continue the live stream instead of starting from a blank
+  // "thinking" placeholder. The store's own watchdog drops a truly dead
+  // connection and re-attaches from the server baseline.
 
   // ── Slash command palette logic ──
   // Built-in commands and skill commands are two separate groups: the

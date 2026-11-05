@@ -18,6 +18,7 @@ import type { ApprovalDecisionType } from '../types.js';
 import type { CommandDeps } from '../../commands/command-handler.js';
 import type { CommandRegistry } from '../../commands/command-registry.js';
 import type { WebSocketManager } from './websocket.js';
+import type { ChatStreamEvent, ChatStreamHub } from './chat-stream-hub.js';
 import { handleCommand } from '../../commands/command-handler.js';
 import { computeCacheHitRate } from '../../channel/usage-summary.js';
 import { createWebUIApprovalSender } from './approval-sender.js';
@@ -59,6 +60,17 @@ function debugLog(msg: string, data?: Record<string, unknown>): void {
 interface SSECallback {
   (event: Record<string, unknown>): void;
 }
+
+/**
+ * Headers shared by both SSE endpoints (chat POST and stream re-attach GET).
+ * `no-cache` + `X-Accel-Buffering: no` keep proxies from holding frames back.
+ */
+const SSE_HEADERS = {
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  Connection: 'keep-alive',
+  'X-Accel-Buffering': 'no',
+} as const;
 
 class SSEReplyDispatcher implements ReplyDispatcher {
   private callback: SSECallback;
@@ -372,6 +384,13 @@ export interface ChatRouteConfig {
     string,
     (result: import('../../harness/types.js').HarnessApprovalResult) => void
   >;
+  /**
+   * In-flight stream hub. When present, a turn's SSE events are folded into a
+   * reconnect baseline so a tab that comes back mid-turn (session switch,
+   * reload, dropped connection) continues the live stream instead of losing
+   * everything streamed so far — see GET .../chat/stream below.
+   */
+  streamHub?: ChatStreamHub;
 }
 
 // ─── Login throttling ───
@@ -602,22 +621,33 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
     }
 
     // Set SSE headers
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
+    reply.raw.writeHead(200, SSE_HEADERS);
 
-    const sendSSE = (data: Record<string, unknown>): void => {
-      // A tab closed mid-turn makes this write throw, and any uncaught
-      // exception takes the whole gateway down (src/index.ts exit handlers) —
-      // the same reason the keepalive below is wrapped.
+    // Write one SSE frame to THIS response. A tab closed mid-turn makes the
+    // write throw, and any uncaught exception takes the whole gateway down
+    // (src/index.ts exit handlers) — hence the wrap on every write path.
+    const writeFrame = (data: Record<string, unknown>): void => {
       try {
         reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
       } catch {
         /* connection already closed */
       }
+    };
+
+    // The turn is registered with the hub before the first event so a client
+    // that re-connects gets the same baseline the original tab saw. The POST
+    // writer is just the first subscriber: closing this tab no longer ends the
+    // recorded turn, it only detaches one follower.
+    const turn = cfg.streamHub?.begin(sessionId);
+    const detachWriter = turn
+      ? turn.subscribe({
+          write: writeFrame,
+          buffered: () => reply.raw.writableLength ?? 0,
+        })
+      : () => {};
+    const sendSSE = (data: Record<string, unknown>): void => {
+      if (turn) turn.publish(data as ChatStreamEvent);
+      else writeFrame(data);
     };
 
     // SSE keepalive — write an SSE comment every 15s so the connection stays
@@ -633,7 +663,10 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       }
     }, 15_000);
     // 'close' fires when the response ends (including early slash-command returns).
-    reply.raw.on('close', () => clearInterval(pingTimer));
+    reply.raw.on('close', () => {
+      clearInterval(pingTimer);
+      detachWriter();
+    });
 
     try {
       // ── Slash command routing ──
@@ -877,6 +910,95 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
       }
       reply.raw.end();
     }
+  });
+
+  // ── Stream re-attach endpoint ──
+  //
+  // The chat POST's SSE belongs to a turn, not to the tab that opened it: a
+  // session switch, a reload, or a dropped connection must not cost the user
+  // the text, tool cards and approval cards already streamed. The hub replays
+  // its compacted baseline for the session (`resume`), then keeps feeding the
+  // live tail over this connection. A session with no in-flight (or recently
+  // finished) turn answers `idle` so the client keeps the ordinary
+  // history-only view.
+  //
+  // The client calls this on session open only when its own store holds no
+  // live stream, and retries it (bounded) after a transport failure while a
+  // turn is still marked running.
+  //
+  // `probe=1` asks for a live turn only: a settled turn still inside the
+  // retention window answers `idle` instead of replaying. That makes the
+  // endpoint safe to re-poll from a woken phone or a relaunched PWA — the
+  // cheap probe that discovers a turn started elsewhere never resurrects a
+  // finished reply on top of the fetched history.
+  app.get('/api/projects/:projectId/chat/stream', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const { sessionId, probe } = request.query as { sessionId?: string; probe?: string };
+
+    if (!sessionId) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'sessionId is required' });
+    }
+    if (!cfg.projectStore.getById(projectId)) {
+      return reply.status(404).send({ error: 'Not Found', message: 'Project not found' });
+    }
+
+    reply.raw.writeHead(200, SSE_HEADERS);
+
+    const writeFrame = (data: Record<string, unknown>): void => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        /* connection already closed */
+      }
+    };
+
+    let detach: () => void = () => {};
+    if (cfg.streamHub) {
+      const handle = cfg.streamHub.attach(
+        sessionId,
+        {
+          write: writeFrame,
+          buffered: () => reply.raw.writableLength ?? 0,
+          // The hub drops a subscriber that cannot drain, or ends one whose
+          // turn settled — end the response so the client's reader fails fast
+          // and re-attaches from the new baseline.
+          close: () => {
+            try {
+              reply.raw.end();
+            } catch {
+              /* already closed */
+            }
+          },
+        },
+        { liveOnly: probe === '1' },
+      );
+      detach = handle.detach;
+      if (handle.status !== 'attached' || handle.finished) {
+        // `idle` / `resume_unavailable` / an already-finished replay are
+        // complete answers — everything was written in the opening frame.
+        reply.raw.end();
+        return;
+      }
+    } else {
+      writeFrame({ type: 'idle' });
+      reply.raw.end();
+      return;
+    }
+
+    // Same keepalive contract as the POST stream: silence during tool runs and
+    // approval waits must not look like a dead connection.
+    const pingTimer = setInterval(() => {
+      try {
+        reply.raw.write(': ping\n\n');
+      } catch {
+        /* connection already closed */
+      }
+    }, 15_000);
+
+    reply.raw.on('close', () => {
+      clearInterval(pingTimer);
+      detach();
+    });
   });
 
   // ── User Question Answer endpoint ──

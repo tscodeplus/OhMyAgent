@@ -38,6 +38,7 @@ import { registerMarketplaceRoutes } from './webui/marketplace-routes.js';
 import multipart from '@fastify/multipart';
 import cors from '@fastify/cors';
 import { WebSocketManager, createWebSocketPlugin } from './webui/websocket.js';
+import { ChatStreamHub } from './webui/chat-stream-hub.js';
 import { registerDesktopBridge } from './webui/desktop-bridge-routes.js';
 import { registerSystemRoutes } from './webui/system-routes.js';
 import { registerQRExchangeRoutes } from './webui/qr-exchange-routes.js';
@@ -87,6 +88,14 @@ export async function registerWebUIRoutes(
 
   // 4. Create stores
   const projectStore = new ProjectStore(cfg.db);
+
+  // 4b. In-flight chat stream hub — lets a WebUI tab re-attach mid-turn
+  //     instead of losing everything already streamed (see chat-stream-hub).
+  const chatStreamHub = new ChatStreamHub({ logger: app.log });
+  app.addHook('onClose', (_instance, done) => {
+    chatStreamHub.dispose();
+    done();
+  });
 
   // 5. Register all route modules (route decorators are synchronous)
   registerProjectRoutes(app, projectStore);
@@ -183,6 +192,7 @@ export async function registerWebUIRoutes(
     wsManager: undefined,
     userQuestionSenderRegistry: cfg.services.userQuestionSenderRegistry,
     harnessApprovalRegistry: cfg.services.harnessApprovalRegistry,
+    streamHub: chatStreamHub,
   };
   registerChatRoutes(app, chatConfig);
 
