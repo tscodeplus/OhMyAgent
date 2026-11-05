@@ -21,6 +21,7 @@ import { createSSEClient, type SSEEvent } from '../utils/sse-client';
 import i18n from '../i18n/config';
 import { devLog } from '../utils/logger';
 import { CHAT_MEDIA_TOOL_NAMES, isChatMediaUrl } from '../utils/chatMedia';
+import { AssistantTimeline } from './assistant-timeline';
 import type {
   Message,
   MessageApproval,
@@ -165,12 +166,15 @@ class SessionStream {
 
   // ── Current turn accumulator (previously ChatInput refs) ──
   private assistantId = '';
-  private assistantContent = '';
+  /**
+   * Ordered text/tool/skill/media run of the current bubble. Fragment
+   * boundaries flush explicitly, so a replayed baseline (no throttled flush
+   * between events) produces exactly the same segments as live streaming.
+   */
+  private timeline = new AssistantTimeline();
   private assistantCreatedAt = '';
   private toolCalls: ToolCall[] = [];
   private runningTools = new Map<string, ToolCall>();
-  private segments: MessageSegment[] = [];
-  private flushedCleanLen = 0;
   private steerBubble = false;
   private approvalMessages = new Map<string, Message>();
   private questionMessages = new Map<string, Message>();
@@ -631,11 +635,9 @@ class SessionStream {
   /** Start a fresh assistant bubble for this turn. */
   private beginTurn(): void {
     this.assistantId = uid();
-    this.assistantContent = '';
+    this.timeline.reset();
     this.assistantCreatedAt = new Date().toISOString();
     this.toolCalls = [];
-    this.segments = [];
-    this.flushedCleanLen = 0;
     // NOTE: runningTools / approvalMessages are intentionally NOT cleared here.
     // beginTurn also runs for steer/follow-up turns, and clearing them would
     // drop tool_call_end / approval_resolved events that arrive afterwards.
@@ -663,18 +665,10 @@ class SessionStream {
     this.activeTurns = 0;
     this.steerBubble = false;
     this.assistantId = '';
-    this.assistantContent = '';
+    this.timeline.reset();
     this.assistantCreatedAt = '';
     this.toolCalls = [];
     this.runningTools.clear();
-    this.segments = [];
-    this.flushedCleanLen = 0;
-  }
-
-  private cleanAssistantContent(): string {
-    return this.assistantContent
-      .replace(/<思考>[^]*?<\/思考>/g, '')
-      .replace(/<thinking>[^]*?<\/thinking>/gi, '');
   }
 
   private buildAssistantMessage(extra?: Partial<Message>): Message {
@@ -682,26 +676,21 @@ class SessionStream {
       id: this.assistantId,
       session_id: this.sessionId,
       role: 'assistant',
-      content: this.assistantContent,
+      content: this.timeline.cleaned,
       tool_calls: this.toolCalls.length > 0 ? [...this.toolCalls] : undefined,
-      segments: [...this.segments],
+      segments: [...this.timeline.segments],
       created_at: this.assistantCreatedAt,
       ...extra,
     };
   }
 
+  /**
+   * Flush pending text into the timeline, then publish the bubble. The flush is
+   * what makes segment order independent of flush timing.
+   */
   private emitAssistantUpdate(): void {
-    const cleaned = this.cleanAssistantContent();
-    // Only the portion after the last flush point belongs to the current text
-    // segment (text after the most recent tool call).
-    const currentText = cleaned.slice(this.flushedCleanLen);
-    const lastSeg = this.segments[this.segments.length - 1];
-    if (lastSeg?.type === 'text') {
-      lastSeg.content = currentText;
-    } else if (currentText) {
-      this.segments.push({ type: 'text', content: currentText });
-    }
-    this.applyMessages([this.buildAssistantMessage({ content: cleaned })]);
+    this.timeline.flushText();
+    this.applyMessages([this.buildAssistantMessage({ content: this.timeline.cleaned })]);
   }
 
   // ── Reducer ──
@@ -779,14 +768,16 @@ class SessionStream {
         this.retryStatusValue = null;
         const skillName = event.data || '';
         if (skillName) {
-          this.segments.push({ type: 'skill', name: skillName });
+          // beginFragment flushes the text streamed before the skill marker, so
+          // the marker lands after it instead of erasing it.
+          this.timeline.beginFragment({ type: 'skill', name: skillName });
           this.emitAssistantUpdate();
         }
         break;
       }
 
       case 'text_delta': {
-        this.assistantContent += event.data || '';
+        this.timeline.appendText(event.data || '');
         this.thinkingFlag = false;
         this.retryStatusValue = null;
         // Throttled flush: every update re-renders and re-parses the whole
@@ -822,10 +813,10 @@ class SessionStream {
         };
         this.runningTools.set(tc.id, tc);
         this.toolCalls.push(tc);
-        // Flush the cleaned text so text after this tool call starts a new
-        // text segment.
-        this.flushedCleanLen = this.cleanAssistantContent().length;
-        this.segments.push({ type: 'tool_call', toolCall: tc });
+        // Closes the text run first: everything streamed before this call keeps
+        // its own segment above the card (also on a replayed baseline, where no
+        // throttled flush ever ran).
+        this.timeline.beginFragment({ type: 'tool_call', toolCall: tc });
         this.emitAssistantUpdate();
         break;
       }
@@ -838,22 +829,20 @@ class SessionStream {
           existing.output = event.data ?? '';
           this.runningTools.delete(toolCallId);
         }
-        if (existing) {
-          for (let i = this.segments.length - 1; i >= 0; i--) {
-            const seg = this.segments[i]!;
-            if (seg.type === 'tool_call' && seg.toolCall?.id === toolCallId) {
-              seg.toolCall = { ...existing };
-              // Immediately extract media from webui_send_media / computer_use
-              // (send_screenshot) output for inline display.
-              if (
-                (existing.name === 'webui_send_media' || existing.name === 'computer_use') &&
-                existing.status === 'success' &&
-                existing.output
-              ) {
-                const media = extractMediaSegment(existing.output);
-                if (media) this.segments.splice(i + 1, 0, media);
-              }
-              break;
+        if (existing && toolCallId) {
+          const index = this.timeline.indexOfToolCall(toolCallId);
+          if (index >= 0) {
+            // A clone forces the card to re-render with its final status.
+            this.timeline.updateToolCall(index, { ...existing });
+            // Immediately extract media from webui_send_media / computer_use
+            // (send_screenshot) output for inline display.
+            if (
+              (existing.name === 'webui_send_media' || existing.name === 'computer_use') &&
+              existing.status === 'success' &&
+              existing.output
+            ) {
+              const media = extractMediaSegment(existing.output);
+              if (media) this.timeline.insertAfter(index, media);
             }
           }
         }
@@ -1014,6 +1003,10 @@ class SessionStream {
       clearTimeout(this.deltaTimer);
       this.deltaTimer = null;
     }
+    // The throttled flush was just cancelled — fold the trailing text in now,
+    // or the bubble would end one chunk short (segments render, content is
+    // only the fallback for text-only bubbles).
+    this.timeline.flushText();
     this.retryStatusValue = null;
     const footer = event.footer as MessageFooter | undefined;
 
@@ -1030,7 +1023,8 @@ class SessionStream {
         }
       }
     };
-    extractImages(this.assistantContent);
+    const finalText = this.timeline.cleaned;
+    extractImages(finalText);
     for (const tc of this.toolCalls) {
       // Only media-emitting tools may surface images in chat.
       if (tc.status === 'success' && tc.output && CHAT_MEDIA_TOOL_NAMES.has(tc.name)) {
@@ -1044,7 +1038,7 @@ class SessionStream {
     const linkRegex =
       /\[([^\[\]]+)\]\((\/(?:api\/files\/(?:serve|download)\?[^)\s]+|dl\/[^)\s]+|desktop-bridge-download\?[^)\s]+))\)/g;
     let linkMatch: RegExpExecArray | null;
-    while ((linkMatch = linkRegex.exec(this.assistantContent)) !== null) {
+    while ((linkMatch = linkRegex.exec(finalText)) !== null) {
       const label = linkMatch[1].trim();
       const url = linkMatch[2];
       if (!seenFiles.has(url)) {
@@ -1067,7 +1061,7 @@ class SessionStream {
 
     // Deduplicate: remove images/files already shown as inline media segments.
     const mediaUrls = new Set<string>();
-    for (const seg of this.segments) {
+    for (const seg of this.timeline.segments) {
       if (seg.type === 'media' && seg.media?.url) mediaUrls.add(seg.media.url);
     }
     const dedupedImages = mediaUrls.size > 0 ? images.filter((i) => !mediaUrls.has(i.url)) : images;
@@ -1075,7 +1069,7 @@ class SessionStream {
 
     this.applyMessages([
       this.buildAssistantMessage({
-        content: this.assistantContent,
+        content: finalText,
         footer: footer || undefined,
         images: dedupedImages.length > 0 ? dedupedImages : undefined,
         files: dedupedFiles.length > 0 ? dedupedFiles : undefined,
@@ -1111,6 +1105,7 @@ class SessionStream {
       clearTimeout(this.deltaTimer);
       this.deltaTimer = null;
     }
+    this.timeline.flushText();
     this.retryStatusValue = null;
     this.activeTurns = 0;
     this.sendingFlag = false;
@@ -1130,9 +1125,9 @@ class SessionStream {
           id: this.assistantId,
           session_id: this.sessionId,
           role: 'assistant',
-          content: this.assistantContent,
+          content: this.timeline.cleaned,
           tool_calls: this.toolCalls.length > 0 ? [...this.toolCalls] : undefined,
-          segments: [...this.segments],
+          segments: [...this.timeline.segments],
           error: errorText,
           created_at: this.assistantCreatedAt || new Date().toISOString(),
         },
