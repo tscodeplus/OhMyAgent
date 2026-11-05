@@ -46,9 +46,12 @@
  * persist. Hiding is reversible from the notes page, which is where someone who
  * wants it back would go looking.
  *
- * A capture that produces several notes shows **one** card, so the card says how
- * many there were: the rest are already in the drafts view, and a single card with
- * no count reads as "one note was kept".
+ * A capture that produces several notes opens **one** card with **one tab per
+ * draft**, and the footer verbs act on the selected tab: approving the draft on
+ * screen moves the card to the next one, and the card leaves when the last tab
+ * does. The earlier version showed a single draft plus a 「共 N 条」 line, which
+ * meant the rest were never actually reviewed from the card — the drafts page was
+ * the only place to find them, and the badge counted notes nobody had read.
  *
  * The card itself lives in `DraftCard.tsx` — it grew a second, full-height layout,
  * and it no longer retracts on a timer: a review card that vanishes while it is
@@ -76,6 +79,7 @@ import Button from '../ui/Button';
 import { useNotes } from './NotesContext';
 import DraftCard from './DraftCard';
 import { useBallPlacement } from './useBallPlacement';
+import type { Note } from './types';
 
 /** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
 const BALL_HEIGHT = 56;
@@ -112,7 +116,7 @@ export default function NotesFloatingBall() {
     drafts,
     counts,
     capturing,
-    draftCardId,
+    draftCardIds,
     capture,
     saveDraft,
     discardDraft,
@@ -283,13 +287,6 @@ export default function NotesFloatingBall() {
     tone: 'info' | 'error';
   } | null>(null);
   /**
-   * How many notes the last capture produced.
-   *
-   * The card shows one of them; without this the other two look like they were never
-   * written. Reset on every new capture, so a stale number cannot outlive its group.
-   */
-  const [cardGroup, setCardGroup] = useState(0);
-  /**
    * What the window actually held for the card on screen.
    *
    * A note distilled from the tail of a long conversation and one distilled from all
@@ -324,19 +321,24 @@ export default function NotesFloatingBall() {
   // nobody is waiting for would draw its card over a conversation the user left.
   useEffect(() => () => instructionAbort.current?.abort(), []);
   /**
-   * The draft the card is showing — if it still belongs to the conversation on
-   * screen.
+   * The drafts the card is about — the ones in the group that still exist and still
+   * belong to the conversation on screen.
    *
-   * The card no longer retracts on a timer (see `DraftCard`), so without this it
-   * would follow the user into whichever conversation they opened next and stand in
-   * front of a transcript its draft never came from. The badge still counts it and
-   * the drafts view still lists it, so nothing is lost by not drawing it here.
+   * Resolved from ids rather than held as objects: the store owns the group (it is
+   * what approving or deleting a tab writes to), and `drafts` is where the rows
+   * live, so this is the join between the two. The card no longer retracts on a
+   * timer (see `DraftCard`), so without the session filter it would follow the user
+   * into whichever conversation they opened next and stand in front of a transcript
+   * its drafts never came from. The badge still counts them and the drafts view
+   * still lists them, so nothing is lost by not drawing them here.
    */
-  const draft =
-    drafts.find(
-      (item) =>
-        item.id === draftCardId && (!item.sessionId || !sessionId || item.sessionId === sessionId),
-    ) ?? null;
+  const cardDrafts = useMemo(() => {
+    const byId = new Map(drafts.map((item) => [item.id, item]));
+    return draftCardIds
+      .map((id) => byId.get(id))
+      .filter((item): item is Note => Boolean(item))
+      .filter((item) => !item.sessionId || !sessionId || item.sessionId === sessionId);
+  }, [drafts, draftCardIds, sessionId]);
 
   /** One place that turns a capture outcome into what the user sees. */
   /**
@@ -398,7 +400,6 @@ export default function NotesFloatingBall() {
       return;
     }
     void capture({ mode, sessionId }).then((outcome) => {
-      setCardGroup(outcome.notes.length);
       setCardScope(scopeOf(outcome));
       // A capture that produced nothing is not an error: "this turn had nothing
       // worth keeping" is a normal answer, and 422 is how the server says it.
@@ -444,7 +445,6 @@ export default function NotesFloatingBall() {
         // A cancelled run is not an answer: the user's own stop needs no sentence.
         if (outcome.canceled) return;
         if (outcome.ok) {
-          setCardGroup(outcome.notes.length);
           setCardScope(scopeOf(outcome));
           // The drafts are on screen as a review card now; a dialog that stays
           // open next to it asks to be dismissed for no reason.
@@ -483,7 +483,6 @@ export default function NotesFloatingBall() {
       text,
       treatment: tidy ? 'distill' : 'verbatim',
     }).then((outcome) => {
-      setCardGroup(outcome.notes.length);
       setCardScope(scopeOf(outcome));
       report(outcome);
     });
@@ -637,37 +636,44 @@ export default function NotesFloatingBall() {
           </div>
         )}
 
-        {draft && !menuOpen && (
+        {cardDrafts.length > 0 && !menuOpen && (
           <DraftCard
-            // Keyed by draft: a second capture replaces the draft under a mounted
-            // card, and the previous draft's "refused" line must not outlive it.
-            key={draft.id}
-            draft={draft}
-            groupSize={cardGroup}
+            // No `key`: the card is the *review*, not the draft. Approving one tab
+            // removes its id from the group (which would remount a keyed card and
+            // collapse the drawer the reviewer just opened); a new capture replaces
+            // the group in place, and the card's own selection effect moves to its
+            // first draft.
+            drafts={cardDrafts}
             scope={cardScope}
             maxHeight={cardMaxHeight}
             storeError={error}
-            onSave={() => saveDraft(draft.id)}
-            onEdit={() => {
+            onSave={(id) => saveDraft(id)}
+            onEdit={(id) => {
               // Editing must not approve: an open editor on a draft stays a draft,
-              // and the page's save path only rewrites the draft's text.
+              // and the page's save path only rewrites the draft's text. It does end
+              // this review — the reader left the conversation — and the other drafts
+              // are still in the drafts view.
               dismissDraftCard();
-              navigate(`/notes/${draft.id}?edit=1`);
+              navigate(`/notes/${id}?edit=1`);
             }}
-            onRegenerate={() => {
-              // The same material, distilled again, then the first draft retires:
-              // the server has no "rewrite this draft" call, and a re-distill is
-              // exactly what the button promises.
+            onRegenerate={(id) => {
+              // The same material, distilled again, then the draft on this tab
+              // retires: the server has no "rewrite this draft" call, and a
+              // re-distill is exactly what the button promises. The new capture
+              // replaces the whole group, because it is a new review of the same
+              // conversation — not an edit of one tab.
               //
               // For a draft the *user* supplied it is the material that differs,
               // not the window: dropped words are tidy-up-able, so the agent sees
               // the draft's own body instead of another reading of the transcript.
-              const verbatim = draft.origin === 'user';
+              const target = cardDrafts.find((item) => item.id === id);
+              if (!target) return;
+              const verbatim = target.origin === 'user';
               const intent = verbatim
                 ? {
                     mode: 'drop' as const,
                     sessionId,
-                    text: draft.body,
+                    text: target.body,
                     treatment: 'distill' as const,
                   }
                 : { mode: 'conversation' as const, sessionId };
@@ -676,18 +682,17 @@ export default function NotesFloatingBall() {
                   report(outcome);
                   return;
                 }
-                setCardGroup(outcome.notes.length);
                 setCardScope(scopeOf(outcome));
                 // The old draft retires only if the server agrees, and by now the
-                // card shows the *new* draft — so a refusal has nowhere to appear.
+                // card shows the *new* drafts — so a refusal has nowhere to appear.
                 // Ignoring it left the old draft in the queue with no sign that the
                 // button's second half had failed.
-                if (!(await discardDraft(draft.id))) {
+                if (!(await discardDraft(target.id))) {
                   setNotice({ text: t('common.submitError'), tone: 'error' });
                 }
               });
             }}
-            onDiscard={() => discardDraft(draft.id)}
+            onDiscard={(id) => discardDraft(id)}
             onClose={dismissDraftCard}
           />
         )}

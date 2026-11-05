@@ -1669,8 +1669,7 @@
       "discard": "删除",
       "tidy": "让 AI 整理",
       "expand": "放大阅读",
-      "collapse": "收起",
-      "group": "共 {{count}} 条"
+      "collapse": "收起"
     },
     "capture": {
       "title": "整理笔记",

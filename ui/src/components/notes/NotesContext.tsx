@@ -205,8 +205,16 @@ interface NotesContextValue {
   /** Clamped to `1..pageCount`; asking for the page already open is a no-op. */
   setPage: (next: number) => void;
   capturing: boolean;
-  /** The draft whose review card is on screen; `null` when nothing is pending. */
-  draftCardId: string | null;
+  /**
+   * The drafts one capture produced, in the order the server answered with them.
+   *
+   * A list, not a single id: a capture routinely distils two or three notes, and the
+   * ball's review card shows them as tabs. The store owns the group because approving
+   * or deleting a tab is a write — the id has to leave the group at the same moment
+   * the server stops calling it a draft, or the card would keep a tab for a note that
+   * no longer exists. Empty means no review card.
+   */
+  draftCardIds: string[];
   capture: (intent: CaptureIntent) => Promise<CaptureOutcome>;
   /**
    * One note by id, for a permalink the current filter does not contain.
@@ -337,7 +345,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   const [page, setPageState] = useState(1);
   const [capturing, setCapturing] = useState(false);
-  const [draftCardId, setDraftCardId] = useState<string | null>(null);
+  const [draftCardIds, setDraftCardIds] = useState<string[]>([]);
   /**
    * Rows that arrived from a capture or an edit after the last refetch.
    *
@@ -574,8 +582,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         setPageState(1);
         // Every capture ends in a review card rather than a jump to the page: the
         // card is where a draft is judged, and a verbatim drop needs the same
-        // decision (approve it, edit it, or let the agent tidy it up).
-        if (response.notes[0]) setDraftCardId(response.notes[0].id);
+        // decision (approve it, edit it, or let the agent tidy it up). The whole
+        // group goes to the card so multiple drafts are tabs of one review rather
+        // than a count the reader has to go elsewhere to act on.
+        if (response.notes.length > 0) {
+          setDraftCardIds(response.notes.map((note) => note.id));
+        }
         // The badge reads `counts.draft`, which is the server's tally as of the last
         // refetch — so without this the ball claimed "0 pending" for a draft that was
         // sitting right there, most visibly after the card was dismissed and the
@@ -660,7 +672,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ decision: 'approve' }),
         });
         applyNote(response.note);
-        setDraftCardId((current) => (current === id ? null : current));
+        // The tab leaves the card; the rest of the capture stays for review.
+        setDraftCardIds((current) => current.filter((item) => item !== id));
         await refresh();
         return true;
       } catch (err) {
@@ -688,7 +701,8 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         );
         if (response.deleted) setCaptured((prev) => prev.filter((note) => note.id !== id));
         else if (response.note) applyNote(response.note);
-        setDraftCardId((current) => (current === id ? null : current));
+        // Same rule as an approval: the deleted draft's tab goes, the group stays.
+        setDraftCardIds((current) => current.filter((item) => item !== id));
         await refresh();
         return true;
       } catch (err) {
@@ -701,7 +715,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     [applyNote, refresh],
   );
 
-  const dismissDraftCard = useCallback(() => setDraftCardId(null), []);
+  const dismissDraftCard = useCallback(() => setDraftCardIds([]), []);
 
   const createNoteInternal = useCallback(async (seed?: Partial<Note>): Promise<Note | null> => {
     try {
@@ -908,7 +922,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       total,
       setPage,
       capturing,
-      draftCardId,
+      draftCardIds,
       capture,
       fetchNote,
       saveDraft: approve,
@@ -945,7 +959,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       total,
       setPage,
       capturing,
-      draftCardId,
+      draftCardIds,
       capture,
       fetchNote,
       approve,

@@ -1669,8 +1669,7 @@
       "discard": "Delete",
       "tidy": "Let the agent tidy it",
       "expand": "Read full size",
-      "collapse": "Collapse",
-      "group": "{{count}} in total"
+      "collapse": "Collapse"
     },
     "capture": {
       "title": "Distil notes",

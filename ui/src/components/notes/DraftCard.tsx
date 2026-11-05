@@ -6,7 +6,8 @@
  * conversation. It therefore *never retracts on a timer*: a card that disappears
  * while it is being read is a card whose approve button never gets pressed, and the
  * draft it was asking about looks lost even though it is sitting in the drafts view.
- * It leaves when the user approves, deletes, or closes it.
+ * It leaves when the last draft on it is approved or deleted, or when the user closes
+ * it.
  *
  * **Nothing on the card is truncated.** An earlier version showed the title, a
  * two-line summary and `fields[0]`, which meant the body — the authoritative half of
@@ -15,10 +16,10 @@
  * body inside a scroll region, and it is *sized by the room it has* rather than by a
  * fixed `dvh` guess — see `maxHeight`.
  *
- * **It leaves when the user says so**: approve, delete, close, or a press anywhere
- * outside it. A timer is not one of those (see above), and neither is the pointer
- * being somewhere else — a card that has to be hunted for a dismiss control is the
- * other failure mode of a card that never goes away.
+ * **It leaves when the user says so**: the last tab approved or deleted, the close
+ * button, or a press anywhere outside it. A timer is not one of those (see above),
+ * and neither is the pointer being somewhere else — a card that has to be hunted for
+ * a dismiss control is the other failure mode of a card that never goes away.
  *
  * **「放大阅读」 buys room, not content.** On a phone the compact card is ~360px wide
  * beside the ball, and a note about a command contains a code block: readable, but
@@ -32,11 +33,21 @@
  *
  * Both sizes render the same preview and the same four verbs from this file, so a
  * change to one cannot drift from the other.
+ *
+ * **One capture is one review, however many notes it produced.** A capture routinely
+ * distils two or three drafts, and an earlier version showed one of them with a
+ * 「共 N 条」 line pointing at the drafts page for the rest — which meant the other
+ * drafts were never actually reviewed from the card. The drafts are now tabs in the
+ * same card, and the verbs in the footer act on the selected tab only: 批准 approves
+ * the draft on screen, 删除 deletes it, and the card moves to the next tab. The tab
+ * strip is rendered in both sizes, so 放大阅读 changes how much room the reading area
+ * has, never which draft the card is about.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import Button from '../ui/Button';
 import { FacetRow, NoteBody, relativeTime } from './NoteBits';
 import type { Note } from './types';
@@ -86,8 +97,7 @@ function measureColumn(): { left: number; width: number } | null {
 }
 
 export default function DraftCard({
-  draft,
-  groupSize,
+  drafts,
   scope,
   storeError,
   maxHeight,
@@ -97,11 +107,16 @@ export default function DraftCard({
   onDiscard,
   onClose,
 }: {
-  draft: Note;
-  /** How many drafts this capture produced; `> 1` gets a line saying where the rest are. */
-  groupSize: number;
   /**
-   * The window the draft came from, when it was not the whole conversation. Rendering
+   * The drafts this capture produced, in the order the server answered with them.
+   *
+   * One tab each; the first one opens selected. The list shrinks as drafts are
+   * approved or deleted (the store owns the group), which is what moves the card to
+   * the next tab and what closes it after the last one.
+   */
+  drafts: Note[];
+  /**
+   * The window the drafts came from, when it was not the whole conversation. Rendering
    * it on the card (not in a toast) is deliberate: the toast disappears in five
    * seconds, and this is information for the decision the card is asking for.
    */
@@ -127,16 +142,25 @@ export default function DraftCard({
    * own words instead of inventing a second vocabulary for it.
    */
   storeError: string | null;
-  /** Resolves `false` when the server refused the approval. */
-  onSave: () => Promise<boolean>;
-  onEdit: () => void;
-  onRegenerate: () => void;
-  /** Resolves `false` when the server refused the rejection. */
-  onDiscard: () => Promise<boolean>;
+  /** Resolves `false` when the server refused the approval. Takes the draft's id. */
+  onSave: (id: string) => Promise<boolean>;
+  onEdit: (id: string) => void;
+  onRegenerate: (id: string) => void;
+  /** Resolves `false` when the server refused the rejection. Takes the draft's id. */
+  onDiscard: (id: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation('common');
   const [expanded, setExpanded] = useState(false);
+  /**
+   * Which tab is the card about.
+   *
+   * Local to the card, not the store: switching tabs is reading, not a decision, and
+   * the store already owns *which* drafts the card holds (`draftCardIds`). Keeping it
+   * here is also what makes the tab survive 放大阅读 — the drawer is the same
+   * component, so the draft picked in the compact card is still picked in the sheet.
+   */
+  const [activeId, setActiveId] = useState(drafts[0].id);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   /**
@@ -147,6 +171,8 @@ export default function DraftCard({
   const [refused, setRefused] = useState(false);
   /** The compact card's own box, for the press-anywhere-else dismissal below. */
   const rootRef = useRef<HTMLDivElement>(null);
+  /** One tab button per draft, so arrow-key navigation can move the focus with it. */
+  const tabRefs = useRef<Record<number, HTMLButtonElement | null>>({});
   /**
    * The drawer's rails while it is open, or `null` for a full-width bottom sheet.
    *
@@ -155,6 +181,37 @@ export default function DraftCard({
    * first time someone widened it.
    */
   const [column, setColumn] = useState<{ left: number; width: number } | null>(null);
+
+  /**
+   * The draft on screen.
+   *
+   * A fallback rather than a guaranteed hit: approving a tab removes its id from the
+   * group before the selection effect below has run, and rendering nothing for that
+   * frame would blink the card empty.
+   */
+  const draft = drafts.find((item) => item.id === activeId) ?? drafts[0];
+
+  /**
+   * When the selected draft leaves the group — approved, deleted, or gone from the
+   * queue — the card moves to the first draft still there, and the write state that
+   * belonged to the old one does not follow it.
+   */
+  useEffect(() => {
+    if (drafts.some((item) => item.id === activeId)) return;
+    setActiveId(drafts[0].id);
+    setSaving(false);
+    setSaved(false);
+    setRefused(false);
+  }, [drafts, activeId]);
+
+  /** Pick a tab. The save state describes the draft that was saved, not the slot. */
+  const selectDraft = (id: string) => {
+    if (id === activeId) return;
+    setActiveId(id);
+    setSaving(false);
+    setSaved(false);
+    setRefused(false);
+  };
 
   const toggleExpanded = () => {
     if (expanded) {
@@ -217,24 +274,32 @@ export default function DraftCard({
 
   const approve = () => {
     if (saving) return;
+    const id = draft.id;
     setRefused(false);
     setSaving(true);
-    void onSave().then((ok) => {
+    void onSave(id).then((ok) => {
       setSaving(false);
       if (!ok) {
         setRefused(true);
         return;
       }
-      setSaved(true);
-      window.setTimeout(onClose, 600);
+      // The store drops the approved id, so a group that still has drafts moves to
+      // the next tab on its own. Only the last one takes the card away — closing on
+      // the first approval would hide the notes the capture also produced, which is
+      // exactly what the tabs exist to prevent.
+      if (drafts.length <= 1) {
+        setSaved(true);
+        window.setTimeout(onClose, 600);
+      }
     });
   };
 
   const discard = () => {
     if (saving) return;
+    const id = draft.id;
     setRefused(false);
     setSaving(true);
-    void onDiscard().then((ok) => {
+    void onDiscard(id).then((ok) => {
       setSaving(false);
       if (!ok) setRefused(true);
     });
@@ -315,10 +380,10 @@ export default function DraftCard({
         {saved ? <Check className="h-3.5 w-3.5" /> : null}
         {t('notes.draftCard.save')}
       </Button>
-      <Button size="sm" variant="ghost" onClick={onEdit} className="h-7">
+      <Button size="sm" variant="ghost" onClick={() => onEdit(draft.id)} className="h-7">
         {t('notes.draftCard.edit')}
       </Button>
-      <Button size="sm" variant="ghost" onClick={onRegenerate} className="h-7">
+      <Button size="sm" variant="ghost" onClick={() => onRegenerate(draft.id)} className="h-7">
         <RefreshCw className="h-3 w-3" />
         {/* A draft distilled from the window is re-read; a draft the user dragged
             in is raw material, so the honest label is "tidy this up". */}
@@ -341,14 +406,9 @@ export default function DraftCard({
         {t('notes.draftCard.title')}
       </span>
       {/* `min-w-0 truncate` and `shrink-0` on the icons: without them a long
-          "共 12 条 · 3 分钟前" squeezed the two buttons — flex shrinks them like any
-          other item — and the close control became a few invisible pixels. */}
+          "3 分钟前" squeezed the two buttons — flex shrinks them like any other
+          item — and the close control became a few invisible pixels. */}
       <span className="ml-auto min-w-0 truncate text-[10px] text-neutral-400">
-        {/* The card can only show one draft, and a capture routinely produces two or
-            three. One card with no count reads as "one note was kept". */}
-        {groupSize > 1 && (
-          <span className="mr-1.5">{t('notes.draftCard.group', { count: groupSize })}</span>
-        )}
         {relativeTime(draft.updatedAt, i18n.language)}
       </span>
       <button
@@ -375,6 +435,81 @@ export default function DraftCard({
     </div>
   );
 
+  /**
+   * The tab strip: one tab per draft this capture produced.
+   *
+   * In both sizes and in the same spot (directly under the header), so 放大阅读
+   * changes the room the reading area has rather than which drafts can be reached —
+   * the drawer is a size, not a different review. It is absent for a single draft:
+   * there is nothing to switch between, and a lone tab is chrome.
+   */
+  const tabBar = drafts.length > 1 && (
+    <div
+      role="tablist"
+      aria-label={t('notes.draftCard.title')}
+      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-neutral-100 bg-neutral-50/70 px-2 py-1 dark:border-neutral-800 dark:bg-neutral-800/40"
+    >
+      {drafts.map((item, index) => {
+        const selected = item.id === draft.id;
+        return (
+          <button
+            key={item.id}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
+            type="button"
+            role="tab"
+            id={`note-draft-tab-${item.id}`}
+            aria-selected={selected}
+            // Roving tabindex: Tab enters the strip once, arrows move inside it.
+            tabIndex={selected ? 0 : -1}
+            title={item.title}
+            onClick={() => selectDraft(item.id)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+              event.preventDefault();
+              const delta = event.key === 'ArrowRight' ? 1 : -1;
+              const next = (index + delta + drafts.length) % drafts.length;
+              selectDraft(drafts[next].id);
+              tabRefs.current[next]?.focus();
+            }}
+            className={cn(
+              'flex min-w-0 max-w-[160px] shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] transition-colors',
+              selected
+                ? 'bg-white font-medium text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:bg-white/70 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700/60 dark:hover:text-neutral-100',
+            )}
+          >
+            {/* The ordinal, not just the title: two drafts from one conversation
+                routinely start with the same words, and the number is what tells a
+                reviewer which one they already read. */}
+            <span
+              className={cn(
+                'inline-flex h-4 min-w-4 items-center justify-center rounded px-0.5 text-[9.5px] font-semibold',
+                selected
+                  ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300'
+                  : 'bg-neutral-200/70 text-neutral-500 dark:bg-neutral-700 dark:text-neutral-400',
+              )}
+            >
+              {index + 1}
+            </span>
+            <span className="min-w-0 truncate">{item.title || t('notes.editor.untitled')}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  /**
+   * The reading area's semantics: a panel owned by a tab when there are tabs, and a
+   * plain labelled region for a one-note capture (a `tabpanel` pointing at a tab that
+   * does not exist is worse than no tab semantics at all).
+   */
+  const panelProps =
+    drafts.length > 1
+      ? { role: 'tabpanel' as const, 'aria-labelledby': `note-draft-tab-${draft.id}` }
+      : { role: 'region' as const, 'aria-label': t('notes.draftCard.title') };
+
   if (expanded) {
     return (
       <div className="pointer-events-auto fixed inset-0 z-[60] flex items-end justify-center">
@@ -396,7 +531,10 @@ export default function DraftCard({
               draggable-by-habit even though it closes on its own controls. */}
           <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-neutral-300 sm:hidden dark:bg-neutral-600" />
           {header(true)}
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{preview}</div>
+          {tabBar}
+          <div {...panelProps} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {preview}
+          </div>
           {scopeBanner}
           {refusedBanner}
           {actions}
@@ -415,11 +553,14 @@ export default function DraftCard({
       className="pointer-events-auto flex w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/10 dark:border-neutral-700 dark:bg-neutral-900"
     >
       {header(false)}
+      {tabBar}
       {/* The scroll region is a plain div, not a button: the old card wrapped its whole
           face in a `<button>` so a tap opened the editor, which left the draft's own
           text unselectable and made an inner scroll awkward on touch. Editing has a
           named verb in the footer. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">{preview}</div>
+      <div {...panelProps} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+        {preview}
+      </div>
       {scopeBanner}
       {refusedBanner}
       {actions}
