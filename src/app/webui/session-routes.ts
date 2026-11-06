@@ -40,6 +40,59 @@ function parseBeforeId(raw: string | undefined): string | undefined {
 // the two entry points share one projection; kept here for existing importers.
 export { refreshPersistedDownloadUrls };
 
+/** One row of the project chat list, in the shape the WebUI consumes. */
+function projectSessionRow(s: unknown): Record<string, unknown> {
+  const row = s as Record<string, unknown>;
+  return {
+    id: row.id,
+    project_id: row.project_id,
+    chat_id: row.chat_id,
+    title: row.metadata ? JSON.parse(String(row.metadata)).title : undefined,
+    created_at: parseInt(String(row.created_at), 10),
+    updated_at: parseInt(String(row.updated_at), 10),
+    metadata: row.metadata ? JSON.parse(String(row.metadata)) : {},
+  };
+}
+
+export interface ProjectSessionPageOptions {
+  /** Rows to return; defaults to LIST_DEFAULT_LIMIT. */
+  limit?: number;
+  before?: number;
+  beforeId?: string;
+  includeArchived?: boolean;
+  /** Narrow to one known session (the desktop caption's title lookup). */
+  id?: string;
+}
+
+/**
+ * One page of a project's own chats — the body of
+ * `GET /api/projects/:id/sessions`.
+ *
+ * Exported because `POST /api/projects/ensure-default` ships the same page with
+ * its own answer: behind a tunnel every round trip costs seconds, and the
+ * sidebar used to spend one just to fetch what the bootstrap had already read.
+ */
+export function listProjectSessions(
+  sessionRepository: SessionRepository,
+  projectId: string,
+  options: ProjectSessionPageOptions = {},
+): { items: Array<Record<string, unknown>>; hasMore: boolean } {
+  const limit =
+    options.limit === undefined ? LIST_DEFAULT_LIMIT : parseLimit(String(options.limit));
+  // One extra row decides `hasMore` without a second COUNT query.
+  const rows = sessionRepository.listByProject({
+    projectId,
+    limit: limit + 1,
+    before: options.before,
+    beforeId: options.beforeId,
+    includeArchived: options.includeArchived ?? false,
+    id: options.id,
+  });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  return { items: page.map(projectSessionRow), hasMore };
+}
+
 export function registerSessionRoutes(
   app: FastifyInstance,
   db: Database.Database,
@@ -132,33 +185,15 @@ export function registerSessionRoutes(
     };
 
     const limit = parseLimit(limitParam);
-    // One extra row decides `hasMore` without a second COUNT query.
-    const rows = sessionRepository.listByProject({
-      projectId,
-      limit: limit + 1,
-      before: parseBefore(beforeParam),
-      beforeId: parseBeforeId(beforeIdParam),
-      includeArchived: includeArchivedParam === '1' || includeArchivedParam === 'true',
-      id: idParam === undefined || idParam === '' ? undefined : idParam,
-    });
-    const hasMore = rows.length > limit;
-    const page = hasMore ? rows.slice(0, limit) : rows;
-
-    return reply.send({
-      items: page.map((s) => {
-        const row = s as unknown as Record<string, unknown>;
-        return {
-          id: row.id,
-          project_id: row.project_id,
-          chat_id: row.chat_id,
-          title: row.metadata ? JSON.parse(String(row.metadata)).title : undefined,
-          created_at: parseInt(String(row.created_at), 10),
-          updated_at: parseInt(String(row.updated_at), 10),
-          metadata: row.metadata ? JSON.parse(String(row.metadata)) : {},
-        };
+    return reply.send(
+      listProjectSessions(sessionRepository, projectId, {
+        limit,
+        before: parseBefore(beforeParam),
+        beforeId: parseBeforeId(beforeIdParam),
+        includeArchived: includeArchivedParam === '1' || includeArchivedParam === 'true',
+        id: idParam === undefined || idParam === '' ? undefined : idParam,
       }),
-      hasMore,
-    });
+    );
   });
 
   // Get single session with messages

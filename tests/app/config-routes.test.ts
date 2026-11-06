@@ -264,6 +264,63 @@ describe('GET /api/providers/:id/models with custom_providers config', () => {
   });
 });
 
+describe('GET /api/providers/models (batch catalog)', () => {
+  let app: ReturnType<typeof Fastify>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockGetModels.mockImplementation((id: string) => {
+      if (id !== 'deepseek') throw new Error('unknown provider');
+      return [{ id: 'deepseek-chat', name: 'DeepSeek Chat', api: 'openai-completions' }];
+    });
+
+    app = Fastify({ logger: false });
+    registerConfigRoutes(app, {
+      getConfig: () =>
+        ({
+          // Two providers with a key; the third has none and must not appear.
+          providerKeys: { deepseek: { apiKey: 'sk-1' }, nvidia: { apiKey: 'sk-2' }, x: {} },
+          piAi: {},
+          customProviders: [],
+          defaultReasoningLevel: 'high',
+        }) as any,
+      configPath: '/tmp/test-config.yaml',
+    });
+
+    await app.ready();
+  });
+
+  // The chat input builds its picker from all configured providers at once; one
+  // request is the whole point of the route (`/api/providers/:id/models` per
+  // provider cost one round trip each, which a tunnel turns into seconds).
+  it('returns every configured provider with its catalog in one response', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/providers/models' });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.defaultReasoningLevel).toBe('high');
+    expect(body.providers.map((p: { id: string }) => p.id).sort()).toEqual(['deepseek', 'nvidia']);
+
+    const deepseek = body.providers.find((p: { id: string }) => p.id === 'deepseek');
+    expect(deepseek.models.map((m: { id: string }) => m.id)).toEqual(['deepseek-chat']);
+    // A provider with a key but no catalog answers with an empty list, not a 500.
+    const nvidia = body.providers.find((p: { id: string }) => p.id === 'nvidia');
+    expect(nvidia.models).toEqual([]);
+  });
+
+  it('agrees with the per-provider route', async () => {
+    const batch = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/api/providers/models' })).body,
+    );
+    const single = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/api/providers/deepseek/models' })).body,
+    );
+
+    const deepseek = batch.providers.find((p: { id: string }) => p.id === 'deepseek');
+    expect(deepseek.models).toEqual(single.models);
+  });
+});
+
 describe('PUT /api/config', () => {
   let app: ReturnType<typeof Fastify>;
   let dir: string;

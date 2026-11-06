@@ -12,9 +12,10 @@ import type Database from 'better-sqlite3';
 import type { AppConfig, AppServices } from './types.js';
 import { loadConfig, resetConfig } from './config.js';
 import { ProjectStore } from './webui/project-store.js';
+import { SessionRepository } from '../memory/repositories/session-repository.js';
 import { registerProjectRoutes } from './webui/project-routes.js';
 import { registerAgentRoutes } from './webui/agent-routes.js';
-import { registerSessionRoutes } from './webui/session-routes.js';
+import { registerSessionRoutes, listProjectSessions } from './webui/session-routes.js';
 import { registerInboxRoutes } from './webui/inbox-routes.js';
 import { registerArchiveRoutes } from './webui/archive-routes.js';
 import { registerSessionDeleteRoutes } from './webui/session-delete-routes.js';
@@ -98,7 +99,14 @@ export async function registerWebUIRoutes(
   });
 
   // 5. Register all route modules (route decorators are synchronous)
-  registerProjectRoutes(app, projectStore);
+  //
+  // One repository instance: `ensure-default` ships the sidebar's first page and
+  // the sessions routes serve the rest of it, so both must project rows the same
+  // way (`listProjectSessions`) instead of each preparing its own statements.
+  const sessionRepository = new SessionRepository(cfg.db);
+  registerProjectRoutes(app, projectStore, {
+    listSessions: (projectId) => listProjectSessions(sessionRepository, projectId),
+  });
 
   registerAgentRoutes(app, {
     getConfig: cfg.getConfig,
@@ -110,12 +118,28 @@ export async function registerWebUIRoutes(
   /**
    * Bot display name for a channel, shared by the inbox and the archive so a
    * group label cannot differ between the two trees.
+   *
+   * A listing never waits on a platform round trip for it: a name we already
+   * know is returned at once and refreshed behind the response, and a first-ever
+   * lookup gets a short budget. The registry's own 3 s timeout used to be the
+   * inbox's load time on a platform that was slow or unreachable.
    */
+  const BOT_NAME_BUDGET_MS = 600;
   const resolveBotName = async (channel: string): Promise<string | undefined> => {
     // Ask the platform first: the bot's name lives in its owner's console and
     // is edited there, so a config copy is stale the moment someone renames it.
-    const discovered = await cfg.services.botIdentity?.resolve(channel);
-    if (discovered) return discovered;
+    const identity = cfg.services.botIdentity;
+    if (identity) {
+      const known = identity.cached(channel);
+      if (known) {
+        // `resolve()` never rejects and is single-flight, so this is a refresh,
+        // not a second copy of a lookup already running.
+        void identity.resolve(channel);
+        return known;
+      }
+      const discovered = await withBudget(identity.resolve(channel), BOT_NAME_BUDGET_MS);
+      if (discovered) return discovered;
+    }
 
     // Fallback for a channel that cannot answer (platform unreachable, or a
     // bridge with no bot identity at all) — better a configured label than a
@@ -304,4 +328,26 @@ export async function registerWebUIRoutes(
   }
 
   return { wsManager, bridgeRegistry };
+}
+
+/**
+ * Resolve `promise` if it settles within `ms`, else give up and answer
+ * `undefined`.
+ *
+ * Used for labels a response may legitimately lack: the work keeps running (so
+ * a later request gets the answer from cache), but the caller is not held open
+ * by a platform that never answers.
+ */
+async function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+    // The budget must not be the only thing keeping the process alive.
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([promise, budget]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

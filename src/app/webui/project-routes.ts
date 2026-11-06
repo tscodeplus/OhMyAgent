@@ -5,7 +5,23 @@
 import type { FastifyInstance } from 'fastify';
 import { ProjectStore } from './project-store.js';
 
-export function registerProjectRoutes(app: FastifyInstance, store: ProjectStore): void {
+/** How the bootstrap response carries the default project's chat list. */
+export interface ProjectRouteDeps {
+  /**
+   * First page of a project's chats, folded into `ensure-default`.
+   *
+   * The WebUI sidebar renders exactly this page on first paint, and behind a
+   * tunnel a second round trip for it costs about a second — the bootstrap has
+   * already paid for the query, so it hands the rows back instead.
+   */
+  listSessions?: (projectId: string) => { items: Array<Record<string, unknown>>; hasMore: boolean };
+}
+
+export function registerProjectRoutes(
+  app: FastifyInstance,
+  store: ProjectStore,
+  deps: ProjectRouteDeps = {},
+): void {
   // List all projects
   app.get('/api/projects', async (_request, reply) => {
     const projects = store.list();
@@ -52,7 +68,8 @@ export function registerProjectRoutes(app: FastifyInstance, store: ProjectStore)
   app.post('/api/projects/ensure-default', async (request, reply) => {
     const body = request.body as { name?: string } | undefined;
     const result = store.ensureDefault('default', body?.name);
-    return reply.send(result);
+    const sessions = deps.listSessions?.(result.project.id);
+    return reply.send(sessions ? { ...result, sessions } : result);
   });
 
   // Update project

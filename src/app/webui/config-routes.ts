@@ -247,6 +247,43 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
   // model picker show only usable providers instead of the full builtin list.
   app.get('/api/providers/configured', async (_request, reply) => {
     const config = cfg.getConfig();
+    return reply.send({
+      providers: configuredProviderIds(config).map((id) => ({ id, name: id })),
+      // Global default reasoning level (Model Router tab) — the chat input's
+      // reasoning selector uses it to compute a model's effective default.
+      defaultReasoningLevel: config?.defaultReasoningLevel,
+    });
+  });
+
+  // Every configured provider's catalog in one response.
+  //
+  // The chat input builds its model picker from all configured providers at
+  // once, and used to ask `/api/providers/:id/models` once per provider: seven
+  // round trips before the picker could render, which behind a tunnel is several
+  // seconds of nothing. Same data, one request.
+  app.get('/api/providers/models', async (_request, reply) => {
+    const config = cfg.getConfig();
+    return reply.send({
+      providers: configuredProviderIds(config).map((id) => ({
+        id,
+        models: modelsForProvider(config, id),
+      })),
+      defaultReasoningLevel: config?.defaultReasoningLevel,
+    });
+  });
+
+  // Return the catalog of models for a given provider (builtin + custom).
+  // Powers the searchable model dropdown in Settings → Models & Routing.
+  app.get('/api/providers/:id/models', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    return reply.send({ provider: id, models: modelsForProvider(cfg.getConfig(), id) });
+  });
+
+  // ── Shared helpers for the provider routes ────────────────────────
+  // The chat input needs "every configured provider and its catalog" in one
+  // response, and a settings picker needs one provider's — same projection, so
+  // the two cannot drift.
+  const configuredProviderIds = (config: AppConfig): string[] => {
     const ids = new Set<string>();
 
     const providerKeys = config.providerKeys as
@@ -268,27 +305,17 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       }
     }
 
-    const providers = [...ids].map((id) => ({ id, name: id }));
-    return reply.send({
-      providers,
-      // Global default reasoning level (Model Router tab) — the chat input's
-      // reasoning selector uses it to compute a model's effective default.
-      defaultReasoningLevel: cfg.getConfig()?.defaultReasoningLevel,
-    });
-  });
+    return [...ids];
+  };
 
-  // Return the catalog of models for a given provider (builtin + custom).
-  // Powers the searchable model dropdown in Settings → Models & Routing.
-  app.get('/api/providers/:id/models', async (request, reply) => {
-    const { id } = request.params as { id: string };
-
+  const modelsForProvider = (config: AppConfig, id: string): Array<Record<string, unknown>> => {
     // Models declared under `custom_providers` are read from the live config,
     // not only from the process-global registry: `registerModel` runs at
     // bootstrap, so a provider/model saved from the settings UI would not show
     // up in any model dropdown until the process restarted. Custom entries win
     // on id collisions (same precedence as `getModels` in compat.ts), which
     // also keeps the per-model `reasoningLevel` override attached.
-    const customProvider = cfg.getConfig()?.customProviders?.find((p) => p.provider === id);
+    const customProvider = config?.customProviders?.find((p) => p.provider === id);
     const customModels = (customProvider?.models ?? []).map((m) => ({
       id: m.id,
       name: m.name || m.id,
@@ -326,8 +353,8 @@ export function registerConfigRoutes(app: FastifyInstance, cfg: ConfigRouteConfi
       catalogModels = [];
     }
 
-    return reply.send({ provider: id, models: [...customModels, ...catalogModels] });
-  });
+    return [...customModels, ...catalogModels];
+  };
 
   // Fetch models live from the provider's API (for providers that support /models endpoint)
   app.get('/api/providers/:id/models/live', async (request, reply) => {
