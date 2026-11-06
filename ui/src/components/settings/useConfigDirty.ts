@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { apiRequest } from '../../utils/api';
+import { fetchConfig as readConfig, putConfig } from '../../utils/config-cache';
 import { useToast } from '../ui/Toast';
 import {
   missingRequiredFields,
@@ -74,7 +74,9 @@ export function useConfigDirty(
     async (showLoading = true) => {
       if (showLoading) setLoading(true);
       try {
-        const d = await apiRequest<Record<string, unknown>>('/api/config');
+        // Shared with the other tabs and with the notes layer: one read per page
+        // load, not one per tab (see utils/config-cache).
+        const d = await readConfig();
         setConfig(d);
         setDirtyFields({});
       } catch {
@@ -179,7 +181,7 @@ export function useConfigDirty(
         for (const [path, value] of Object.entries(current)) {
           payload[path] = numericPaths.has(path) ? Number(value) : value;
         }
-        await apiRequest('/api/config', { method: 'PUT', body: JSON.stringify(payload) });
+        await putConfig(payload);
         if (!opts?.silent) {
           showToast(t('settings.saved'), 'success');
         }

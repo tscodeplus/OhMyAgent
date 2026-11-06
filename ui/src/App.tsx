@@ -14,6 +14,7 @@ import NotesView from './components/notes/NotesView';
 import CronView from './components/cron/CronView';
 import InboxView from './components/inbox/InboxView';
 import { apiRequest, fetchProjectSessions } from './utils/api';
+import { peekSessionPage } from './utils/session-cache';
 import { syncLanguageToServer } from './utils/syncLanguage';
 import i18n from './i18n/config';
 import type { Session } from './types/session';
@@ -36,9 +37,13 @@ function HomePage() {
     (async () => {
       // Try to find the most recently active session
       try {
-        // One row is enough: the list is ordered by last activity, newest first.
-        const page = await fetchProjectSessions(pid, { limit: 1 });
-        const latest = page.items[0];
+        // The bootstrap already brought page one (see SessionList): reusing it
+        // skips a round trip that costs about a second behind a tunnel. An
+        // empty page is an answer too — there is nothing to look up.
+        const primedPage = peekSessionPage(pid);
+        const latest = primedPage
+          ? primedPage.items[0]
+          : (await fetchProjectSessions(pid, { limit: 1 })).items[0];
         if (latest) {
           setSelectedSessionId(latest.id);
           navigate(`/p/${pid}/s/${latest.id}`, { replace: true });

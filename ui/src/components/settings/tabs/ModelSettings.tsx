@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { apiRequest } from '../../../utils/api';
+import { putConfig } from '../../../utils/config-cache';
 import { useToast } from '../../ui/Toast';
 import { useConfigDirty, type SettingsTabHandle } from '../useConfigDirty';
 import { EMBEDDING_REQUIRED_RULES } from '../requiredFields';
@@ -440,16 +441,10 @@ export default function ModelSettings({
           await judgeActionsRef.current?.save({ silent: true });
         }
         if (providerKeysDirty) {
-          await apiRequest('/api/config', {
-            method: 'PUT',
-            body: JSON.stringify({ provider_keys: providerKeys }),
-          });
+          await putConfig({ provider_keys: providerKeys });
         }
         if (customProvidersDirty) {
-          await apiRequest('/api/config', {
-            method: 'PUT',
-            body: JSON.stringify({ customProviders }),
-          });
+          await putConfig({ customProviders });
         }
         await saveSimple(opts);
         setProviderKeysDirty(false);

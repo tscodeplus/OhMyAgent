@@ -101,6 +101,29 @@ export function createSWRFetcher<T>() {
   };
 }
 
+/**
+ * Requests already in flight, keyed by path.
+ *
+ * The shell keeps two copies of the navigation trays mounted at once (the
+ * sidebar and the collapsed rail's flyout), so every list on the first screen
+ * was requested twice — four times for a list that also refetches on mount.
+ * Sharing an *in-flight* request hides the twins without remembering a finished
+ * answer, so nothing a caller reads can ever be stale.
+ */
+const inFlightGets = new Map<string, Promise<unknown>>();
+
+/** A GET whose duplicate callers share one request (see `inFlightGets`). */
+export function apiRequestShared<T>(path: string): Promise<T> {
+  const existing = inFlightGets.get(path);
+  if (existing) return existing as Promise<T>;
+
+  const request = apiRequest<T>(path).finally(() => {
+    if (inFlightGets.get(path) === request) inFlightGets.delete(path);
+  });
+  inFlightGets.set(path, request);
+  return request;
+}
+
 /** Build a `?a=1&b=2` suffix, skipping params the caller left undefined or empty. */
 function queryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams();
@@ -132,7 +155,7 @@ export function fetchSearchContext(params: {
 }
 
 export function fetchInbox(params: InboxQuery = {}): Promise<InboxPage> {
-  return apiRequest<InboxPage>(
+  return apiRequestShared<InboxPage>(
     `/api/inbox${queryString({
       channel: params.channel,
       limit: params.limit,
@@ -158,7 +181,7 @@ export function fetchInboxSession(
 
 /** Archived conversations of both trees (project chats + IM inbox), paged. */
 export function fetchArchive(params: ArchiveQuery = {}): Promise<ArchivePage> {
-  return apiRequest<ArchivePage>(
+  return apiRequestShared<ArchivePage>(
     `/api/archive${queryString({
       kind: params.kind,
       limit: params.limit,
@@ -192,7 +215,7 @@ export function fetchProjectSessions(
   projectId: string,
   query: SessionListQuery = {},
 ): Promise<SessionListPage> {
-  return apiRequest<SessionListPage>(
+  return apiRequestShared<SessionListPage>(
     `/api/projects/${encodeURIComponent(projectId)}/sessions${queryString({
       limit: query.limit,
       before: query.before,

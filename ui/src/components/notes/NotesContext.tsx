@@ -31,6 +31,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiRequest } from '../../utils/api';
+import { fetchConfig as readConfig, putConfig } from '../../utils/config-cache';
 import { NOTES_PAGE_SIZE } from './types';
 import type { Note, NoteChannel, NoteListResult, NoteRejectionCode, NoteStatus } from './types';
 
@@ -456,11 +457,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     let cancelled = false;
-    void apiRequest<{ notes?: { enabled?: boolean; ball?: { show?: boolean } } }>('/api/config')
+    // Shared read: the same document the settings panel and the language sync
+    // need, so the page load costs one `GET /api/config` in total.
+    void readConfig()
       .then((config) => {
         if (cancelled) return;
-        if (config?.notes?.ball?.show === false) setBallHiddenState(true);
-        setLayer(config?.notes?.enabled === false ? 'off' : 'on');
+        const notes = (config as { notes?: { enabled?: boolean; ball?: { show?: boolean } } })
+          .notes;
+        if (notes?.ball?.show === false) setBallHiddenState(true);
+        setLayer(notes?.enabled === false ? 'off' : 'on');
       })
       .catch(() => {
         if (!cancelled) setLayer('on');
@@ -881,10 +886,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
    */
   const setBallHidden = useCallback((hidden: boolean) => {
     setBallHiddenState(hidden);
-    void apiRequest('/api/config', {
-      method: 'PUT',
-      body: JSON.stringify({ 'notes.ball.show': !hidden }),
-    }).catch(() => {
+    void putConfig({ 'notes.ball.show': !hidden }).catch(() => {
       setBallHiddenState(!hidden);
     });
   }, []);

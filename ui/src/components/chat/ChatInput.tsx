@@ -219,38 +219,33 @@ export default function ChatInput({
   // reasoning selector can display each model's effective default.
   useEffect(() => {
     let cancelled = false;
+    // One request for every configured provider's catalog. Asking per provider
+    // (what this used to do) meant one round trip per key — seven of them in
+    // parallel — and behind a tunnel that is the model picker's load time.
     apiRequest<{
-      providers: Array<{ id: string }>;
+      providers: Array<{
+        id: string;
+        models: Array<{
+          id: string;
+          name?: string;
+          reasoning?: boolean;
+          reasoningLevel?: string;
+        }>;
+      }>;
       defaultReasoningLevel?: string;
-    }>('/api/providers/configured')
-      .then(async (data) => {
-        const providers = data?.providers ?? [];
-        if (!cancelled) setGlobalDefaultReasoningLevel(data?.defaultReasoningLevel ?? null);
-        const groups = await Promise.all(
-          providers.map(async (p) => {
-            try {
-              const res = await apiRequest<{
-                models: Array<{
-                  id: string;
-                  name?: string;
-                  reasoning?: boolean;
-                  reasoningLevel?: string;
-                }>;
-              }>(`/api/providers/${p.id}/models`);
-              return {
-                provider: p.id,
-                models: (res?.models ?? []).map((m) => ({
-                  id: m.id,
-                  name: m.name || m.id,
-                  reasoning: m.reasoning,
-                  reasoningLevel: m.reasoningLevel,
-                })),
-              };
-            } catch {
-              return { provider: p.id, models: [] };
-            }
-          }),
-        );
+    }>('/api/providers/models')
+      .then((data) => {
+        if (cancelled) return;
+        setGlobalDefaultReasoningLevel(data?.defaultReasoningLevel ?? null);
+        const groups = (data?.providers ?? []).map((p) => ({
+          provider: p.id,
+          models: (p.models ?? []).map((m) => ({
+            id: m.id,
+            name: m.name || m.id,
+            reasoning: m.reasoning,
+            reasoningLevel: m.reasoningLevel,
+          })),
+        }));
         // Sort providers A-Z, and each provider's models A-Z (by display name).
         const sorted = groups
           .filter((g) => g.models.length > 0)
@@ -261,7 +256,7 @@ export default function ChatInput({
               a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }),
             ),
           }));
-        if (!cancelled) setModelGroups(sorted);
+        setModelGroups(sorted);
       })
       .catch(() => {
         if (!cancelled) setModelGroups([]);

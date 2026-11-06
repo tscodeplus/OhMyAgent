@@ -4,6 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Archive, Trash2 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
 import { apiRequest, deleteSessions, fetchProjectSessions, setArchived } from '../../utils/api';
+import { primeSessionPage, readSessionPage, SESSION_CACHE_TTL_MS } from '../../utils/session-cache';
+import { useOnRefreshKey } from '../../utils/useOnRefreshKey';
 import { describeSkippedDeletes } from '../../utils/deleteFeedback';
 import { useLongPress } from '../../utils/useLongPress';
 import { useRowSelection } from '../../utils/useRowSelection';
@@ -29,10 +31,13 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
   const { sessionId } = useParams();
   const { showToast } = useToast();
   const { sessionsRefreshKey } = useProject();
-  const [sessions, setSessions] = useState<Session[]>([]);
+  // Same reason as ProjectList: seed the first render so a re-mounted list paints
+  // its rows instead of a spinner frame.
+  const [rememberedOnMount] = useState(() => readSessionPage(projectId, SESSION_CACHE_TTL_MS));
+  const [sessions, setSessions] = useState<Session[]>(rememberedOnMount?.page.items ?? []);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasMore, setHasMore] = useState(rememberedOnMount?.page.hasMore ?? false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [contextMenu, setContextMenu] = useState<{ session: Session; x: number; y: number } | null>(
@@ -54,6 +59,9 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
       try {
         if (showSpinner) setLoading(true);
         const page = await fetchProjectSessions(projectId);
+        // Remember it: a remount (drawer open/close, tray switch) paints this page
+        // instead of spinning for a round trip it has already paid for.
+        primeSessionPage(projectId, page);
         const fresh = page.items ?? [];
         setSessions((prev) => {
           // Keep rows pulled in with 加载更多 while the first page is unchanged —
@@ -101,13 +109,25 @@ export default function SessionList({ projectId, onSessionSelect, onChanged }: S
   }, [projectId, sessions, loadingMore]);
 
   useEffect(() => {
+    // Paint the remembered page first — the spinner belongs to a cold start, not
+    // to a drawer that is re-opening the list it was just showing.
+    const remembered = readSessionPage(projectId, SESSION_CACHE_TTL_MS);
+    if (remembered) {
+      setSessions(remembered.page.items ?? []);
+      setHasMore(remembered.page.hasMore ?? false);
+      setLoading(false);
+      // The 30 s poll below belongs to this mount, so a page older than half an
+      // interval is worth re-reading — silently, behind the rows on screen.
+      if (remembered.ageMs > 15_000) fetchSessions(false);
+      return;
+    }
     fetchSessions(true);
-  }, [fetchSessions]);
-
-  // Refetch when a session is created from outside (e.g. ProjectList + button)
-  useEffect(() => {
+  }, [fetchSessions, projectId]);
+  // Refetch when a session is created from outside (e.g. ProjectList + button).
+  // Not on mount: the effect above already seeded (or fetched) the first page.
+  useOnRefreshKey(sessionsRefreshKey, () => {
     fetchSessions(false);
-  }, [sessionsRefreshKey, fetchSessions]);
+  });
 
   // Poll every 30s to keep relative times accurate and catch new/updated sessions
   useEffect(() => {

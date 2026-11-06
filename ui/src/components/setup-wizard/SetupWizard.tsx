@@ -6,6 +6,7 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import PasswordInput from '../ui/PasswordInput';
 import { apiRequest } from '../../utils/api';
+import { putConfig } from '../../utils/config-cache';
 import { useTheme } from '../../contexts/ThemeContext';
 
 // ─── Types ───
@@ -229,10 +230,7 @@ export default function SetupWizard({
         payload['embedding.model'] = state.embeddingModel;
       }
 
-      await apiRequest('/api/config', {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
+      await putConfig(payload);
 
       onComplete();
     } catch (err: unknown) {

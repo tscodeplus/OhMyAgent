@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
 import { deleteSessions, fetchArchive, setArchived } from '../../utils/api';
+import { useOnRefreshKey } from '../../utils/useOnRefreshKey';
+import { readList, rememberList } from '../../utils/list-cache';
 import { describeSkippedDeletes } from '../../utils/deleteFeedback';
 import { useLongPress } from '../../utils/useLongPress';
 import { useRowSelection } from '../../utils/useRowSelection';
@@ -20,7 +22,12 @@ import SessionContextMenu from '../app-shell/SessionContextMenu';
 import SelectionActionBar from '../app-shell/SelectionActionBar';
 import RowCheckbox from '../ui/RowCheckbox';
 import { useToast } from '../ui/Toast';
-import type { ArchiveGroup, ArchivedSessionSummary, ArchiveOwnerCount } from '../../types/archive';
+import type {
+  ArchiveGroup,
+  ArchivePage,
+  ArchivedSessionSummary,
+  ArchiveOwnerCount,
+} from '../../types/archive';
 import { archivedItemLabel, archivedIds, groupArchivedItems } from './archiveModel';
 
 /** Rows per archive page (the endpoint accepts 1..200). */
@@ -38,6 +45,9 @@ interface ArchiveSidebarProps {
   /** Ask the shell to re-fetch the live lists after an archive/restore. */
   onChanged: () => void;
 }
+
+/** First page of the archive, shared by both mounted copies of this list. */
+const ARCHIVE_PAGE_KEY = 'archive:first';
 
 /**
  * 归档 — the section below 渠道会话 in the sidebar.
@@ -59,10 +69,13 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
   const location = useLocation();
   const { showToast } = useToast();
 
-  const [items, setItems] = useState<ArchivedSessionSummary[]>([]);
-  const [owners, setOwners] = useState<ArchiveOwnerCount[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Seed the first render from the remembered page (see list-cache): a drawer open
+  // re-mounts this list, and a spinner there reads as reloading.
+  const [rememberedOnMount] = useState(() => readList<ArchivePage>(ARCHIVE_PAGE_KEY)?.data);
+  const [items, setItems] = useState<ArchivedSessionSummary[]>(rememberedOnMount?.items ?? []);
+  const [owners, setOwners] = useState<ArchiveOwnerCount[]>(rememberedOnMount?.owners ?? []);
+  const [hasMore, setHasMore] = useState(rememberedOnMount?.hasMore ?? false);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -127,6 +140,7 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
     try {
       if (showSpinner) setLoading(true);
       const page = await fetchArchive({ limit: PAGE_SIZE });
+      rememberList(ARCHIVE_PAGE_KEY, page);
       setItems(page.items ?? []);
       setOwners(page.owners ?? []);
       setHasMore(page.hasMore ?? false);
@@ -139,14 +153,20 @@ export default function ArchiveSidebar({ refreshKey, onChanged }: ArchiveSidebar
   }, []);
 
   useEffect(() => {
+    const remembered = readList<ArchivePage>(ARCHIVE_PAGE_KEY);
+    if (remembered) {
+      // Already on screen; only a stale copy is worth re-reading, and silently.
+      if (remembered.ageMs > 15_000) void fetchFirstPage(false);
+      return;
+    }
     void fetchFirstPage(true);
   }, [fetchFirstPage]);
 
   // The shell bumps `refreshKey` whenever a project/session/inbox list changed,
   // which is exactly when the archive may have gained or lost rows.
-  useEffect(() => {
+  useOnRefreshKey(refreshKey, () => {
     void fetchFirstPage(false);
-  }, [refreshKey, fetchFirstPage]);
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {

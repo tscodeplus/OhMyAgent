@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../../../utils/api';
 import { setNestedValue } from '../../../utils/nested-value';
+import { fetchConfig as readConfig, putConfig } from '../../../utils/config-cache';
 import { useToast } from '../../ui/Toast';
 import Input from '../../ui/Input';
 import Select from '../../ui/Select';
@@ -20,7 +21,7 @@ export default function ToolsSettings() {
   const [deniedPatterns, setDeniedPatterns] = useState('');
 
   useEffect(() => {
-    apiRequest<Record<string, unknown>>('/api/config')
+    readConfig()
       .then((data) => {
         setConfig(data);
         const tools = (data.tools as Record<string, unknown>) || {};
@@ -46,7 +47,7 @@ export default function ToolsSettings() {
   const saveField = async (path: string, value: unknown) => {
     setConfig((prev) => setNestedValue(prev, path, value));
     try {
-      await apiRequest('/api/config', { method: 'PUT', body: JSON.stringify({ [path]: value }) });
+      await putConfig({ [path]: value });
       showToast(t('settings.saved'), 'success');
     } catch {
       showToast(t('settings.saveError'), 'error');

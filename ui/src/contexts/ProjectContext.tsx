@@ -1,12 +1,16 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiRequest } from '../utils/api';
+import { primeSessionPage } from '../utils/session-cache';
 import { useAuth } from './AuthContext';
 import type { Project } from '../types/project';
+import type { SessionListPage } from '../types/session';
 
 interface EnsureDefaultResponse {
   project: Project;
   created: boolean;
+  /** First page of the project's chats — absent from servers that predate it. */
+  sessions?: SessionListPage;
 }
 
 interface ProjectContextValue {
@@ -62,6 +66,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       .then((res) => {
         if (!cancelled) {
           setSelectedProjectId(res.project.id);
+          // The app's first paint needs this page twice (the sidebar lists it,
+          // the home route opens its newest row), so it is fetched once here
+          // rather than once per consumer.
+          primeSessionPage(res.project.id, res.sessions);
           setInitialized(true);
         }
       })

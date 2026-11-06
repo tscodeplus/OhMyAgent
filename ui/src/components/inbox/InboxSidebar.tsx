@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Archive, ChevronDown, Inbox as InboxIcon, Trash2 } from 'lucide-react';
 import { cn, formatRelativeTime } from '../../lib/utils';
 import { apiRequest, deleteSessions, fetchInbox, setArchived } from '../../utils/api';
+import { useOnRefreshKey } from '../../utils/useOnRefreshKey';
+import { readList, rememberList } from '../../utils/list-cache';
 import { describeSkippedDeletes } from '../../utils/deleteFeedback';
 import { useLongPress } from '../../utils/useLongPress';
 import { useRowSelection } from '../../utils/useRowSelection';
@@ -13,7 +15,12 @@ import RowCheckbox from '../ui/RowCheckbox';
 import SessionContextMenu from '../app-shell/SessionContextMenu';
 import SelectionActionBar from '../app-shell/SelectionActionBar';
 import { useToast } from '../ui/Toast';
-import type { InboxChannel, InboxChannelCount, InboxSessionSummary } from '../../types/inbox';
+import type {
+  InboxChannel,
+  InboxChannelCount,
+  InboxPage,
+  InboxSessionSummary,
+} from '../../types/inbox';
 import { channelLabel, groupInboxItems, inboxItemLabel, normalizeInboxChannel } from './inboxModel';
 
 /** Rows per inbox page (the endpoint accepts 1..200). */
@@ -47,14 +54,21 @@ interface InboxSidebarProps {
   onChanged?: () => void;
 }
 
+/** First page of the inbox, shared by both mounted copies of this list. */
+const INBOX_PAGE_KEY = 'inbox:first';
+
 export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
   const location = useLocation();
-  const [items, setItems] = useState<InboxSessionSummary[]>([]);
-  const [channels, setChannels] = useState<InboxChannelCount[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Seed the first render from the remembered page: a drawer open re-mounts this
+  // list, and a spinner there reads as "the sidebar is reloading" for rows it
+  // already had.
+  const [rememberedOnMount] = useState(() => readList<InboxPage>(INBOX_PAGE_KEY)?.data);
+  const [items, setItems] = useState<InboxSessionSummary[]>(rememberedOnMount?.items ?? []);
+  const [channels, setChannels] = useState<InboxChannelCount[]>(rememberedOnMount?.channels ?? []);
+  const [hasMore, setHasMore] = useState(rememberedOnMount?.hasMore ?? false);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
   // The section defaults to collapsed: IM transcripts are a destination, not a
@@ -111,6 +125,7 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
     try {
       if (showSpinner) setLoading(true);
       const page = await fetchInbox({ limit: PAGE_SIZE });
+      rememberList(INBOX_PAGE_KEY, page);
       setItems(page.items ?? []);
       setChannels(page.channels ?? []);
       setHasMore(page.hasMore ?? false);
@@ -123,12 +138,18 @@ export default function InboxSidebar({ refreshKey, onChanged }: InboxSidebarProp
   }, []);
 
   useEffect(() => {
+    const remembered = readList<InboxPage>(INBOX_PAGE_KEY);
+    if (remembered) {
+      // Already on screen; only a stale copy is worth re-reading, and silently.
+      if (remembered.ageMs > 15_000) void fetchFirstPage(false);
+      return;
+    }
     void fetchFirstPage(true);
   }, [fetchFirstPage]);
 
-  useEffect(() => {
+  useOnRefreshKey(refreshKey, () => {
     void fetchFirstPage(false);
-  }, [refreshKey, fetchFirstPage]);
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {

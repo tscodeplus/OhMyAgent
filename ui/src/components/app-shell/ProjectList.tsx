@@ -14,7 +14,9 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { apiRequest } from '../../utils/api';
+import { apiRequest, apiRequestShared } from '../../utils/api';
+import { readList, rememberList } from '../../utils/list-cache';
+import { useOnRefreshKey } from '../../utils/useOnRefreshKey';
 import { useLongPress } from '../../utils/useLongPress';
 import { useProject } from '../../contexts/ProjectContext';
 import { useToast } from '../ui/Toast';
@@ -30,6 +32,9 @@ interface ProjectListProps {
   onCreateProject: () => void;
 }
 
+/** One key: this list is a singleton, the second tray copy shares it. */
+const PROJECTS_KEY = 'projects';
+
 export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: ProjectListProps) {
   const { t } = useTranslation('common');
   const navigate = useNavigate();
@@ -38,8 +43,12 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
     useProject();
   const { showToast } = useToast();
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Seed the very first render from the remembered list: `loading` starts true and
+  // is only cleared by the effect, so a re-mounted tray (every drawer open on a
+  // phone) would paint one spinner frame for a list it already had.
+  const [rememberedOnMount] = useState(() => readList<Project[]>(PROJECTS_KEY));
+  const [projects, setProjects] = useState<Project[]>(rememberedOnMount?.data ?? []);
+  const [loading, setLoading] = useState(!rememberedOnMount);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
@@ -52,11 +61,16 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   // Ref to suppress auto-expand during user-initiated navigation
   const userNavigating = useRef(false);
 
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (showSpinner = false) => {
     try {
-      setLoading(true);
-      const data = await apiRequest<Project[]>('/api/projects');
+      // The spinner is only honest when there is nothing to show yet: a remount
+      // (every drawer open on a phone) has the last list already, and a spinner
+      // there reads as "the sidebar is reloading" for a page it just showed.
+      if (showSpinner) setLoading(true);
+      // Shared with the second copy of this list in the collapsed rail's flyout.
+      const data = await apiRequestShared<Project[]>('/api/projects');
       setProjects(data);
+      rememberList(PROJECTS_KEY, data);
     } catch {
       /* silent */
     } finally {
@@ -65,8 +79,21 @@ export default function ProjectList({ refreshKey, onRefresh, onCreateProject }: 
   }, []);
 
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects, refreshKey]);
+    const remembered = readList<Project[]>(PROJECTS_KEY);
+    if (remembered) {
+      // Already on screen; only a stale copy is worth re-reading, and silently —
+      // the spinner belongs to a cold start.
+      if (remembered.ageMs > 15_000) void fetchProjects();
+      return;
+    }
+    void fetchProjects(true);
+  }, [fetchProjects]);
+
+  // The shell bumps `refreshKey` when a project was created, renamed or deleted
+  // somewhere this list cannot see.
+  useOnRefreshKey(refreshKey, () => {
+    void fetchProjects();
+  });
 
   // Auto-expand from URL param (direct navigation / page refresh only)
   useEffect(() => {

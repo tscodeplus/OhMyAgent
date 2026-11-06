@@ -23,6 +23,7 @@ import Input from '../../ui/Input';
 import Modal from '../../ui/Modal';
 import Spinner from '../../ui/Spinner';
 import { apiRequest } from '../../../utils/api';
+import { fetchConfig as readConfig, putConfig } from '../../../utils/config-cache';
 import { useToast } from '../../ui/Toast';
 import { copyTextToClipboard } from '../../../utils/clipboard';
 import McpServerCard, {
@@ -226,7 +227,8 @@ export default function McpSettings() {
 
   const loadConfig = useCallback(async (): Promise<Record<string, unknown> | null> => {
     try {
-      return await apiRequest<Record<string, unknown>>('/api/config');
+      // Shared snapshot — the settings panel already has this document.
+      return await readConfig();
     } catch {
       return null;
     }
@@ -385,7 +387,7 @@ export default function McpSettings() {
       setBusyServer(server.name);
       try {
         // env/header values are masked and only available through /api/config.
-        const config = await apiRequest<Record<string, unknown>>('/api/config');
+        const config = await readConfig();
         setForm({ editing: server, draft: mcpDraftFromConfig(server, config) });
       } catch {
         showToast(t('settings.loadError'), 'error', 6000);
