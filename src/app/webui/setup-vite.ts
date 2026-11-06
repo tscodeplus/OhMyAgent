@@ -164,13 +164,24 @@ export async function setupWebUIMiddleware(options: {
       // wildcard route costs nothing in correctness, and it still calls
       // `callNotFound()` for a real miss, which keeps the SPA fallback below.
       wildcard: true,
-      // Entry HTML must always revalidate (Safari aggressively caches it);
-      // Vite-emitted assets have content hashes, so they can be immutable.
+      // `cacheControl: false` is required for the headers below to survive:
+      // `@fastify/send` writes its own `Cache-Control: public, max-age=0` AFTER
+      // `setHeaders` runs, which silently discarded them — every bundle shipped
+      // as `max-age=0`, so browsers revalidated the 1.3 MB WebUI on each visit
+      // and Cloudflare capped it at its 4 h Browser Cache TTL. With the plugin's
+      // default off, `setHeaders` is the only writer, so it must cover every
+      // file it serves.
+      cacheControl: false,
       setHeaders: (res, pathString) => {
         if (pathString.endsWith('.html')) {
+          // Entry HTML must always revalidate (Safari aggressively caches it).
           res.setHeader('Cache-Control', 'no-cache');
         } else if (pathString.includes(`${path.sep}assets${path.sep}`)) {
+          // Vite-emitted assets are content-hashed, so they can be immutable.
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          // Icons, manifest, favicon: stable names, so a short TTL, not immutable.
+          res.setHeader('Cache-Control', 'public, max-age=3600');
         }
       },
     });

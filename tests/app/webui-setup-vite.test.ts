@@ -3,8 +3,10 @@
  * silently: one info log, then /webui 404s and the operator sees a blank page.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import Fastify from 'fastify';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Logger } from 'pino';
 import { setupWebUIMiddleware, resolveWebUIMode } from '../../src/app/webui/setup-vite.js';
@@ -34,6 +36,62 @@ describe('resolveWebUIMode', () => {
     expect(
       resolveWebUIMode({ uiSrcExists: false, staticRoot: undefined, nodeEnv: undefined }),
     ).toBe('static');
+  });
+});
+
+describe('static file caching', () => {
+  let server: ReturnType<typeof Fastify> | undefined;
+  let root: string | undefined;
+
+  const logger = {
+    info: () => {},
+    warn: () => {},
+    debug: () => {},
+    error: () => {},
+  } as unknown as Logger;
+
+  beforeEach(() => {
+    // A packaged build: index.html plus one content-hashed asset.
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'oma-webui-'));
+    fs.mkdirSync(path.join(root, 'assets'));
+    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><title>t</title>');
+    fs.writeFileSync(path.join(root, 'assets', 'index-abc123.js'), 'console.log(1)');
+    fs.writeFileSync(path.join(root, 'favicon.svg'), '<svg/>');
+    process.env.WEBUI_STATIC_ROOT = root;
+  });
+
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+    delete process.env.WEBUI_STATIC_ROOT;
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    root = undefined;
+  });
+
+  async function headersFor(url: string): Promise<string> {
+    server = Fastify();
+    await setupWebUIMiddleware({ server, logger, isTest: false, uiRoot: UI_ROOT });
+    const res = await server.inject({ method: 'GET', url });
+    expect(res.statusCode).toBe(200);
+    return String(res.headers['cache-control'] ?? '');
+  }
+
+  // `@fastify/send` writes its own `Cache-Control: public, max-age=0` *after*
+  // `setHeaders` runs, so without `cacheControl: false` the per-file headers were
+  // silently dropped: every bundle shipped as `max-age=0`, browsers revalidated
+  // the 1.3 MB WebUI on each visit, and Cloudflare capped it at its 4 h default.
+  it('serves a content-hashed asset as immutable for a year', async () => {
+    const cacheControl = await headersFor('/webui/assets/index-abc123.js');
+    expect(cacheControl).toContain('max-age=31536000');
+    expect(cacheControl).toContain('immutable');
+  });
+
+  it('keeps the entry HTML revalidating (Safari caches it aggressively)', async () => {
+    expect(await headersFor('/webui/')).toBe('no-cache');
+  });
+
+  it('gives stable-named files a short TTL instead of immutable', async () => {
+    expect(await headersFor('/webui/favicon.svg')).toBe('public, max-age=3600');
   });
 });
 
