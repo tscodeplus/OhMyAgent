@@ -97,6 +97,10 @@ upstream in v1.0.0 and is no longer local):
 - `SimpleStreamOptions.onStreamRetry` + `StreamRetryInfo`. The retrying stream wrapper calls it
   just before sleeping the backoff delay. Provider adapters ignore the field; hosts use it to feed
   inactivity watchdogs and render retry status.
+- `UserMessage.ohmyagentGuard` (optional) — the tool-cycle guard's steering notices stay user-role
+  (they must reach the model) but carry their kind here. `src/agent/message-persister.ts` reads it
+  to skip the chat row and fold the notice into the next assistant row's `segments` instead.
+  Without the field a guard steer persisted as a `[system] …` user bubble.
 
 ### `src/pi-mono/ai/compat.ts`
 
@@ -148,7 +152,7 @@ surface — if this event goes missing after an upgrade, long provider outages l
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'
    ```
-   — the file list must match the inventory above (v1.5.0: 5 files / 35 markers).
+   — the file list must match the inventory above (v1.5.0: 5 files / 37 markers).
 4. Build, then run the loop-behaviour tests specifically:
    ```bash
    pnpm build && npx vitest run tests/agent
