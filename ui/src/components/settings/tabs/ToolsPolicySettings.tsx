@@ -64,6 +64,15 @@ export default function ToolsPolicySettings({
   const policy = (config.policy as Record<string, unknown>) || {};
   const approval = (policy.approval as Record<string, unknown>) || {};
   const fileRead = (tools.fileRead as Record<string, unknown>) || {};
+  const agentCfg = (config.agent as Record<string, unknown>) || {};
+
+  // ── Tool-call budget (agent.max_tool_cycles) ──
+  const maxToolCyclesStr = String(
+    getField('agent.max_tool_cycles', (agentCfg.max_tool_cycles as number) ?? 50),
+  );
+  // Mirrors the loop's BUDGET_WARNING_RATIO (0.7): the steering warning fires at
+  // ceil(0.7 * budget), so show that round instead of a hard-coded 70%.
+  const budgetWarnAt = Math.max(0, Math.ceil((Number(maxToolCyclesStr) || 0) * 0.7));
 
   // Helper: safely extract a string value from an unknown record
   const str = (val: unknown, fallback: string): string =>
@@ -104,6 +113,25 @@ export default function ToolsPolicySettings({
               { value: 'deny', label: t('settings.policy.opt_deny') },
             ]}
           />
+        </div>
+      </AccordionItem>
+
+      <AccordionItem title={t('settings.tools.budget')}>
+        <div>
+          <Input
+            label={t('settings.tools.maxToolCycles')}
+            type="number"
+            min={0}
+            max={1000}
+            value={maxToolCyclesStr}
+            onChange={(e) => setField('agent.max_tool_cycles', e.target.value)}
+          />
+          <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+            {t('settings.tools.maxToolCyclesDesc')}{' '}
+            {budgetWarnAt > 1
+              ? t('settings.tools.maxToolCyclesWarnAt', { warn: budgetWarnAt })
+              : t('settings.tools.maxToolCyclesUnlimited')}
+          </p>
         </div>
       </AccordionItem>
 

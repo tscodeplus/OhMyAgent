@@ -151,6 +151,8 @@ export function useConfigDirty(
           'memory.expansion.minQueryLength',
           'memory.expansion.minScoreTrigger',
           'memory.expansion.maxVariants',
+          // Tool-call budget per turn (0 = unlimited); see agent.max_tool_cycles.
+          'agent.max_tool_cycles',
           // Numeric fields — `z.coerce.number()` would happily accept the
           // string an <Input> hands over, but `jsConfigToYaml()` copies the value
           // into YAML verbatim, so coerce like every other numeric field.

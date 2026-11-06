@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Download, X, Zap } from 'lucide-react';
+import { AlertTriangle, Bot, User, Download, X, Zap } from 'lucide-react';
 import type { Message, MessageSegment, ToolCall, ChatProviderError } from '../../types/session';
 import ToolCallCard from './ToolCallCard';
 import ToolCallsGroup from './ToolCallsGroup';
@@ -435,6 +435,23 @@ function MessageBubble({ message, readOnly }: MessageBubbleProps) {
                           `chat.${(seg.name || '').includes(' | ') ? 'skillMerged' : 'skillActivated'}`,
                         )}
                         ：<strong>{seg.name}</strong>
+                      </span>
+                    </div>
+                  ) : seg.type === 'guard' ? (
+                    // Tool-cycle guard notice: a steering message the loop
+                    // injected to stop a runaway model. Never persisted as a
+                    // chat row — it surfaces here, in the trace, with the raw
+                    // model-facing wording kept as the tooltip.
+                    <div
+                      key={`guard-${i}`}
+                      title={seg.text}
+                      className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                    >
+                      <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                      <span>
+                        {t(`guardKinds.${seg.kind || 'unknown'}`, {
+                          defaultValue: seg.text || t('guardKinds.unknown'),
+                        })}
                       </span>
                     </div>
                   ) : seg.type === 'media' && seg.media ? (

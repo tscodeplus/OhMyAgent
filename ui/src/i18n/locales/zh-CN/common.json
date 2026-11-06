@@ -578,7 +578,12 @@
       "opt_relaxed": "宽松",
       "opt_profile_restricted": "受限（无写入/无网络/无子代理）",
       "opt_profile_standard": "标准",
-      "opt_profile_full": "完整"
+      "opt_profile_full": "完整",
+      "budget": "工具调用上限",
+      "maxToolCycles": "每轮工具调用上限",
+      "maxToolCyclesDesc": "一轮 = 一条带工具调用的回复。到上限后工具停止，模型用已有结果作答。",
+      "maxToolCyclesWarnAt": "第 {{warn}} 轮起提醒模型收口。",
+      "maxToolCyclesUnlimited": "0 = 不限制。"
     },
     "channels": {
       "feishu": "飞书",
@@ -1810,5 +1815,12 @@
       "memory": "记忆",
       "message": "对话"
     }
+  },
+  "guardKinds": {
+    "budget_warning": "工具预算临近上限，已提醒模型收口",
+    "budget_halt": "工具预算已用尽，后续工具调用已停止",
+    "repeat_failure": "同一工具反复失败，已提醒模型换方法",
+    "repeat_success": "同一调用反复成功，已提醒模型换方法",
+    "unknown": "已向模型注入引导提示"
   }
 }

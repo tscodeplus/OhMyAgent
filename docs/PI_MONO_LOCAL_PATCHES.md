@@ -30,10 +30,17 @@ As of the last audit, exactly **5 files** carry load-bearing edits.
 Four distinct patches in the hot loop (a fifth — v4 adapter `isError` surfacing — was adopted
 upstream in v1.0.0 and is no longer local):
 
-1. **Tool-cycle abort guard** (`toolCycles` / `lastFailedTool` / `failureStreak` plus the
-   `failureDiagnosticInjected` / `haltDiagnosticInjected` / `toolExecutionHalted` flags).
-   Two injected user-role steering messages (`createGuardMessage`):
+1. **Tool-cycle abort guard** (`toolCycles` / `lastFailedTool` / `failureStreak` /
+   `lastSuccessKey` / `repeatSuccessStreak` plus the `*DiagnosticInjected` /
+   `haltDiagnosticInjected` / `toolExecutionHalted` / `budgetWarningInjected` flags).
+   Four injected user-role steering messages (`createGuardMessage` + the local `injectGuard`
+   closure):
    - after **3 identical consecutive tool failures** → "stop repeating it";
+   - after **3 identical consecutive _successful_ calls** (same tool + canonically equal
+     arguments, `stableStringify`) → "the result is not changing, change the approach". The
+     failure streak above only ever sees `isError` results, so a model that re-reads the same
+     file forever produced no signal at all and simply burned the budget;
+   - at **70% of `config.maxToolCycles`** → "prioritise, finish and reply, delegate the rest";
    - when `config.maxToolCycles` is reached → "tool execution is stopped, answer the user".
      Without this a looping agent spins until the turn watchdog kills the request.
 
@@ -61,7 +68,10 @@ upstream in v1.0.0 and is no longer local):
 
 4. **`failToolCallsWithSystemHalt()`**
    Once the budget is spent, executes nothing and returns an error result per call, telling the
-   model to reply now. Required for the halt guard to be more than advice.
+   model to reply now. Required for the halt guard to be more than advice. The batch returns
+   `terminate: true`: the model already had one "summarize" round, and without the flag every
+   further round is a full LLM call with guaranteed-failing tools that still emits activity, so
+   the turn watchdog never fires.
 
 > **Retired in v1.0.0**: the v4 tool-adapter `isError` surfacing patch. Upstream now returns
 > `{ result, isError: result.isError === true }` from `executePreparedToolCall` itself, so patch
@@ -138,7 +148,7 @@ surface — if this event goes missing after an upgrade, long provider outages l
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'
    ```
-   — the file list must match the inventory above (v1.5.0: 5 files / 27 markers).
+   — the file list must match the inventory above (v1.5.0: 5 files / 35 markers).
 4. Build, then run the loop-behaviour tests specifically:
    ```bash
    pnpm build && npx vitest run tests/agent

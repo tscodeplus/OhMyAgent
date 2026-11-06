@@ -603,6 +603,14 @@ export interface UserMessage {
 	role: "user";
 	content: string | (TextContent | ImageContent)[];
 	timestamp: number; // Unix timestamp in milliseconds
+	/**
+	 * OhMyAgent extension: set when the tool-cycle guard injected this message as
+	 * a steering notice rather than the user speaking. The message stays in the
+	 * model's transcript (that is what makes the steer work) but is not a chat
+	 * row: the persister turns it into a trace note on the next assistant row
+	 * instead of a user bubble.
+	 */
+	ohmyagentGuard?: "budget_warning" | "budget_halt" | "repeat_failure" | "repeat_success";
 }
 
 export interface AssistantMessage {

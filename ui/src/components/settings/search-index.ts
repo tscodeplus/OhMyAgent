@@ -110,6 +110,7 @@ export const SEARCH_INDEX: SearchEntry[] = [
   // Tools
   { tabId: 'tools', labelKey: 'settings.groups.toolsPolicy' },
   { tabId: 'tools', labelKey: 'settings.tools.title' },
+  { tabId: 'tools', labelKey: 'settings.tools.maxToolCycles' },
 
   // Web Search
   { tabId: 'websearch', labelKey: 'settings.websearch.title' },

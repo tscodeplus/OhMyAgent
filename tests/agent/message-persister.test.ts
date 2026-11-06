@@ -22,6 +22,19 @@ function assistantMsg(text: string, timestamp = Date.now()) {
   };
 }
 
+function assistantToolCall(callId: string, timestamp = Date.now()) {
+  return {
+    role: 'assistant',
+    content: [{ type: 'toolCall', id: callId, name: 'echo', arguments: { n: 1 } }],
+    timestamp,
+  };
+}
+
+/** A tool-cycle guard steer (user-role, marked so it never becomes a chat row). */
+function guardMsg(kind: string, text: string, timestamp = Date.now()) {
+  return { role: 'user', content: [{ type: 'text', text }], timestamp, ohmyagentGuard: kind };
+}
+
 function systemMsgWithTools(timestamp = Date.now()) {
   return {
     role: 'system',
@@ -143,5 +156,78 @@ describe('persistMessages counter semantics', () => {
     // Flat content keeps the banner for channels that render text only.
     expect(assistant.content).toContain('这是调研结论');
     expect(assistant.content.startsWith('⚡️')).toBe(true);
+  });
+
+  it('keeps a tool-cycle guard notice out of the transcript and puts it in the trace', async () => {
+    // Guard steers are user-role messages that exist only to stop a looping
+    // model. Persisting them as user rows put English "[system] ..." bubbles in
+    // the chat; they belong in the trace of the round they steered.
+    const { rows, repo } = setup();
+    await persistMessages({
+      agent: makeAgent([
+        userMsg('跑一个长任务'),
+        assistantToolCall('tc1'),
+        guardMsg('budget_warning', '[system] Tool-call budget: 7 of 10 rounds used.'),
+        assistantToolCall('tc2'),
+        guardMsg('budget_halt', '[system] The agent has reached its tool-call budget (10 rounds).'),
+        assistantMsg('到这里，已有结果如下'),
+      ]),
+      sessionKey: 's-guard',
+      // 0 = persist the whole transcript, so a leaked guard WOULD show up as a
+      // second user row and fail the assertion below.
+      runtime: { persistedMessageCount: 0 },
+      messageRepository: repo,
+      logger: makeLogger(),
+      ensureSession: () => {},
+    } as never);
+
+    // No guard ever became a chat row: exactly the one real prompt, nothing else.
+    expect(rows.filter((r) => r.role === 'user').map((r) => r.content)).toEqual(['跑一个长任务']);
+    expect(rows.some((r) => r.content.includes('[system]'))).toBe(false);
+
+    // Both notices survive as trace segments, in injection order.
+    const segments = rows
+      .filter((r) => r.role === 'assistant')
+      .flatMap((r) => (JSON.parse(String(r.metadata)).segments ?? []) as Array<{ type: string }>)
+      .filter((seg) => seg.type === 'guard');
+    expect(segments).toEqual([
+      {
+        type: 'guard',
+        kind: 'budget_warning',
+        text: '[system] Tool-call budget: 7 of 10 rounds used.',
+      },
+      {
+        type: 'guard',
+        kind: 'budget_halt',
+        text: '[system] The agent has reached its tool-call budget (10 rounds).',
+      },
+    ]);
+  });
+
+  it('attaches a guard notice to a text-only answer row too', async () => {
+    const { rows, repo } = setup();
+    await persistMessages({
+      agent: makeAgent([
+        userMsg('查三次'),
+        guardMsg('repeat_success', '[system] The same tool call has succeeded 3 times in a row.'),
+        assistantMsg('已经查过了'),
+      ]),
+      sessionKey: 's-guard-text',
+      runtime: { persistedMessageCount: 0 },
+      messageRepository: repo,
+      logger: makeLogger(),
+      ensureSession: () => {},
+    } as never);
+
+    const assistant = rows.find((r) => r.role === 'assistant')!;
+    expect(JSON.parse(String(assistant.metadata)).segments).toEqual([
+      {
+        type: 'guard',
+        kind: 'repeat_success',
+        text: '[system] The same tool call has succeeded 3 times in a row.',
+      },
+      { type: 'text', content: '已经查过了' },
+    ]);
+    expect(assistant.content).toBe('已经查过了');
   });
 });

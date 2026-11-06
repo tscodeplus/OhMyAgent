@@ -82,4 +82,31 @@ describe('formatMessageRows — skill segments', () => {
       { type: 'text', content: 'second' },
     ]);
   });
+
+  it('projects a tool-cycle guard notice as a trace segment, not a message', () => {
+    // Guards are persisted only inside `segments`; the projection must carry
+    // kind+text through so the WebUI can localize the note and keep the raw
+    // model-facing wording as a tooltip.
+    const [row] = formatMessageRows([
+      assistantRow('已经查完', {
+        segments: [
+          {
+            type: 'guard',
+            kind: 'budget_halt',
+            text: '[system] The agent has reached its tool-call budget (5 rounds).',
+          },
+          { type: 'text', content: '已经查完' },
+        ],
+      }),
+    ]);
+
+    expect(row.segments).toEqual([
+      {
+        type: 'guard',
+        kind: 'budget_halt',
+        text: '[system] The agent has reached its tool-call budget (5 rounds).',
+      },
+      { type: 'text', content: '已经查完' },
+    ]);
+  });
 });

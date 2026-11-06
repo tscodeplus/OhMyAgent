@@ -87,12 +87,17 @@ export interface MediaSegmentItem {
 }
 
 export interface MessageSegment {
-  type: 'text' | 'tool_call' | 'media' | 'skill';
+  type: 'text' | 'tool_call' | 'media' | 'skill' | 'guard';
   content?: string;
   toolCall?: ToolCall;
   media?: MediaSegmentItem;
   /** Skill name for 'skill' type segments. */
   name?: string;
+  /** Guard notice kind for 'guard' segments: budget_warning | budget_halt |
+   *  repeat_failure | repeat_success. Rendered as a localized trace note. */
+  kind?: string;
+  /** Model-facing wording of a 'guard' notice (tooltip / unknown-kind fallback). */
+  text?: string;
 }
 
 export interface MessageApproval {

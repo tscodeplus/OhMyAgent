@@ -35,6 +35,24 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
+/** Consecutive failures of one tool with the same call before the loop steers (OhMyAgent). */
+const REPEATED_FAILURE_LIMIT = 3;
+/**
+ * Consecutive *successful* identical calls before the loop steers (OhMyAgent).
+ * A successful repeat produces no error, so the failing-streak guard never sees
+ * it; the budget would otherwise be burned on calls that cannot advance.
+ */
+const REPEATED_SUCCESS_LIMIT = 3;
+/** Share of `maxToolCycles` at which the loop announces the remaining budget (OhMyAgent). */
+const BUDGET_WARNING_RATIO = 0.7;
+
+/**
+ * Kinds of steering notice the tool-cycle guard injects (OhMyAgent). They travel
+ * on the message so the persister can keep the notice out of the chat transcript
+ * and render it as a trace note instead.
+ */
+type GuardKind = "budget_warning" | "budget_halt" | "repeat_failure" | "repeat_success";
+
 /**
  * Request identity of agent loops: pi-ai's defaults with provider attribution to pi. `AgentLoopConfig.identity`
  * overrides it field by field.
@@ -195,6 +213,25 @@ async function runLoop(
 	let failureDiagnosticInjected = false;
 	let haltDiagnosticInjected = false;
 	let toolExecutionHalted = false;
+	// Same guard, for calls that SUCCEED repeatedly.
+	let lastSuccessKey: string | null = null;
+	let repeatSuccessStreak = 0;
+	let repeatSuccessDiagnosticInjected = false;
+	let budgetWarningInjected = false;
+
+	/**
+	 * Inject a steering message (OhMyAgent). User-role, so it never breaks a
+	 * tool_call/toolResult pairing and never enters the declared tool set; the
+	 * guard kind rides along so the transcript can render it as a trace note
+	 * instead of a user bubble.
+	 */
+	const injectGuard = async (text: string, kind: GuardKind): Promise<void> => {
+		const diag = createGuardMessage(text, kind);
+		await emit({ type: "message_start", message: { ...diag } });
+		await emit({ type: "message_end", message: diag });
+		currentContext.messages.push(diag);
+		newMessages.push(diag);
+	};
 
 	// Outer loop: continues when queued follow-up messages arrive after agent would stop
 	while (true) {
@@ -349,30 +386,83 @@ async function runLoop(
 					failureStreak = 0;
 					lastFailedTool = null;
 				}
-				if (failureStreak >= 3 && !failureDiagnosticInjected) {
+				if (failureStreak >= REPEATED_FAILURE_LIMIT && !failureDiagnosticInjected) {
 					failureDiagnosticInjected = true;
-					const diag = createGuardMessage(
+					await injectGuard(
 						`[system] Tool "${lastFailedTool}" has failed ${failureStreak} times in a row with the same call. ` +
 							`Stop repeating it. Fix the cause, switch to a different approach, or reply to the user explaining ` +
 							`what is blocked — do NOT retry the same call again.`,
+						"repeat_failure",
 					);
-					await emit({ type: "message_start", message: { ...diag } });
-					await emit({ type: "message_end", message: diag });
-					currentContext.messages.push(diag);
-					newMessages.push(diag);
 				}
+
+				// ── OhMyAgent extension: successful-repeat guard. The failing-streak
+				// detector only counts isError results, so a model that keeps re-issuing
+				// an identical call that SUCCEEDS (same file read, same search, same
+				// query) burns the whole budget with no signal at all. Identical tool +
+				// arguments, consecutively: steer once. Genuine polling (same command,
+				// changing output) is legitimate, so this demands a justification
+				// instead of blocking the call. ──
+				const succeededCallKeys: string[] = [];
+				for (const result of toolResults) {
+					if (result.isError) continue;
+					const call = toolCalls.find((c) => c.id === result.toolCallId);
+					if (call) succeededCallKeys.push(`${call.name}\u0000${stableStringify(call.arguments)}`);
+				}
+				if (succeededCallKeys.length === 1 && succeededCallKeys[0] === lastSuccessKey) {
+					repeatSuccessStreak++;
+				} else if (succeededCallKeys.length === 1) {
+					lastSuccessKey = succeededCallKeys[0];
+					repeatSuccessStreak = 1;
+				} else {
+					lastSuccessKey = null;
+					repeatSuccessStreak = 0;
+				}
+				if (repeatSuccessStreak >= REPEATED_SUCCESS_LIMIT && !repeatSuccessDiagnosticInjected) {
+					repeatSuccessDiagnosticInjected = true;
+					await injectGuard(
+						`[system] The same tool call with identical arguments has now succeeded ${repeatSuccessStreak} times in a row, ` +
+							`so its result is not changing and repeating it cannot make progress. Use the result you already have, ` +
+							`change the arguments or the approach, or reply to the user. If this really is a polling loop, say what ` +
+							`you are waiting for before calling it again.`,
+						"repeat_success",
+					);
+				}
+
+				// ── OhMyAgent extension: budget warning. Announcing the ceiling at ~70%
+				// lets the model prioritise (finish vs. delegate) instead of meeting it
+				// only when tool execution suddenly stops. ──
+				if (
+					config.maxToolCycles &&
+					config.maxToolCycles > 1 &&
+					!budgetWarningInjected &&
+					toolCycles < config.maxToolCycles &&
+					toolCycles >= Math.ceil(config.maxToolCycles * BUDGET_WARNING_RATIO)
+				) {
+					budgetWarningInjected = true;
+					await injectGuard(
+						`[system] Tool-call budget: ${toolCycles} of ${config.maxToolCycles} rounds used for this turn. ` +
+							`Prioritise from here — finish what you already started and reply to the user, and delegate any ` +
+							`remaining independent work to a subagent instead of doing it inline. Tool execution stops at ` +
+							`${config.maxToolCycles} rounds.`,
+						"budget_warning",
+					);
+				}
+
+				// ── OhMyAgent extension: hard stop at the budget. Tool execution is
+				// disabled for the rest of the run, so the model gets exactly one more
+				// generation to summarize; a tool call in that generation is failed with
+				// terminate=true (see failToolCallsWithSystemHalt) so the loop cannot
+				// keep burning rounds on guaranteed-to-fail calls. ──
 				if (config.maxToolCycles && toolCycles >= config.maxToolCycles && !haltDiagnosticInjected) {
 					haltDiagnosticInjected = true;
 					toolExecutionHalted = true;
-					const diag = createGuardMessage(
+					await injectGuard(
 						`[system] The agent has reached its tool-call budget (${config.maxToolCycles} rounds) for this turn. ` +
 							`Tool execution is now stopped. Summarize what you have learned so far and reply to the user — ` +
 							`do NOT attempt further tool calls.`,
+						"budget_halt",
 					);
-					await emit({ type: "message_start", message: { ...diag } });
-					await emit({ type: "message_end", message: diag });
-					currentContext.messages.push(diag);
-					newMessages.push(diag);
 				}
 			}
 
@@ -715,15 +805,33 @@ async function failToolCallsFromTruncatedMessage(
 }
 
 /**
+ * Canonical JSON of tool-call arguments (OhMyAgent). Key order must not make two
+ * structurally identical calls look different. Arguments are LLM-authored JSON,
+ * so the recursion is bounded by the message size, never cyclic.
+ */
+function stableStringify(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+	if (value !== null && typeof value === "object") {
+		const record = value as Record<string, unknown>;
+		return `{${Object.keys(record)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "undefined";
+}
+
+/**
  * Build a user-role steering message for the tool-cycle guard (OhMyAgent
  * extension). The LLM sees it as the last message of the next call, so it is
  * not part of any tool_call/toolResult pairing.
  */
-function createGuardMessage(text: string): AgentMessage {
+function createGuardMessage(text: string, kind: GuardKind): AgentMessage {
 	return {
 		role: "user",
 		content: [{ type: "text", text }],
 		timestamp: Date.now(),
+		ohmyagentGuard: kind,
 	};
 }
 
@@ -731,6 +839,12 @@ function createGuardMessage(text: string): AgentMessage {
  * Fail all tool calls after the agent exceeded its tool-cycle budget
  * (OhMyAgent extension). Reports a system stop so the model finally
  * produces a user-facing answer instead of issuing more calls.
+ *
+ * The batch terminates: the model was already told (once) to summarize, so a
+ * further tool call means it ignored the instruction. Ending the inner loop
+ * there keeps the run bounded — without it, every subsequent round is a full
+ * LLM call whose tool calls are guaranteed to fail, and the turn watchdog never
+ * fires because each round still emits activity.
  */
 async function failToolCallsWithSystemHalt(
 	toolCalls: AgentToolCall[],
@@ -747,7 +861,7 @@ async function failToolCallsWithSystemHalt(
 		const finalized: FinalizedToolCallOutcome = {
 			toolCall,
 			result: createErrorToolResult(
-				`Tool call "${toolCall.name}" was not executed: the agent exceeded its tool-call budget for this turn. Stop calling tools and reply to the user now.`,
+				`Tool call "${toolCall.name}" was not executed: the agent exceeded its tool-call budget for this turn, so no further tool calls will run. Reply to the user now with what you have.`,
 			),
 			isError: true,
 		};
@@ -756,7 +870,7 @@ async function failToolCallsWithSystemHalt(
 		await emitToolResultMessage(toolResultMessage, emit);
 		messages.push(toolResultMessage);
 	}
-	return { messages, terminate: false, addedToolNames: [] };
+	return { messages, terminate: true, addedToolNames: [] };
 }
 
 /**

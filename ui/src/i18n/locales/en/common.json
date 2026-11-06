@@ -578,7 +578,12 @@
       "opt_profile_restricted": "Restricted (read-only, no network write, no subagents)",
       "opt_profile_standard": "Standard",
       "opt_profile_full": "Full",
-      "enabled": "Enabled"
+      "enabled": "Enabled",
+      "budget": "Tool-call budget",
+      "maxToolCycles": "Tool-call budget per turn",
+      "maxToolCyclesDesc": "A round is one reply carrying tool calls. At the cap, tools stop and the model answers with what it has.",
+      "maxToolCyclesWarnAt": "Warned from round {{warn}}.",
+      "maxToolCyclesUnlimited": "0 = unlimited."
     },
     "channels": {
       "feishu": "Lark",
@@ -1810,5 +1815,12 @@
       "memory": "Memories",
       "message": "Messages"
     }
+  },
+  "guardKinds": {
+    "budget_warning": "Tool budget nearly used up — the model was told to wrap up",
+    "budget_halt": "Tool budget used up — further tool calls were stopped",
+    "repeat_failure": "A tool kept failing — the model was told to change approach",
+    "repeat_success": "The same call kept succeeding — the model was told to change approach",
+    "unknown": "A steering notice was injected"
   }
 }

@@ -1236,6 +1236,11 @@ export function yamlToAppConfigRaw(root: Record<string, any>): Record<string, un
       ? {
           turn_timeout_sec: num((root.agent as YamlNode)?.turn_timeout_sec, 300),
           max_retries: num((root.agent as YamlNode)?.max_retries, 2),
+          // Tool-call budget per turn (0 disables) and the LLM request timeout.
+          // Both were dropped here, so the schema defaults won and a configured
+          // value was silently ignored.
+          max_tool_cycles: num((root.agent as YamlNode)?.max_tool_cycles, 50),
+          request_timeout_ms: num((root.agent as YamlNode)?.request_timeout_ms, 60_000),
         }
       : undefined,
 

@@ -282,21 +282,29 @@ export function formatMessageRows(rows: any[], getFooterConfig?: () => FooterCon
       }
 
       const segments: Array<{
-        type: 'text' | 'tool_call' | 'skill';
+        type: 'text' | 'tool_call' | 'skill' | 'guard';
         content?: string;
         toolCall?: Record<string, unknown>;
         name?: string;
+        kind?: string;
+        text?: string;
       }> = [];
       for (const seg of meta.segments as Array<{
         type: string;
         content?: string;
         id?: string;
         name?: string;
+        kind?: string;
+        text?: string;
       }>) {
         if (seg.type === 'text') {
           segments.push({ type: 'text', content: seg.content || '' });
         } else if (seg.type === 'skill') {
           segments.push({ type: 'skill', name: seg.name || '' });
+        } else if (seg.type === 'guard') {
+          // Tool-cycle guard notice (OhMyAgent): not a chat row, only a trace
+          // note. `text` is the model-facing steer, shown as a tooltip.
+          segments.push({ type: 'guard', kind: seg.kind || '', text: seg.text || '' });
         } else if (seg.type === 'tool_call' && seg.id) {
           const tc = toolCallsById.get(seg.id);
           if (tc) {

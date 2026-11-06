@@ -875,9 +875,12 @@ const configSchema = z.object({
       turn_timeout_sec: z.coerce.number().int().nonnegative().default(300),
       // Transient provider/transport error retries (0 disables)
       max_retries: z.coerce.number().int().nonnegative().default(2),
-      // Soft cap on tool-calling rounds per turn (0 disables). At the cap the
-      // loop stops executing new tool calls and asks the model to reply.
-      max_tool_cycles: z.coerce.number().int().nonnegative().default(25),
+      // Soft cap on tool-calling rounds per turn (0 disables). Rounds, not
+      // calls: one round is one assistant message with tool calls, however
+      // many of them it carries. At 70% of the cap the loop warns the model and
+      // asks it to converge or delegate; at the cap tool execution stops and the
+      // model gets one final generation to summarize.
+      max_tool_cycles: z.coerce.number().int().nonnegative().default(50),
       // HTTP-level first-response timeout for LLM requests in ms (0 disables).
       // Bounds connect + response-headers wait; streaming bodies are not cut
       // off mid-generation. A provider that accepts the connection but never

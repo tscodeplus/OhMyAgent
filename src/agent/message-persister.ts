@@ -46,6 +46,16 @@ export interface PersistMessagesOptions {
 
 // ── Persist ──
 
+/**
+ * What a tool-cycle guard notice becomes once persisted (OhMyAgent).
+ *
+ * The guard message itself is a user-role steer that only exists to keep the
+ * model from looping, so it never becomes a chat row. `kind` is the stable label
+ * the UI localizes; `text` is the model-facing wording, kept as a tooltip and as
+ * the fallback for a kind the UI does not know yet.
+ */
+type GuardSegment = { type: 'guard'; kind: string; text: string };
+
 export async function persistMessages(opts: PersistMessagesOptions): Promise<void> {
   const { agent, sessionKey, runtime, messageRepository, logger, ensureSession } = opts;
 
@@ -179,10 +189,25 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
     }
 
     let pendingAssistant: PendingAssistant | null = null;
+    /**
+     * Steering notices the tool-cycle guard injected since the last persisted
+     * assistant row (OhMyAgent). They are NOT chat rows: the guard message only
+     * exists to steer the model, so it is folded into the next assistant row's
+     * `segments` as a trace note and dropped from the transcript.
+     */
+    let pendingGuards: GuardSegment[] = [];
+    const takeGuardSegments = (): GuardSegment[] => {
+      const taken = pendingGuards;
+      pendingGuards = [];
+      return taken;
+    };
 
     const flushPendingAssistant = (isFinal: boolean) => {
       const pending = pendingAssistant!;
       if (!pending || pending.blocks.length === 0) return;
+
+      // Guard notices that arrived before this row belong above its segments.
+      const guardSegments = takeGuardSegments();
 
       // 1. Join text blocks → flat content string
       const textParts: string[] = [];
@@ -237,7 +262,7 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
         }
       }
 
-      if (!content.trim() && toolCalls.length === 0) return;
+      if (!content.trim() && toolCalls.length === 0 && guardSegments.length === 0) return;
 
       // 3. Build segments from block order when tool calls or skill are present
       let segments:
@@ -245,12 +270,13 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
             | { type: 'text'; content: string }
             | { type: 'tool_call'; id: string }
             | { type: 'skill'; name: string }
+            | GuardSegment
           >
         | undefined;
       const hasSkill = !!runtime.skillActivatedName;
       const hasToolSegments = persistTools && toolCalls.length > 0;
-      if (hasToolSegments || hasSkill) {
-        segments = [];
+      if (hasToolSegments || hasSkill || guardSegments.length > 0) {
+        segments = [...guardSegments];
         // Skill activation segment goes first (before any text/tool blocks)
         if (hasSkill) {
           segments.push({ type: 'skill', name: runtime.skillActivatedName! });
@@ -315,6 +341,23 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
       const msg = newMessages[mi];
 
       if (msg.role === 'user') {
+        const guardKind = (msg as { ohmyagentGuard?: string }).ohmyagentGuard;
+        if (guardKind) {
+          // Tool-cycle guard steering (OhMyAgent): the message exists only to
+          // steer the model. Close the current assistant group first so the note
+          // lands in the timeline at the point it was injected, then hold it for
+          // the NEXT row's trace — never as a user row of its own.
+          if (pendingAssistant !== null) {
+            flushPendingAssistant(false);
+            pendingAssistant = null;
+          }
+          pendingGuards.push({
+            type: 'guard',
+            kind: guardKind,
+            text: extractUserText(msg.content).trim(),
+          });
+          continue;
+        }
         if (pendingAssistant !== null) {
           flushPendingAssistant(false);
           pendingAssistant = null;
@@ -386,22 +429,29 @@ export async function persistMessages(opts: PersistMessagesOptions): Promise<voi
           if (noTcSkillPrefix && body.trim()) {
             content = noTcSkillPrefix + body;
           }
-          if (content.trim() || noTcSkillPrefix) {
+          const guardSegments = takeGuardSegments();
+          if (content.trim() || noTcSkillPrefix || guardSegments.length > 0) {
             const meta: Record<string, unknown> = {};
             // Skill activation notification — attached to first assistant message, then cleared
-            if (runtime.skillActivatedName) {
-              meta.skill_activated = runtime.skillActivatedName;
-              // Add a skill segment so the frontend can render it as a card.
-              // The answer body must follow as its own text segment: a
-              // segments array that holds ONLY the skill card makes the UI
-              // render the card and drop every word of the reply, which is
-              // exactly how a streamed answer "disappeared" after the
-              // post-turn refetch replaced it with the persisted row.
+            const skillName = runtime.skillActivatedName;
+            if (skillName) {
+              meta.skill_activated = skillName;
+              runtime.skillActivatedName = undefined;
+            }
+            // Add a skill segment so the frontend can render it as a card.
+            // The answer body must follow as its own text segment: a
+            // segments array that holds ONLY the skill card makes the UI
+            // render the card and drop every word of the reply, which is
+            // exactly how a streamed answer "disappeared" after the
+            // post-turn refetch replaced it with the persisted row.
+            // Guard notices ride ahead of it — they explain why the loop
+            // changed course, and they are the only place the notice is kept.
+            if (skillName || guardSegments.length > 0) {
               meta.segments = [
-                { type: 'skill', name: runtime.skillActivatedName },
+                ...guardSegments,
+                ...(skillName ? [{ type: 'skill', name: skillName }] : []),
                 ...(body.trim() ? [{ type: 'text', content: body }] : []),
               ];
-              runtime.skillActivatedName = undefined;
             }
             const errMsg = (msg as { errorMessage?: string }).errorMessage;
             if (errMsg && !turnSucceeded) {
