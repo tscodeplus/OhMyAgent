@@ -272,6 +272,28 @@ pub fn close_splash(app: &AppHandle) {
     }
 }
 
+/// Show an error window and only then drop the splash.
+///
+/// The order is load-bearing: wry requests an app exit the moment the window map
+/// becomes empty (`TaoWindowEvent::Destroyed` → `RunEvent::ExitRequested { code:
+/// None }` in tauri-runtime-wry), so closing the splash before its replacement
+/// exists destroys the last window and the shell quits — no dialog, no window, no
+/// way back in. Both calls queue a message on the event loop, so with this order
+/// the replacement is registered before the splash goes away.
+///
+/// The splash stays up when the dialog cannot be built: a visible window beats a
+/// vanished app.
+pub fn replace_splash_with_error(app: &AppHandle, message: &str) {
+    let app2 = app.clone();
+    let msg = message.to_string();
+    let _ = app.run_on_main_thread(move || {
+        match show_error_window(&app2, &msg) {
+            Ok(()) => close_splash(&app2),
+            Err(e) => log::error!("windows: error window failed: {e}"),
+        }
+    });
+}
+
 /// Reload the main window so the WebUI re-reads the gateway config — the
 /// chooser's "save" path (Electron relaunched the app there; the sidecar stays
 /// alive here, so a navigation is the equivalent). Creates + reveals the

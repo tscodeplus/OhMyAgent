@@ -148,6 +148,13 @@ fn err_text(key: &str, zh: bool) -> String {
         ("spawn_failed", false) => "Failed to start the backend service".into(),
         ("restart_failed", true) => "重新启动后端服务失败".into(),
         ("restart_failed", false) => "Failed to restart the backend service".into(),
+        ("chooser_unavailable", true) => {
+            "无法打开网关选择窗口，请从托盘菜单进入，或检查远程网关地址与令牌后重启应用。".into()
+        }
+        ("chooser_unavailable", false) => {
+            "Could not open the gateway chooser. Use the tray menu, or check the remote gateway URL and token, then restart the app."
+                .into()
+        }
         _ => key.into(),
     }
 }
@@ -308,8 +315,7 @@ fn spawn_holder(
                 log::error!("sidecar: process died unexpectedly (kind={kind:?})");
                 let msg = err_text("crashed", is_zh(&app2));
                 state2.set_error(msg.clone()).await;
-                crate::windows::close_splash(&app2);
-                let _ = crate::windows::show_error_window(&app2, &msg);
+                crate::windows::replace_splash_with_error(&app2, &msg);
             }
         }
         crate::tray::rebuild(&app2, &DesktopConfig::load(&config_path(&app2)));
@@ -610,7 +616,9 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                                         _ => "serverOnlineTokenInvalid",
                                     };
                                     log::warn!("sidecar: remote pre-flight {key} ({url})");
-                                    crate::windows::close_splash(&app2);
+                                    // The chooser build owns the splash: it is
+                                    // dropped only once that window exists (see
+                                    // show_remote_chooser / windows::replace_*).
                                     show_remote_chooser(&app2, key);
                                 }
                             }
@@ -642,8 +650,7 @@ async fn health_loop(app: AppHandle, state: Arc<SidecarState>, server_port: u16)
                         let err = err_text("startup_timeout", is_zh(&app));
                         log::error!("sidecar: startup timeout after {elapsed}ms");
                         state.set_error(err.clone()).await;
-                        crate::windows::close_splash(&app);
-                        let _ = crate::windows::show_error_window(&app, &err);
+                        crate::windows::replace_splash_with_error(&app, &err);
                     }
                 }
             }
@@ -737,27 +744,45 @@ pub(crate) async fn check_remote_health(url: &str, token: &str) -> RemoteHealth 
 pub(crate) fn show_remote_chooser(app: &AppHandle, error: &'static str) {
     let state = app.state::<Arc<SidecarState>>();
     let port = state.sidecar_api_port.load(std::sync::atomic::Ordering::SeqCst);
-    if port == 0 {
-        return; // control API not up yet — first-run flow will retry
-    }
     let base_url = format!("http://127.0.0.1:{port}");
     let ctl_token = state.ctl_token.clone();
     let cfg = DesktopConfig::load(&config_path(app));
+    // Owned copies: the task below outlives this call.
+    let remote_url = cfg.gateway.remote_url.clone();
+    let remote_token = cfg.gateway.remote_token.clone();
     let app2 = app.clone();
+    // Build the chooser and drop the splash in ONE main-thread task, chooser
+    // first. wry asks the app to exit the moment the window map empties, so the
+    // previous order (close the splash from this async task, then queue the
+    // chooser) destroyed the last window before the chooser was ever
+    // registered: a saved-but-wrong remote token therefore quit the shell on
+    // startup with no window and no recovery path. Queueing both here keeps
+    // them in order — create, then close.
     let _ = app.run_on_main_thread(move || {
+        let fail = |why: &str| {
+            log::error!("sidecar: gateway chooser unavailable ({why})");
+            // Never leave the shell windowless: without a replacement window the
+            // app exits and the user is left with nothing to click.
+            let msg = err_text("chooser_unavailable", is_zh(&app2));
+            if crate::windows::show_error_window(&app2, &msg).is_ok() {
+                crate::windows::close_splash(&app2);
+            }
+        };
+        if port == 0 {
+            // The chooser page is served by the control API; without its port
+            // the window would come up blank.
+            fail("control api port unknown");
+            return;
+        }
         let opts = crate::windows::ChooserOptions {
             error: Some(error),
-            initial_url: Some(&cfg.gateway.remote_url),
-            initial_token: Some(&cfg.gateway.remote_token),
+            initial_url: Some(&remote_url),
+            initial_token: Some(&remote_token),
         };
-        let _ = crate::windows::show_chooser_window(
-            &app2,
-            &base_url,
-            &ctl_token,
-            560,
-            620,
-            opts,
-        );
+        match crate::windows::show_chooser_window(&app2, &base_url, &ctl_token, 560, 620, opts) {
+            Ok(()) => crate::windows::close_splash(&app2),
+            Err(e) => fail(&e.to_string()),
+        }
     });
 }
 
@@ -1030,8 +1055,7 @@ pub fn restart(app: &AppHandle) {
                 state.set_error(msg.clone()).await;
                 // Surface it like any other service failure — a silent
                 // respawn error would leave the user on a dead UI.
-                crate::windows::close_splash(&app);
-                let _ = crate::windows::show_error_window(&app, &msg);
+                crate::windows::replace_splash_with_error(&app, &msg);
             }
         }
     });
