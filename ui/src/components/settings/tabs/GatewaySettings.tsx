@@ -152,41 +152,60 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
   }, []);
 
   // ── Test connection ──
+  //
+  // In the desktop shell the probe runs in the sidecar (`testGateway`): Node
+  // sends no Origin, so there is no CORS preflight in front of the check. A
+  // page-side fetch of a *remote* gateway is cross-origin and needs one, and
+  // any gateway that still challenges OPTIONS with 401 makes the browser drop
+  // the real request — a valid token then reads as "令牌无效". The browser
+  // path below stays for a plain WebUI, where the API is same-origin or the
+  // gateway is the one that allowed localhost origins.
   const handleTestConnection = useCallback(async () => {
     setTesting(true);
     setTestResult(null);
     const cleanUrl = remoteUrl.replace(/\/+$/, '');
-    const healthUrl = `${cleanUrl}/api/health`;
+    const versionSuffix = (version?: string) =>
+      version && version !== '?' ? ` (v${version})` : '';
+    const unreachable = (detail?: string) =>
+      t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') +
+      (detail ? ` (${detail})` : '');
+    const invalidToken = (version?: string) =>
+      t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix(version);
+
     try {
+      const probe = isElectron() ? getElectronAPI()?.testGateway : undefined;
+      if (probe) {
+        const result = await probe(cleanUrl, remoteToken);
+        if (result?.code === 'ok') {
+          setTestResult({
+            ok: true,
+            message: t('settings.gateway.connected', '连接成功') + versionSuffix(result.version),
+          });
+        } else if (result?.code === 'invalidToken') {
+          setTestResult({ ok: false, message: invalidToken(result.version) });
+        } else {
+          setTestResult({ ok: false, message: unreachable(result?.detail) });
+        }
+        return;
+      }
+
       // Step 1: health check
       const ctrl = new AbortController();
       const healthTimer = setTimeout(() => ctrl.abort(), 5000);
       let res: Response;
       try {
-        res = await fetch(healthUrl, {
+        res = await fetch(`${cleanUrl}/api/health`, {
           headers: remoteToken ? { Authorization: `Bearer ${remoteToken}` } : {},
           signal: ctrl.signal,
         });
       } catch (err: any) {
         clearTimeout(healthTimer);
-        const detail = err?.message || String(err);
-        setTestResult({
-          ok: false,
-          message:
-            t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') + ` (${detail})`,
-        });
-        setTesting(false);
+        setTestResult({ ok: false, message: unreachable(err?.message || String(err)) });
         return;
       }
       clearTimeout(healthTimer);
       if (!res.ok) {
-        setTestResult({
-          ok: false,
-          message:
-            t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') +
-            ` (HTTP ${res.status})`,
-        });
-        setTesting(false);
+        setTestResult({ ok: false, message: unreachable(`HTTP ${res.status}`) });
         return;
       }
       let version = '?';
@@ -194,54 +213,38 @@ export default function GatewaySettings({ registerHandle, onDirtyChange }: Gatew
         const data = await res.json();
         version = data.version || '?';
       } catch {
-        /* ignore */
+        /* reachable even if health is not JSON */
       }
-      const versionSuffix = ` (v${version})`;
       // Step 2: verify token (required for remote gateway)
       if (!remoteToken) {
-        setTestResult({
-          ok: false,
-          message:
-            t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix,
+        setTestResult({ ok: false, message: invalidToken(version) });
+        return;
+      }
+      const ctrl2 = new AbortController();
+      const verifyTimer = setTimeout(() => ctrl2.abort(), 5000);
+      try {
+        const vres = await fetch(`${cleanUrl}/api/auth/verify`, {
+          headers: { Authorization: `Bearer ${remoteToken}` },
+          signal: ctrl2.signal,
         });
-      } else {
-        const ctrl2 = new AbortController();
-        const verifyTimer = setTimeout(() => ctrl2.abort(), 5000);
-        try {
-          const vres = await fetch(`${cleanUrl}/api/auth/verify`, {
-            headers: { Authorization: `Bearer ${remoteToken}` },
-            signal: ctrl2.signal,
-          });
-          clearTimeout(verifyTimer);
-          if (vres.ok) {
-            setTestResult({
-              ok: true,
-              message: t('settings.gateway.connected', '连接成功') + versionSuffix,
-            });
-          } else {
-            setTestResult({
-              ok: false,
-              message:
-                t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') +
-                versionSuffix,
-            });
-          }
-        } catch {
-          clearTimeout(verifyTimer);
-          setTestResult({
-            ok: false,
-            message:
-              t('settings.gateway.serverOnlineTokenInvalid', '网关在线但令牌无效') + versionSuffix,
-          });
-        }
+        clearTimeout(verifyTimer);
+        setTestResult(
+          vres.ok
+            ? {
+                ok: true,
+                message: t('settings.gateway.connected', '连接成功') + versionSuffix(version),
+              }
+            : { ok: false, message: invalidToken(version) },
+        );
+      } catch (err: any) {
+        clearTimeout(verifyTimer);
+        // A thrown fetch is not a token verdict — the request never got an
+        // answer (offline, timeout, blocked preflight), so blaming the token
+        // sends the operator looking in the wrong place.
+        setTestResult({ ok: false, message: unreachable(err?.message || String(err)) });
       }
     } catch (err: any) {
-      setTestResult({
-        ok: false,
-        message:
-          t('settings.gateway.gatewayUnreachable', '网关无法连接或不在线') +
-          ` (${err?.message || String(err)})`,
-      });
+      setTestResult({ ok: false, message: unreachable(err?.message || String(err)) });
     } finally {
       setTesting(false);
     }

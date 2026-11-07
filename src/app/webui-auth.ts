@@ -119,6 +119,19 @@ function isPublic(path: string): boolean {
 export async function webuiAuthHook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   const path = request.url.split('?')[0]; // strip query string
 
+  // CORS preflight carries no credentials — the fetch spec forbids it — so a
+  // 401 here makes the browser drop the real request before it is ever sent.
+  // @fastify/cors is registered after this hook and answers the preflight
+  // itself; it only needs the OPTIONS request to get through.
+  //
+  // Missing this broke every cross-origin call from a localhost WebUI (the
+  // desktop's "Test Connection" against a remote gateway): /api/health is
+  // public, so its preflight passed and the version came back, while
+  // /api/auth/verify took a 401 on the preflight and a perfectly valid token
+  // surfaced as "online but token invalid". A preflight reads nothing, so
+  // skipping the check leaks no data.
+  if (request.method === 'OPTIONS') return;
+
   // Skip auth for public paths and WebUI static assets
   if (isPublic(path)) return;
   if (path === '/webui' || path === '/webui/' || path.startsWith('/webui/')) return;

@@ -25,4 +25,14 @@ describe('gateway chooser HTML escaping', () => {
     expect(html).toContain('errBanner.textContent = initialState.error');
     expect(html).not.toContain('errBanner.innerHTML');
   });
+
+  it('tests a remote gateway through the sidecar, never with a page-side fetch', () => {
+    // A page-side fetch of the remote gateway is cross-origin and needs an
+    // OPTIONS preflight; a gateway that challenges OPTIONS rejects it and the
+    // token gets blamed for a preflight it never sent. The probe runs in Node.
+    const html = renderChooser(config, {});
+    expect(html).toContain('window.electronAPI.testGateway(');
+    expect(html).not.toContain("fetch(rawUrl+'/api/auth/verify'");
+    expect(html).not.toContain("fetch(rawUrl+'/api/health'");
+  });
 });

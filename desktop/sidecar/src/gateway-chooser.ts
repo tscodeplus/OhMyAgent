@@ -220,7 +220,7 @@ export function renderChooser(cfg: DesktopConfig, opts: ChooserOptions = {}): st
     document.getElementById('remote-config').classList.toggle('show', m==='remote');
   }
   async function testConnection() {
-    const rawUrl = document.getElementById('remote-url').value.replace(/\\/+$/,'');
+    const rawUrl = document.getElementById('remote-url').value.trim();
     const token = document.getElementById('remote-token').value;
     const btn = event.target;
     const resultEl = document.getElementById('test-result');
@@ -229,48 +229,24 @@ export function renderChooser(cfg: DesktopConfig, opts: ChooserOptions = {}): st
     resultEl.textContent = '';
     resultEl.className = 'test-result';
     try {
-      // Step 1: health check
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 5000);
-      var res = await fetch(rawUrl+'/api/health', {
-        headers: token ? {Authorization:'Bearer '+token} : {},
-        signal: ctrl.signal
-      });
-      clearTimeout(timer);
-      if (!res.ok) {
-        resultEl.textContent = '${t.gatewayUnreachable}';
-        resultEl.className = 'test-result err';
-        return;
-      }
-      var v = '?';
-      try { var d = await res.json(); v = d.version || '?'; } catch {}
-      // Step 2: verify token (required for remote gateway)
-      if (!token) {
-        resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
+      // Probed by the sidecar (Node fetch, no Origin → no CORS preflight):
+      // a preflight from this page is rejected by any gateway whose auth hook
+      // still challenges OPTIONS, and the token would be blamed for it.
+      const r = await window.electronAPI.testGateway(rawUrl, token);
+      const suffix = r && r.version && r.version !== '?' ? ' (v' + r.version + ')' : '';
+      if (r && r.code === 'ok') {
+        resultEl.textContent = '${t.connected}' + suffix;
+        resultEl.className = 'test-result ok';
+      } else if (r && r.code === 'invalidToken') {
+        resultEl.textContent = '${t.serverOnlineTokenInvalid}' + suffix;
         resultEl.className = 'test-result err';
       } else {
-        var ctrl2 = new AbortController();
-        var t2 = setTimeout(function(){ ctrl2.abort(); }, 5000);
-        try {
-          var vres = await fetch(rawUrl+'/api/auth/verify', {
-            headers: {Authorization:'Bearer '+token},
-            signal: ctrl2.signal
-          });
-          clearTimeout(t2);
-          if (vres.ok) {
-            resultEl.textContent = '${t.connected} (v'+v+')';
-            resultEl.className = 'test-result ok';
-          } else {
-            resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
-            resultEl.className = 'test-result err';
-          }
-        } catch(ve) {
-          clearTimeout(t2);
-          resultEl.textContent = '${t.serverOnlineTokenInvalid} (v'+v+')';
-          resultEl.className = 'test-result err';
-        }
+        resultEl.textContent = '${t.gatewayUnreachable}' + (r && r.detail ? ' (' + r.detail + ')' : '');
+        resultEl.className = 'test-result err';
       }
-    } catch(e) {
+    } catch (e) {
+      // A thrown call means the probe never answered (control API down) — not
+      // a token verdict.
       resultEl.textContent = '${t.gatewayUnreachable}';
       resultEl.className = 'test-result err';
     } finally {

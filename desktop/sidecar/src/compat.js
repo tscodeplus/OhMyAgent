@@ -164,6 +164,13 @@
       method: 'PUT',
       body: { mode: 'local', remoteUrl: '', remoteToken: '' },
     }),
+    // Probe a remote gateway. Runs in the sidecar (Node fetch, no Origin → no
+    // CORS preflight) so the answer is about the token, never about a preflight
+    // the remote gateway may reject.
+    testGateway: (url, token) => ctlFetch('/_desktop/gateway-test', {
+      method: 'POST',
+      body: { url: url, token: token },
+    }),
 
     // local-mode WebUI gateway token (injected as OMA_WEBUI_TOKEN; served by
     // the control API so it stays in sync with the gateway process)

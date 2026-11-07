@@ -139,6 +139,35 @@ describe('webuiAuthHook exemption list', () => {
     });
   });
 
+  describe('CORS preflight', () => {
+    // A browser preflight cannot carry the Authorization header, so challenging
+    // it made every cross-origin call from a localhost WebUI fail — including
+    // the desktop's "Test Connection" against a remote gateway, where
+    // /api/health (public) answered but /api/auth/verify 401'd its preflight and
+    // a valid token surfaced as "online but token invalid".
+    it('does not challenge an OPTIONS preflight to a protected path', async () => {
+      const reply = makeReply();
+      await webuiAuthHook(makeRequest('/api/auth/verify', undefined, 'OPTIONS'), reply);
+      expect(reply.statusCode).toBeUndefined();
+    });
+
+    it('still challenges the real request that follows it', async () => {
+      const reply = makeReply();
+      await webuiAuthHook(makeRequest('/api/auth/verify'), reply);
+      expect(reply.statusCode).toBe(401);
+    });
+
+    // The method exemption is for OPTIONS only — it must not become a
+    // header-less hole for state-changing methods.
+    for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {
+      it(`still challenges ${method} without a token`, async () => {
+        const reply = makeReply();
+        await webuiAuthHook(makeRequest('/api/projects', undefined, method), reply);
+        expect(reply.statusCode).toBe(401);
+      });
+    }
+  });
+
   describe('query-string token', () => {
     // <img>/<a download>/WebSocket cannot set headers, so GET may carry the
     // token in the URL. Everything else must use the Authorization header —

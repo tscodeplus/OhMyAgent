@@ -35,6 +35,20 @@ declare global {
       getGatewayConfig: () => Promise<{ mode: string; remoteUrl: string; remoteToken: string }>;
       setGatewayConfig: (config: unknown) => Promise<{ ok: boolean }>;
       resetGatewayConfig: () => Promise<{ ok: boolean }>;
+      /**
+       * Probe a remote gateway. Runs in the sidecar's Node process, so it sends
+       * no Origin and needs no CORS preflight — a page-side fetch of a remote
+       * gateway fails the preflight on any gateway that still challenges
+       * OPTIONS and looks exactly like a bad token.
+       */
+      testGateway: (
+        url: string,
+        token: string,
+      ) => Promise<
+        | { code: 'ok'; version: string }
+        | { code: 'invalidToken'; version: string }
+        | { code: 'unreachable'; detail?: string }
+      >;
       /** WebUI gateway token for local mode (injected by the shell, served by the sidecar control API). */
       getWebUIToken: () => Promise<string>;
       /** Local-mode web access info: { token, port, addresses } (LAN reachability + persisted token). */

@@ -187,6 +187,18 @@ async function handle(req: IncomingMessage, res: ServerResponse, opts: ControlSe
       return;
     }
 
+    if (path === '/_desktop/gateway-test' && method === 'POST') {
+      // Interactive "Test Connection" for the first-run chooser and the WebUI
+      // settings tab. Probed from here (Node fetch → no Origin, no CORS
+      // preflight) rather than from the page: a preflight is rejected by every
+      // gateway whose auth hook still challenges OPTIONS, and the page would
+      // then blame the token. See gateway-probe.ts.
+      const body = (await readJson(req)) as { url?: string; token?: string };
+      const probe = await import('./gateway-probe.js');
+      json(res, 200, await probe.probeGateway(body?.url ?? '', body?.token ?? ''));
+      return;
+    }
+
     if (path === '/_desktop/webui-token' && method === 'GET') {
       // WebUI gateway token for local mode — injected by the shell (prod) or
       // dev-sidecar (dev) as OMA_WEBUI_TOKEN. Served through the control API
