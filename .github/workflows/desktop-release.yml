@@ -76,10 +76,15 @@ jobs:
             cache_key: win-x64
             artifact_suffix: ''
           # macOS: no universal fat binaries — one job per native arch.
-          # macos-14/15 are arm64 runners — pnpm there installs only
-          # darwin-arm64 native modules (sharp/@img etc.), so the x64 job
-          # MUST run on the Intel runner or bundle-deps fails ("sharp: no
-          # native files found" — darwin-x64 was never installed).
+          # An arm64 label is arm64 only; pnpm there installs only darwin-arm64
+          # native modules (sharp/@img etc.), so the x64 job MUST run on the Intel
+          # runner or bundle-deps fails ("sharp: no native files found" —
+          # darwin-x64 was never installed).
+          # Not `macos-latest`: it tracks whatever is newest (macos-26-arm64 at
+          # the time of writing), so the build environment would change under us.
+          # `macos-14` is gone — GitHub retired the image and answers an immediate
+          # "configuration 'macos-14-arm64-us-default' is not supported", which
+          # cancels this leg and skips create-release.
           # artifact_suffix keeps the Release asset names identical to the
           # Electron-era naming: x64 = OhMyAgent-<v>.dmg / OhMyAgent-<v>-mac.zip,
           # arm64 = OhMyAgent-<v>-arm64.dmg / OhMyAgent-<v>-arm64-mac.zip.
@@ -88,7 +93,7 @@ jobs:
             bundle_platform: darwin-x64
             cache_key: x86_64-apple-darwin
             artifact_suffix: ''
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
             bundle_platform: darwin-arm64
             cache_key: aarch64-apple-darwin
