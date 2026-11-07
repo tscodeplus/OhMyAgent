@@ -8,7 +8,7 @@
 
 ---
 
-OhMyAgent is a self-hosted AI agent gateway with a memory system at its core. Unlike agents that forget everything between sessions, OhMyAgent builds a persistent, searchable knowledge base about you — and respects your boundaries with a built-in approval engine.
+OhMyAgent is a self-hosted AI agent gateway with a memory system at its core. Unlike agents that forget everything between sessions, OhMyAgent builds a persistent, searchable memory about you, turns what you discussed into notes you review before they go live, and respects your boundaries with a built-in approval engine.
 
 It runs on Termux (Android), Windows, macOS, and Linux. It's lightweight, token-efficient, and fast.
 
@@ -17,10 +17,12 @@ It runs on Termux (Android), Windows, macOS, and Linux. It's lightweight, token-
 | | OhMyAgent |
 |---|---|
 | 🧠 **Real memory** | SQLite + better-sqlite3 + sqlite-vec vector similarity + FTS5 BM25 full-text search + LLM-driven auto-summarization + DreamCycle nightly maintenance — your agent actually learns who you are |
-| 🛡️ **Approval gating** | Policy engine with per-tool approval before execution, path-scoped file access, and configurable tool visibility profiles (minimal / standard / advanced / full) |
+| 🛡️ **Approval gating** | Policy engine with per-tool approval before execution, path-scoped file access, and configurable tool visibility profiles (restricted / standard / full) |
+| 🔌 **MCP** | External Model Context Protocol servers exposed as `mcp__<server>__<tool>` tools — stdio and streamable HTTP, OAuth, per-server exposure, large-output offload |
+| ⚖️ **Judge kernel** | System One decision chains at 15 points (tool admission, memory merge, turn completion, notification routing) — configurable per point, with a rule fallback that never blocks a turn |
 | 💸 **Token efficient** | Layered context, progressive skill loading, tool search on demand |
 | 🪶 **Lightweight** | Single process, embedded framework, runs on a phone |
-| 📲 **Runs anywhere** | Termux on Android, Windows, macOS, Linux, Docker, or Tauri desktop app |
+| 📲 **Runs anywhere** | Termux on Android, Windows, macOS, Linux, or Tauri desktop app |
 | 🖥️ **Desktop app** | Tauri desktop app — local gateway or remote connect |
 
 ## Quick Start
@@ -89,12 +91,19 @@ OhMyAgent's memory system is its core, not an afterthought:
 - **DreamCycle nightly maintenance** — background job: synthesize session memories, cluster scenes, run hygiene, fill missing embeddings, and evict cache
 - **Scene clustering** — groups memories by scope + time windows into structured Markdown documents, enabling long-term narrative recall
 - **Notes** — distilled, reusable knowledge (commands, pitfalls, workflows) captured out of a conversation and reviewed by you before it goes live
-- **Memory hygiene** — automatic cleanup of temporary facts and tasks while preserving preferences and summaries indefinitely
-- **Persona distillation** — background persona extraction from accumulated memories, giving the agent a stable sense of who you are
+- **Memory hygiene** — automatic cleanup of temporary facts and tasks while preserving preferences and summaries indefinitely- **Persona distillation** — background persona extraction from accumulated memories, giving the agent a stable sense of who you are
 - **Multi-pool recall** — current / shared / other-agent pools with weighted scoring, temporal decay, and confidence-based reranking
 - **Embedding cache** — SHA256 content-addressed cache with LRU eviction, so repeated queries avoid redundant embedding API calls
 
 The result: your agent builds a real understanding of who you are over time.
+
+### 📝 Notes
+
+What you said in a chat should not stay buried in that chat. `/note` distils a conversation into notes, and in the WebUI you can drop selected text onto the floating ball — distilled or verbatim, your call:
+
+- **Reviewed before it counts** — every note the agent distils is a draft until you approve it; only then does it reach search and context injection
+- **Carried back into the conversation** — each turn injects the title and summary of at most 2 approved notes, with the body fetched on demand inside a 400-token budget
+- **Tags are the only dimension** — author, channel and project are multi-select facets, and related notes come from a tag rule that costs no model call
 
 ### 🛡️ Respects Your Boundaries
 
