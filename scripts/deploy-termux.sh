@@ -17,9 +17,9 @@
 #      including v32, which drops the tables the retired knowledge-page and
 #      graph layers left behind. The deploy has no migration step of its own;
 #   4. verifies the RUNNING process: /api/health, that the process started after
-#      this build, that openDatabase() finished every migration, that the
-#      messages FTS backfill indexed every message, and that no row count fell
-#      below the snapshot. A failed check prints the backup path and the log
+#      this build, that openDatabase() finished every migration, that every
+#      searchable message is in the messages FTS index, and that no row count
+#      fell below the snapshot. A failed check prints the backup path and the log
 #      command.
 #
 # Usage:
@@ -298,6 +298,30 @@ function countRows(db, table, where) {
   try {
     const sql = 'SELECT COUNT(*) AS n FROM "' + table + '"' + (where ? ' WHERE ' + where : '');
     return db.prepare(sql).get().n;
+  } catch {
+    return null;
+  }
+}
+
+// The searchable set is every `messages` row that carries text: the WebUI
+// approval/question cards (`approval-*`, `question-*`) live in `messages` with an
+// empty body and are deliberately unindexed, so a plain indexed == total
+// comparison reports a failure on any device that has ever shown an approval.
+// The anti-join below is exact per row, which the startup repair job is not (it
+// compares counts), so this is the authority on drift.
+const SEARCHABLE_MESSAGE_SQL = `
+  FROM messages m
+  WHERE length(trim(COALESCE(m.content, ''))) > 0
+    AND NOT EXISTS (SELECT 1 FROM messages_fts_jieba f WHERE f.message_id = m.id)`;
+
+function unindexedMessages(db) {
+  try {
+    const missing = db.prepare('SELECT COUNT(*) AS n ' + SEARCHABLE_MESSAGE_SQL).get().n;
+    const sample = db
+      .prepare('SELECT m.id AS id ' + SEARCHABLE_MESSAGE_SQL + ' LIMIT 3')
+      .all()
+      .map((row) => row.id);
+    return { missing, sample };
   } catch {
     return null;
   }
@@ -712,19 +736,24 @@ async function runReport() {
           : ' — this install predates them; the new build creates them on its first boot'),
     );
 
-    // v10 indexes every `messages` row: 1813 of them on the reference device,
-    // the slowest step of the whole upgrade and the one that can give up
-    // quietly — a backfill that stopped halfway still serves queries and still
-    // passes every check above.
+    // v10 indexes every searchable `messages` row: the backfill is the slowest
+    // step of the whole upgrade and the one that can give up quietly — an index
+    // that stopped halfway still serves queries and still passes every check
+    // above — and the per-write hook never healed the rows it did not see.
     if (tableExists(db, 'messages_fts_jieba')) {
-      const indexed = countRows(db, 'messages_fts_jieba');
-      const total = countRows(db, 'messages');
-      if (indexed !== null && total !== null) {
+      const drift = unindexedMessages(db);
+      if (drift) {
         judge(
-          indexed === total,
+          drift.missing === 0,
           'messages_fts_jieba',
-          indexed + ' rows for ' + total + ' messages',
-          'messages_fts_jieba holds ' + indexed + ' rows for ' + total + ' messages — the v10 backfill did not finish',
+          countRows(db, 'messages_fts_jieba') +
+            ' indexed / ' +
+            countRows(db, 'messages') +
+            ' messages, every searchable one present',
+          drift.missing +
+            ' searchable message(s) missing from messages_fts_jieba' +
+            (drift.sample.length > 0 ? ' (' + drift.sample.join(', ') + ')' : '') +
+            ' — migration-v10 only backfills an EMPTY index. `bash scripts/deploy-termux.sh restart` re-indexes them at startup',
         );
       }
     }

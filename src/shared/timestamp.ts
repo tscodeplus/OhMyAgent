@@ -25,9 +25,13 @@ export function parseEpochMs(value: unknown): number {
   if (typeof value !== 'string' || value.length === 0) {
     return 0;
   }
-  // Bare epoch millis (the column DEFAULT shape).
-  if (/^\d+$/.test(value)) {
-    const n = Number(value);
+  // Bare epoch millis (the column DEFAULT shape), plus the REAL-rendered form:
+  // binding a JS number to a TEXT column stores "1793618776783.0", which the
+  // older `^\d+$` test rejected — every such row read back as "unknown", so
+  // `messages_fts_jieba.created_at` was written as '0' and ordering had to be
+  // repaired from `messages` at query time.
+  if (/^\d+(?:\.\d+)?$/.test(value)) {
+    const n = Math.trunc(Number(value));
     return Number.isFinite(n) ? n : 0;
   }
   const parsed = Date.parse(value);

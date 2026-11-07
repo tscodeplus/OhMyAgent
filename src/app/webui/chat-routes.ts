@@ -23,6 +23,7 @@ import { handleCommand } from '../../commands/command-handler.js';
 import { computeCacheHitRate } from '../../channel/usage-summary.js';
 import { createWebUIApprovalSender } from './approval-sender.js';
 import { createWebUIUserQuestionSender } from './user-question-sender.js';
+import { MessageRepository } from '../../memory/repositories/message-repository.js';
 import type { UserQuestionSender } from '../../agent/user-question-port.js';
 import { safeEqual } from '../../shared/safe-equal.js';
 // Reuse the gateway's existing sliding-window limiter rather than a second
@@ -53,6 +54,45 @@ function debugLog(msg: string, data?: Record<string, unknown>): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * Persist one `/slash` exchange — the user command plus the reply, when the
+ * command produced one — so it survives a frontend refetch.
+ *
+ * Goes through `MessageRepository` rather than raw SQL: the INSERT this used to
+ * run never touched `messages_fts_jieba`, so a command exchange was invisible to
+ * `session_search` and to the message lane of `/api/search`.
+ */
+async function persistCommandExchange(
+  db: Database.Database,
+  sessionId: string,
+  rawMessage: string,
+  clientMsgId: string | undefined,
+  reply: string | undefined,
+): Promise<void> {
+  const { v4: uuidv4 } = await import('uuid');
+  const repo = new MessageRepository(db);
+  const now = Date.now();
+  // Reuse the client's message id when provided so the frontend can dedupe its
+  // streaming copy against this row.
+  repo.create({
+    id: clientMsgId ?? uuidv4(),
+    session_id: sessionId,
+    role: 'user',
+    content: rawMessage.trim(),
+    created_at: now,
+  });
+  if (reply) {
+    repo.create({
+      id: uuidv4(),
+      session_id: sessionId,
+      role: 'assistant',
+      content: reply,
+      created_at: now,
+    });
+  }
+  db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
 }
 
 // ─── SSE-aware ReplyDispatcher ───
@@ -213,13 +253,17 @@ class SSEReplyDispatcher implements ReplyDispatcher {
       const meta = JSON.stringify({
         approval: { approvalId, command, risk, status, reason: reason ?? '' },
       });
-      // Use INSERT OR REPLACE to handle the case where the approval is
-      // re-sent (e.g. after agent restart with recovered approvals).
-      this.db
-        .prepare(
-          "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
-        )
-        .run(msgId, this.sessionId, '', Date.now(), meta);
+      // Through the repository: a re-sent approval replaces the row, and the
+      // write keeps the message/FTS pair in step (the raw INSERT this used to
+      // run bypassed the index hook).
+      new MessageRepository(this.db).upsert({
+        id: msgId,
+        session_id: this.sessionId,
+        role: 'assistant',
+        content: '',
+        metadata: meta,
+        created_at: Date.now(),
+      });
       this.approvalMsgIds.set(approvalId, msgId);
     } catch (err) {
       this.logger?.warn('[chat] Failed to persist approval message:', err);
@@ -688,25 +732,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
             // reply when present (so all input types are visible in history).
             if (cfg.db) {
               try {
-                const { v4: uuidv4 } = await import('uuid');
-                const now = Date.now();
-                // Always persist user command message (reuse clientMsgId when provided
-                // so the frontend can dedupe its streaming copy against this row)
-                cfg.db
-                  .prepare(
-                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                  )
-                  .run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
-                if (result.reply) {
-                  cfg.db
-                    .prepare(
-                      "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                    )
-                    .run(uuidv4(), sessionId, result.reply, now);
-                }
-                cfg.db
-                  .prepare('UPDATE sessions SET updated_at = ? WHERE id = ?')
-                  .run(now, sessionId);
+                await persistCommandExchange(
+                  cfg.db,
+                  sessionId,
+                  rawMessage,
+                  safeClientMsgId,
+                  result.reply,
+                );
               } catch (dbErr) {
                 // FK may fail if session doesn't exist — non-fatal
                 app.log.warn({ err: dbErr }, '[chat] Failed to persist command message');
@@ -737,23 +769,13 @@ export function registerChatRoutes(app: FastifyInstance, cfg: ChatRouteConfig): 
           if (extResult) {
             if (cfg.db) {
               try {
-                const { v4: uuidv4 } = await import('uuid');
-                const now = Date.now();
-                cfg.db
-                  .prepare(
-                    "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-                  )
-                  .run(safeClientMsgId ?? uuidv4(), sessionId, rawMessage.trim(), now);
-                if (extResult.reply) {
-                  cfg.db
-                    .prepare(
-                      "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                    )
-                    .run(uuidv4(), sessionId, extResult.reply, now);
-                }
-                cfg.db
-                  .prepare('UPDATE sessions SET updated_at = ? WHERE id = ?')
-                  .run(now, sessionId);
+                await persistCommandExchange(
+                  cfg.db,
+                  sessionId,
+                  rawMessage,
+                  safeClientMsgId,
+                  extResult.reply,
+                );
               } catch (dbErr) {
                 app.log.warn({ err: dbErr }, '[chat] Failed to persist ext command message');
               }

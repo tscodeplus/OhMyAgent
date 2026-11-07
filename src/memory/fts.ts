@@ -318,6 +318,12 @@ const messageFtsUnavailable = new WeakSet<Database.Database>();
  * matching any message sent after the first boot. Call this from every
  * messages write path, exactly like the memory repository does.
  *
+ * The index holds one row per *searchable* message. WebUI approval and question
+ * cards (`approval-*`, `question-*`) are rows in `messages` with an empty body —
+ * UI state, not conversation — so they are deleted from the index and never
+ * inserted; keeping them would make the index disagree with the set of
+ * searchable messages `deploy-termux.sh check` compares it against.
+ *
  * Non-fatal by design: the message row is already committed, and a search index
  * that lags must never fail a chat turn. Failures are recorded so the drift is
  * observable instead of silent.
@@ -338,6 +344,9 @@ export function syncMessageJiebaFts(
   try {
     db.prepare('DELETE FROM messages_fts_jieba WHERE message_id = ?').run(message.id);
     if (action === 'delete') return;
+    // An empty body tokenises to nothing: dropping the stale row above is the
+    // whole job for an approval/question card.
+    if (message.content.trim().length === 0) return;
 
     db.prepare(
       `INSERT INTO messages_fts_jieba
@@ -383,6 +392,103 @@ export function deleteMessageFts(db: Database.Database, messageId: string): void
       messageId,
       error: text,
     });
+  }
+}
+
+export interface MessageFtsRepairResult {
+  /** Messages (re)indexed by this call — 0 when the index was already aligned. */
+  indexed: number;
+  /** Index rows dropped by this call (orphans, empty-body cards, duplicates). */
+  pruned: number;
+  /** Whether the index was rebuilt from `messages` instead of left alone. */
+  rebuilt: boolean;
+}
+
+/** The set the index must mirror: messages that carry text. */
+const MESSAGE_FTS_NEEDED_SQL = `
+  SELECT COUNT(*) AS n FROM messages WHERE length(trim(COALESCE(content, ''))) > 0
+`;
+
+const MESSAGE_FTS_INSERT_SQL = `
+  INSERT INTO messages_fts_jieba
+    (content, content_original, message_id, session_id, role, created_at)
+  VALUES (?, ?, ?, ?, ?, ?)
+`;
+
+/**
+ * Re-align `messages_fts_jieba` with the searchable messages.
+ *
+ * The per-write hook ({@link syncMessageJiebaFts}) keeps the index current for
+ * writers that go through `MessageRepository`. Everything else drifts: rows
+ * written by raw SQL before those paths were converted, rows written before the
+ * hook existed at all, and any partial restore of a backup. Nothing heals them —
+ * migration-v10's backfill only ever runs against an **empty** index — so the
+ * conversation lane of `/api/search` and `session_search` silently returns fewer
+ * hits forever, which is invisible in a result list.
+ *
+ * Detection is deliberately cheap: two COUNTs on every boot. A rebuild is O(n)
+ * inserts plus a scan per indexed row, so it only runs when the counts disagree —
+ * which every writer can do (an insert or a delete that bypasses the hook moves
+ * one side). A swap (one bypassed insert *and* one bypassed delete between two
+ * boots) keeps the counts equal; `deploy-termux.sh check` runs the exact
+ * per-row anti-join that catches it.
+ *
+ * The rebuild is one transaction: a failure leaves the previous index intact
+ * rather than an empty one, and the caller boots on regardless.
+ */
+export function repairMessageJiebaFts(db: Database.Database): MessageFtsRepairResult {
+  const unchanged: MessageFtsRepairResult = { indexed: 0, pruned: 0, rebuilt: false };
+  if (messageFtsUnavailable.has(db)) return unchanged;
+
+  try {
+    const needed = (db.prepare(MESSAGE_FTS_NEEDED_SQL).get() as { n: number }).n;
+    const indexed = (
+      db.prepare('SELECT COUNT(*) AS n FROM messages_fts_jieba').get() as { n: number }
+    ).n;
+    if (needed === indexed) return unchanged;
+
+    const rows = db
+      .prepare(
+        `SELECT id, session_id, role, content, created_at FROM messages
+         WHERE length(trim(COALESCE(content, ''))) > 0`,
+      )
+      .all() as Array<{
+      id: string;
+      session_id: string;
+      role: string;
+      content: string;
+      created_at: string | number | null;
+    }>;
+
+    const insert = db.prepare(MESSAGE_FTS_INSERT_SQL);
+    db.transaction(() => {
+      db.prepare('DELETE FROM messages_fts_jieba').run();
+      for (const row of rows) {
+        insert.run(
+          tokenizeForIndex(row.content),
+          row.content,
+          row.id,
+          row.session_id,
+          row.role,
+          // Same shape the write hook stores, so `conversation-search`'s
+          // timestamp repair sees one convention, not two.
+          String(parseEpochMs(row.created_at)),
+        );
+      }
+    })();
+
+    return { indexed: rows.length, pruned: indexed, rebuilt: true };
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    if (/no such table/i.test(text)) {
+      messageFtsUnavailable.add(db);
+      return unchanged;
+    }
+    memoryObservability.record('memory.fts.failed', {
+      operation: 'repairMessageJiebaFts',
+      error: text,
+    });
+    return unchanged;
   }
 }
 

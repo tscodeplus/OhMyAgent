@@ -5,6 +5,7 @@
 import type Database from 'better-sqlite3';
 import { generateId } from '../../shared/ids.js';
 import { MemoryRepository } from '../../memory/repositories/memory-repository.js';
+import { deleteSessionMessageFts } from '../../memory/fts.js';
 
 export interface ProjectRow {
   id: string;
@@ -124,6 +125,10 @@ export class ProjectStore {
           .run(sid);
         this.db.prepare('DELETE FROM approval_requests WHERE session_key = ?').run(sid);
         this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sid);
+        // The FTS rows are not part of the FK cascade — without this they stay
+        // behind pointing at deleted messages and would keep surfacing in
+        // `session_search` as results that cannot be loaded.
+        deleteSessionMessageFts(this.db, sid);
         this.db.prepare('DELETE FROM episodes WHERE session_id = ?').run(sid);
         this.db.prepare('DELETE FROM tool_runs WHERE session_id = ?').run(sid);
         // Session-level memories — via repository so derived stores

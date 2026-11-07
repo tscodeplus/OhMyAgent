@@ -38,6 +38,14 @@ describe('parseEpochMs', () => {
     expect(parseEpochMs(0)).toBe(0);
   });
 
+  it('parses the REAL-rendered digit form a number bind leaves in a TEXT column', () => {
+    // `INSERT ... VALUES (…, Date.now())` into a TEXT column stores
+    // "1793618776783.0"; rejecting that shape made every such row read as
+    // unknown, which is how messages_fts_jieba.created_at became '0'.
+    expect(parseEpochMs('1793618776783.0')).toBe(1793618776783);
+    expect(parseEpochMs('1793618776783.7')).toBe(1793618776783);
+  });
+
   it('returns 0 for values it cannot interpret', () => {
     expect(parseEpochMs('not-a-date')).toBe(0);
     expect(parseEpochMs('')).toBe(0);

@@ -14,6 +14,7 @@
 import type Database from 'better-sqlite3';
 import pino from 'pino';
 import type { UserQuestionSender, UserQuestionOption } from '../../agent/user-question-port.js';
+import { MessageRepository } from '../../memory/repositories/message-repository.js';
 
 const fallbackLogger = pino();
 
@@ -47,9 +48,17 @@ export function createWebUIUserQuestionSender(
           const meta = JSON.stringify({
             userQuestion: { requestId, question, options: opts, status: 'pending' },
           });
-          db.prepare(
-            "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
-          ).run(msgId, sessionId, '', Date.now(), meta);
+          // Through the repository: a re-sent question replaces the row, and the
+          // write keeps the message/FTS pair in step (the raw INSERT this used
+          // to run bypassed the index hook).
+          new MessageRepository(db).upsert({
+            id: msgId,
+            session_id: sessionId,
+            role: 'assistant',
+            content: '',
+            metadata: meta,
+            created_at: Date.now(),
+          });
         } catch (err) {
           (logger ?? fallbackLogger).warn(
             { err },

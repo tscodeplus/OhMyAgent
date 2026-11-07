@@ -15,6 +15,7 @@
  */
 
 import type Database from 'better-sqlite3';
+import { MessageRepository } from '../../memory/repositories/message-repository.js';
 
 export interface WebUIApprovalSender {
   sendApprovalMessage(
@@ -65,9 +66,17 @@ export function createWebUIApprovalSender(
               reason: reason ?? '',
             },
           });
-          db.prepare(
-            "INSERT OR REPLACE INTO messages (id, session_id, role, content, created_at, metadata) VALUES (?, ?, 'assistant', ?, ?, ?)",
-          ).run(msgId, sessionId, '', Date.now(), meta);
+          // Through the repository: a re-sent approval replaces the row, and the
+          // write keeps the message/FTS pair in step (the raw INSERT this used
+          // to run bypassed the index hook).
+          new MessageRepository(db).upsert({
+            id: msgId,
+            session_id: sessionId,
+            role: 'assistant',
+            content: '',
+            metadata: meta,
+            created_at: Date.now(),
+          });
         } catch (err) {
           logger?.warn('[approval-sender] Failed to persist approval message:', err);
         }

@@ -309,16 +309,15 @@ function queryFts(
 /**
  * Restore timestamps the FTS index lost.
  *
- * `syncMessageJiebaFts` stores `String(parseEpochMs(message.created_at))`, and
- * `parseEpochMs` cannot read the form a numeric bind leaves in a TEXT column
- * (`"1789639714808.0"`): it parses `^\d+$` or ISO only and returns 0 otherwise.
- * Every message written after the v10 backfill is therefore indexed with
- * `created_at = '0'` (6 of 68 rows in the live database), while the `messages`
- * row keeps the real time. This is the one case where the module needs the row
- * behind the index — without it both the ordering and the ±1 neighbourhood are
- * wrong, which is exactly what K1 exists to get right — and it is a repair of a
- * known upstream defect, not a second source of truth: once `parseEpochMs`
- * accepts the real form, this finds nothing to do.
+ * `parseEpochMs` could not read the form a numeric bind leaves in a TEXT column
+ * (`"1789639714808.0"` — it parsed `^\d+$` or ISO only and returned 0), so
+ * every message written before that was fixed is indexed with
+ * `created_at = '0'` while the `messages` row keeps the real time. This is the
+ * one case where the module needs the row behind the index — without it both
+ * the ordering and the ±1 neighbourhood are wrong, which is exactly what K1
+ * exists to get right — and it is a repair of a known upstream defect, not a
+ * second source of truth: `parseEpochMs` now accepts the real form, so only
+ * rows indexed before the fix reach this path.
  */
 function repairTimestamps(db: Database.Database, timestamps: Map<string, number>): void {
   const unknown = [...timestamps].filter(([, value]) => value === 0).map(([id]) => id);

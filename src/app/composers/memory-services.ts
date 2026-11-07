@@ -31,7 +31,7 @@ import { ApprovalDecisionRepository } from '../../memory/repositories/approval-d
 import { PersonaStore } from '../../memory/persona-store.js';
 import { PersonaDistiller, createDistillerLLM } from '../../memory/persona-distiller.js';
 import { SceneClusterer } from '../../memory/scene-cluster.js';
-import { rebuildJiebaFts } from '../../memory/fts.js';
+import { rebuildJiebaFts, repairMessageJiebaFts } from '../../memory/fts.js';
 import { PersonaDistillationLog } from '../../memory/persona/persona-distillation-log.js';
 import { PersonaAuditService } from '../../memory/persona/persona-audit-service.js';
 import type { openDatabase } from '../../memory/db.js';
@@ -239,6 +239,24 @@ export async function createMemoryServices(
     }
   } catch (err: any) {
     logger.warn({ err: err?.message ?? err }, 'Jieba FTS backfill failed (non-fatal)');
+  }
+
+  // Re-align messages_fts_jieba with the searchable messages. migration-v10
+  // backfills only an EMPTY index, and the raw-SQL write paths that used to
+  // bypass the per-write hook left rows behind that nothing else would ever
+  // index — a message missing here is simply absent from `session_search` and
+  // from the message lane of `/api/search`, with no error anywhere. Two COUNTs
+  // per boot when the index is aligned; a rebuild only when it is not.
+  try {
+    const repaired = repairMessageJiebaFts(db);
+    if (repaired.rebuilt) {
+      logger.warn(
+        { indexed: repaired.indexed, pruned: repaired.pruned },
+        'messages_fts_jieba had drifted from messages — rebuilt at startup',
+      );
+    }
+  } catch (err: any) {
+    logger.warn({ err: err?.message ?? err }, 'messages FTS repair failed (non-fatal)');
   }
   const embeddingCacheRepo = new EmbeddingCacheRepo(db, config.memory.embeddingCacheMaxEntries);
   const memoryTermRepo = new MemoryTermRepository(db);

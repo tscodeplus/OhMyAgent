@@ -58,6 +58,34 @@ export class MessageRepository {
     return created;
   }
 
+  /**
+   * Insert-or-replace one row and re-index it. The WebUI's synthetic cards
+   * (`approval-*`, `question-*`) are re-sent after an agent restart with the
+   * same id, so they need replace semantics — and they still must not skip the
+   * FTS hook, which is what happened while they wrote raw SQL.
+   */
+  upsert(input: CreateMessageInput): Message {
+    this.db
+      .prepare(
+        `
+        INSERT OR REPLACE INTO messages (id, session_id, role, content, tool_call_id, metadata, created_at)
+        VALUES (@id, @session_id, @role, @content, @tool_call_id, @metadata, @created_at)
+      `,
+      )
+      .run({
+        id: input.id,
+        session_id: input.session_id,
+        role: input.role,
+        content: input.content,
+        tool_call_id: input.tool_call_id ?? null,
+        metadata: input.metadata ?? null,
+        created_at: input.created_at ?? Date.now(),
+      });
+    const saved = this.findById(input.id)!;
+    syncMessageJiebaFts(this.db, 'insert', saved);
+    return saved;
+  }
+
   findById(id: string): Message | undefined {
     const stmt = this.db.prepare('SELECT * FROM messages WHERE id = ?');
     const row = stmt.get(id) as Message | undefined;
