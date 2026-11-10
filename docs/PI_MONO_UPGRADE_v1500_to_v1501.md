@@ -71,6 +71,27 @@ tag diff 显示 2472 文件 / +265131 −32570，但其中绝大部分是**我�
 **零改动**。pi-mcp 的新增导出没有被使用（先用上游默认行为），`AgentTool` / schema 类型未变，
 `disableContinuation` 是可选字段。
 
+### 新增能力核对（v1.5.1 逐项确认无需适配）
+
+上游这几项「看着像该接」的新能力，核对结果是**已生效或对本项目惰性**，不要重复改造：
+
+- **`sessionId` 已接通**：`src/agent/agent-factory.ts:1257` 以 shorthand 形式传入 `new Agent({...})`
+  （**注意不在 `sessionId:` 的 grep 结果里**），经 `agent.ts:282 → :506 createLoopConfig` 进入 stream 选项，
+  我们的 `streamFn` 包装器 `{ ...scoped }` 原样透传；`tests/agent/agent-factory.test.ts:199` 有回归测试。
+  因此 OpenAI/Azure/Codex/Mistral 的 `prompt_cache_key`、直连 Anthropic 的 message threads
+  （仅 `api.anthropic.com`，前缀 hash 不匹配即退回完整请求）、strict-tool-limit 会话守卫都已具备。
+- **strict tool limits**：仅当工具声明 `constrainedSampling.type === "json_schema"` 才会触发
+  （`ai/api/constrained-sampling.ts:251`），本项目 0 处使用 → 惰性。
+- **`cache-warming`**：需要宿主定时调度且单次期望节省 ≥ $0.05，IM 网关收益≈0 → 不接。
+- **lazy bedrock/oauth 入口**：面向 bundler；我们 tsc→dist ESM，且 `providers/amazon-bedrock.ts` 已走
+  `*.lazy.js`，AWS SDK 仍只在首次请求加载 → 不接。
+- **pi-mcp 新增模块**：naming（`src/mcp/tool-adapter.ts:46`）、inputSchema 归一化（`:159`）、
+  output 上限 + offload（`maxOutputBytes` + `offloadStore`）、config 校验（zod 层）、OAuth 持久化
+  （`src/mcp/oauth-store.ts`）我们已有同等或更强实现；`pipe` 传输未使用 → 不接。
+- **pi-telemetry 亚毫秒时间戳 / 控制字符转义**：`StoredSpan` / `InMemoryTelemetryContext` 在 `src/` 中
+  0 处消费 → 无影响。
+- **`agent/proxy.ts`**：仅把 `disableContinuation` 加进代理序列化字段，我们不使用 pi-agent-core proxy。
+
 ## 验证
 
 - **归一化 diff**（vendored vs 上游 v1.5.1）：`mcp` / `telemetry` / `schema` **逐字节一致**；
