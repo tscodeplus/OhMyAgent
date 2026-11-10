@@ -81,8 +81,8 @@ import DraftCard from './DraftCard';
 import { useBallPlacement } from './useBallPlacement';
 import type { Note } from './types';
 
-/** `h-14` / `h-7` on the button below — the stack-direction test needs the height. */
-const BALL_HEIGHT = 56;
+/** `h-11` / `h-7` on the button below — the stack-direction test needs the height. */
+const BALL_HEIGHT = 44;
 const BALL_HEIGHT_COMPACT = 28;
 
 /**
@@ -856,10 +856,10 @@ export default function NotesFloatingBall() {
             aria-busy={capturing}
             className={cn(
               'relative flex items-center justify-center rounded-full text-white shadow-lg shadow-indigo-900/25 transition-colors',
-              // A dot is a 28px target instead of 56: on a phone the ball can sit on
+              // A dot is a 28px target instead of 44: on a phone the ball can sit on
               // top of the last line of the transcript, and shrinking it keeps the
               // entry point while giving back the line.
-              ballSize === 'compact' ? 'h-7 w-7' : 'h-14 w-14',
+              ballSize === 'compact' ? 'h-7 w-7' : 'h-11 w-11',
               // Only a capture animates; at rest the ball is still (see the header).
               capturing ? 'cursor-wait' : 'hover:opacity-90',
               capturing ? '' : placement.dragging ? 'cursor-grabbing' : 'cursor-grab',
@@ -885,11 +885,11 @@ export default function NotesFloatingBall() {
                   className="absolute inset-0 animate-ping rounded-full opacity-40"
                   style={{ backgroundColor: '#4f46e5' }}
                 />
-                <Loader2 className="relative h-6 w-6 animate-spin" strokeWidth={2} />
+                <Loader2 className="relative h-5 w-5 animate-spin" strokeWidth={2} />
               </>
             ) : (
               <NotebookPen
-                className={ballSize === 'compact' ? 'h-3.5 w-3.5' : 'h-6 w-6'}
+                className={ballSize === 'compact' ? 'h-3.5 w-3.5' : 'h-5 w-5'}
                 strokeWidth={1.75}
               />
             )}
@@ -905,7 +905,7 @@ export default function NotesFloatingBall() {
                   'absolute inline-flex items-center justify-center rounded-full border-2 border-white bg-white px-1 font-semibold text-indigo-700 dark:border-neutral-950',
                   ballSize === 'compact'
                     ? '-right-1 -top-1 h-3.5 min-w-3.5 text-[8px]'
-                    : '-right-0.5 -top-0.5 h-5 min-w-5 text-[10px]',
+                    : '-right-0.5 -top-0.5 h-4.5 min-w-4.5 text-[9px]',
                 )}
               >
                 {counts.draft}

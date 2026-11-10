@@ -123,7 +123,7 @@ export interface CaptureOutcome {
   sampledHead?: number;
 }
 
-/** Ball size: the full 56px target, or a dot that does not cover the transcript. */
+/** Ball size: the full 44px target, or a dot that does not cover the transcript. */
 export type BallSize = 'normal' | 'compact';
 
 /**

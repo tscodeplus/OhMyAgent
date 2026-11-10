@@ -31,8 +31,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 
 const STORAGE_KEY = 'oma-notes-ball-pos';
-/** `h-14` in NotesFloatingBall — kept in sync by eye, it is one number. */
-const BALL_SIZE = 56;
+/** `h-11` in NotesFloatingBall — kept in sync by eye, it is one number. */
+const BALL_SIZE = 44;
 /** Minimum gap to the viewport edge. */
 const EDGE = 8;
 /** Gap between the ball and the box it stands beside. */
