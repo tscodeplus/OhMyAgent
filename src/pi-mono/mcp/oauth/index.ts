@@ -1,9 +1,16 @@
+export { createMcpAuthProvider, type McpAuthProvider } from "./auth-provider.js";
 export {
 	type OAuthCallback,
 	type OAuthCallbackPage,
 	OAuthCallbackServer,
 	type OAuthCallbackServerOptions,
 } from "./callback.js";
+export type {
+	McpClientMetadataDocuments,
+	McpOAuthClientOptions,
+	McpOAuthServerStore,
+	McpOAuthSettings,
+} from "./client-settings.js";
 export {
 	buildAuthorizationServerDiscoveryUrls,
 	discoverAuthorizationServerMetadata,
@@ -15,6 +22,7 @@ export {
 } from "./discovery.js";
 export {
 	McpOAuthAuthorizationRequiredError,
+	McpRefreshLockBusyError,
 	OAuthError,
 	OAuthInsecureEndpointError,
 	OAuthIssuerMismatchError,
@@ -36,12 +44,27 @@ export {
 	type TokenRequestOptions,
 } from "./flow.js";
 export {
+	listenForLoopbackSignIn,
+	type McpLoopbackCallback,
+	responseFromRedirectUrl,
+	waitForLoopbackSignIn,
+} from "./loopback.js";
+export {
 	McpOAuthProvider,
 	type McpOAuthProviderOptions,
 	type McpOAuthState,
 	type McpOAuthStateStore,
 	MemoryOAuthStateStore,
 } from "./provider.js";
+export {
+	completeMcpSignIn,
+	type McpAuthorizationResponse,
+	McpSignInCancelledError,
+	type McpSignInOptions,
+	type McpSignInRedirect,
+	type McpSignInStart,
+	startMcpSignIn,
+} from "./sign-in.js";
 export type {
 	AuthorizationServerMetadata,
 	OAuthChallenge,

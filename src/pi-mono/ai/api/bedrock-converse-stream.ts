@@ -67,7 +67,6 @@ import {
 } from "../utils/transcript.js";
 import {
 	getJsonSchemaToolParameters,
-	isStrictToolLimitErrorMessage,
 	prefersJsonSchemaStrictSampling,
 	resolveJsonSchemaStrictSampling,
 } from "./constrained-sampling.js";
@@ -77,6 +76,11 @@ import {
 	clampMaxTokensToContext,
 	clampReasoning,
 } from "./simple-options.js";
+import {
+	hasExceededStrictToolLimits,
+	isStrictToolLimitErrorMessage,
+	markStrictToolLimitsExceeded,
+} from "./strict-tool-limits.js";
 import { splitErrorToolResultImages, transformMessages } from "./transform-messages.js";
 
 export type BedrockThinkingDisplay = "summarized" | "omitted";
@@ -275,7 +279,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 			const inferenceMaxTokens = options.maxTokens ?? (isAnthropicClaudeModel(model) ? model.maxTokens : undefined);
 			const initialSystemMessage = getInitialSystemMessage(normalizedContext.messages);
 			const initialSystemPrompt = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : undefined;
-			let disablePreferredStrictTools = false;
+			let disablePreferredStrictTools = hasExceededStrictToolLimits(options.sessionId);
 			let response: ConverseStreamCommandOutput;
 			for (;;) {
 				const tools = convertToolConfig(
@@ -316,6 +320,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 						throw error;
 					}
 					disablePreferredStrictTools = true;
+					markStrictToolLimitsExceeded(options.sessionId);
 					appendAssistantMessageDiagnostic(output, {
 						type: "bedrock_strict_tools_fallback",
 						timestamp: Date.now(),

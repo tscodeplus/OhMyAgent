@@ -152,7 +152,7 @@ surface — if this event goes missing after an upgrade, long provider outages l
    ```bash
    grep -rc "OhMyAgent" src/pi-mono --include="*.ts" | grep -v ':0$'
    ```
-   — the file list must match the inventory above (v1.5.0: 5 files / 37 markers).
+   — the file list must match the inventory above (v1.5.1: 5 files / 37 markers).
 4. Build, then run the loop-behaviour tests specifically:
    ```bash
    pnpm build && npx vitest run tests/agent

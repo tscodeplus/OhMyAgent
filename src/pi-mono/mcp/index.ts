@@ -1,6 +1,24 @@
 export type { AuthProvider, McpFetch, UnauthorizedContext } from "./auth-provider.js";
 export { McpClient, type McpClientOptions, type McpRequestOptions } from "./client.js";
 export {
+	isMcpServerOverride,
+	type McpHttpServerConfig,
+	type McpOAuthConfig,
+	type McpServerConfig,
+	type McpServerConfigOptions,
+	type McpServerConfigResult,
+	type McpStdioServerConfig,
+	validateMcpServerConfig,
+} from "./config.js";
+export { normalizeMcpInputSchema } from "./input-schema.js";
+export { createMcpToolName, mcpNamespace } from "./naming.js";
+export {
+	type LimitedMcpContent,
+	limitMcpContent,
+	MCP_OUTPUT_MAX_BYTES,
+	type McpOutputSaver,
+} from "./output-limit.js";
+export {
 	type AudioContent,
 	type BlobResourceContents,
 	type CallToolResult,
@@ -55,6 +73,12 @@ export {
 	type ToolAnnotations,
 	type ToolExecution,
 } from "./protocol/types.js";
+export {
+	type McpPipe,
+	type McpPipeHandlers,
+	PipeTransport,
+	type PipeTransportOptions,
+} from "./transports/pipe.js";
 export { StdioTransport, type StdioTransportOptions } from "./transports/stdio.js";
 export {
 	McpAuthRequiredError,
