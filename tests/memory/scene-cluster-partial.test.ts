@@ -37,17 +37,17 @@ describe('SceneClusterer partial runs', () => {
     return `${prefix}-${Date.now()}-${idCounter}`;
   }
 
-  function insertMemory(scopeKey: string, createdAt: string): string {
+  function insertMemory(scopeKey: string, createdAt: string, scope = 'user'): string {
     const id = uniqueId('mem');
     db.prepare(
       `INSERT INTO memories (id, scope, scope_key, kind, content, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(id, 'user', scopeKey, 'fact', `${scopeKey} content ${id}`, createdAt);
+    ).run(id, scope, scopeKey, 'fact', `${scopeKey} content ${id}`, createdAt);
     return id;
   }
 
-  function seedWindow(scopeKey: string, createdAt: string, count = 6): void {
-    for (let i = 0; i < count; i++) insertMemory(scopeKey, createdAt);
+  function seedWindow(scopeKey: string, createdAt: string, count = 6, scope = 'user'): void {
+    for (let i = 0; i < count; i++) insertMemory(scopeKey, createdAt, scope);
   }
 
   function sceneFiles(): string[] {
@@ -86,9 +86,11 @@ describe('SceneClusterer partial runs', () => {
     expect(summary.processedScopeKeys).toEqual(['key-a']);
     expect(summary.clusters.map((c) => c.scopeKey)).toEqual(['key-a']);
     expect(summary.errors).toEqual([{ scopeKey: 'key-b', message: 'db gone mid-cluster' }]);
-    // key-a is on disk and registered; key-b's window was never registered, so
-    // the next run redoes it (its cursor hook never fired).
-    expect(sceneFiles()).toContain('key-a_2026-01-01_2026-01-01.md');
+    // key-a is on disk and registered. key-b wrote its file before the upsert
+    // threw, so the run leaves that file unreferenced — and the orphan sweep
+    // removes it rather than parking a document no row points at. key-b is redone
+    // by the next run (its cursor hook never fired).
+    expect(sceneFiles()).toEqual(['key-a_2026-01-01_2026-01-01.md']);
     expect(memoryRepo.findByScopeAndKind('user', 'key-b', 'scene')).toHaveLength(0);
 
     (memoryRepo as unknown as Record<string, unknown>).upsert = originalUpsert;
@@ -185,6 +187,25 @@ describe('SceneClusterer partial runs', () => {
     expect(sceneFiles()).toEqual(['key-b_2026-02-01_2026-02-01.md']);
   });
 
+  it('keeps the documents of another scope that shares the scenes directory', () => {
+    // `scenes/` is one directory for every scope, so the orphan sweep must judge
+    // a file by every scope's rows — filtering them by the scope being clustered
+    // would delete the other scope's documents as "unreferenced".
+    seedWindow('session-key', '2026-01-01 10:00:00', 6, 'session');
+    clusterer.clusterBatch({ scope: 'session' });
+
+    seedWindow('user-key', '2026-02-01 10:00:00');
+    clusterer.clusterBatch({ scope: 'user' });
+    // A second user-scope run (the nightly case) must still leave session alone.
+    clusterer.clusterBatch({ scope: 'user' });
+
+    expect(sceneFiles()).toEqual([
+      'session-key_2026-01-01_2026-01-01.md',
+      'user-key_2026-02-01_2026-02-01.md',
+    ]);
+    expect(memoryRepo.findByScopeAndKind('session', 'session-key', 'scene')).toHaveLength(1);
+  });
+
   it('removes a scenes.bak left behind by the previous all-or-nothing version', () => {
     seedWindow('key-a', '2026-01-01 10:00:00');
     const backupDir = path.join(baseDir, 'scenes.bak');
@@ -196,21 +217,27 @@ describe('SceneClusterer partial runs', () => {
     expect(fs.existsSync(backupDir)).toBe(false);
   });
 
-  it('writes scene files atomically (no .tmp residue, previous file survives a failure)', () => {
+  it('leaves the committed documents intact and no .tmp behind when a write fails', () => {
     seedWindow('key-a', '2026-01-01 10:00:00');
     clusterer.clusterBatch();
     const file = path.join(baseDir, 'scenes', 'key-a_2026-01-01_2026-01-01.md');
     const before = fs.readFileSync(file, 'utf-8');
 
-    // Fail the registration step of the rewrite: the file has already been
-    // renamed into place, so it holds the new content, and no temp file is left.
-    (memoryRepo as unknown as Record<string, unknown>).upsert = () => {
-      throw new Error('nope');
-    };
+    // A directory squatting on key-b's target path makes the tmp+rename fail
+    // mid-write for that scopeKey only.
+    seedWindow('key-b', '2026-02-01 10:00:00');
+    const blocked = path.join(baseDir, 'scenes', 'key-b_2026-02-01_2026-02-01.md');
+    fs.mkdirSync(blocked);
+
     const summary = clusterer.clusterBatch();
-    expect(summary.errors).toHaveLength(1);
-    expect(fs.existsSync(`${file}.tmp`)).toBe(false);
-    expect(fs.readFileSync(file, 'utf-8').length).toBeGreaterThan(0);
-    expect(before.length).toBeGreaterThan(0);
+
+    expect(summary.errors.map((e) => e.scopeKey)).toEqual(['key-b']);
+    // The failed write is atomic from the reader's point of view: key-a's
+    // document is byte-identical and no half-written temp file survives.
+    expect(fs.readFileSync(file, 'utf-8')).toBe(before);
+    expect(fs.readdirSync(path.join(baseDir, 'scenes')).filter((f) => f.endsWith('.tmp'))).toEqual(
+      [],
+    );
+    expect(fs.existsSync(blocked)).toBe(true);
   });
 });

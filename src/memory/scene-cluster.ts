@@ -229,14 +229,17 @@ export class SceneClusterer {
         );
         continue;
       }
+      // The windows this scopeKey committed are real (files written, rows
+      // upserted), so they are reported either way — an abort only decides
+      // whether the scopeKey counts as *complete*.
+      summary.clusters.push(...committed);
+
       // An abort between windows leaves the scopeKey half-written in exactly the
-      // same way as a failure, so it is not reconciled either.
+      // same way as a failure, so it is neither reconciled nor marked as done
+      // (the next run redoes it; every write here is idempotent).
       if (options.signal?.aborted) break;
 
-      const pruned = this.pruneStaleArtefacts(scope, scopeKey, written);
-      summary.prunedFiles += pruned.files;
-      summary.prunedMemories += pruned.memories;
-      summary.clusters.push(...committed);
+      summary.prunedMemories += this.pruneStaleRows(scope, scopeKey, written);
       summary.processedScopeKeys.push(scopeKey);
       options.onScopeKeyDone?.(scopeKey);
     }
@@ -248,7 +251,7 @@ export class SceneClusterer {
         // cannot always be mapped back to its key) or of a write whose row
         // registration failed. Only files shaped like a scene document are
         // considered — never anything else under data/.
-        summary.prunedFiles += this.pruneOrphanFiles(scope);
+        summary.prunedFiles += this.pruneOrphanFiles();
       }
 
       this.logger?.info(
@@ -330,45 +333,16 @@ export class SceneClusterer {
   }
 
   /**
-   * Remove the scene files and `scene-*` memory rows of one *committed* scopeKey
-   * that this run no longer produces.
+   * Drop the `scene-*` rows of one *committed* scopeKey that this run no longer
+   * produces.
    *
-   * Reconciliation is per scopeKey rather than per directory on purpose: a
-   * partial run only knows the truth about the scopeKeys it processed, so a
-   * directory-wide sweep would delete the windows of the scopeKeys it skipped.
+   * Rows are reconciled per scopeKey (a partial run only knows the truth about
+   * the scopeKeys it processed); files are reconciled by one directory-wide rule
+   * instead — see `pruneOrphanFiles`. Keeping them apart removes a cross-scope
+   * hazard: `scenes/` is a single directory for every scope, so a file must
+   * never be deleted on the strength of one scope's rows alone.
    */
-  private pruneStaleArtefacts(
-    scope: string,
-    scopeKey: string,
-    written: Set<string>,
-  ): { files: number; memories: number } {
-    const scenesDir = path.join(this.baseDir, 'scenes');
-    const prefix = safePathSegment(scopeKey);
-    let files = 0;
-
-    if (fs.existsSync(scenesDir)) {
-      // Match the exact name shape this class produces. A bare
-      // `startsWith(prefix + '_')` would also match a *different* scopeKey that
-      // happens to extend this one (`chat_A` vs `chat_A_2`) and delete its files.
-      const pattern = new RegExp(
-        `^${escapeRegExp(prefix)}_\\d{4}-\\d{2}-\\d{2}_\\d{4}-\\d{2}-\\d{2}\\.md$`,
-      );
-      for (const entry of fs.readdirSync(scenesDir)) {
-        if (!pattern.test(entry)) continue;
-        const refPath = `scenes/${entry}`;
-        if (written.has(refPath)) continue;
-        try {
-          fs.unlinkSync(path.join(scenesDir, entry));
-          files++;
-        } catch (err) {
-          this.logger?.warn(
-            { file: entry, err: err instanceof Error ? err.message : String(err) },
-            'Failed to remove stale scene file',
-          );
-        }
-      }
-    }
-
+  private pruneStaleRows(scope: string, scopeKey: string, written: Set<string>): number {
     let memories = 0;
     for (const row of this.memoryRepo.findByScopeAndKind(scope, scopeKey, 'scene')) {
       if (written.has(row.content)) continue;
@@ -376,31 +350,27 @@ export class SceneClusterer {
       // which a soft delete would leave pointing at the removed file.
       if (this.memoryRepo.delete(row.id)) memories++;
     }
-
-    if (files > 0 || memories > 0) {
-      this.logger?.debug(
-        { scopeKey, files, memories },
-        'Scene clustering pruned stale scene artefacts',
-      );
+    if (memories > 0) {
+      this.logger?.debug({ scopeKey, memories }, 'Scene clustering pruned stale scene rows');
     }
-
-    return { files, memories };
+    return memories;
   }
 
   /**
    * Delete scene files no active `scene-*` row points at any more.
    *
-   * Runs after the slice rather than instead of the per-scopeKey prune: a partial
-   * run leaves the rows — and therefore the files — of the scopeKeys it skipped
+   * The reference set spans **every scope** (`findByKind`), because `scenes/` is
+   * one directory shared by all of them: filtering the rows by the scope being
+   * clustered would classify the other scopes' documents as orphans and delete
+   * them. Runs after the slice rather than instead of the row prune — a partial
+   * run leaves the rows, and therefore the files, of the scopeKeys it skipped
    * untouched, so this can only remove genuinely unreferenced files.
    */
-  private pruneOrphanFiles(scope: string): number {
+  private pruneOrphanFiles(): number {
     const scenesDir = path.join(this.baseDir, 'scenes');
     if (!fs.existsSync(scenesDir)) return 0;
 
-    const referenced = new Set(
-      this.memoryRepo.findByScopeKind(scope, 'scene').map((row) => row.content),
-    );
+    const referenced = new Set(this.memoryRepo.findByKind('scene').map((row) => row.content));
     let removed = 0;
     for (const entry of fs.readdirSync(scenesDir)) {
       if (!SCENE_FILE_PATTERN.test(entry)) continue;
@@ -416,7 +386,7 @@ export class SceneClusterer {
       }
     }
     if (removed > 0) {
-      this.logger?.debug({ scope, removed }, 'Scene clustering pruned orphaned scene files');
+      this.logger?.debug({ removed }, 'Scene clustering pruned orphaned scene files');
     }
     return removed;
   }
@@ -546,8 +516,16 @@ export class SceneClusterer {
     // would repair until the window was rewritten. rename() inside one directory
     // is atomic, so a reader sees the old file or the new one, never half.
     const tmpPath = `${filePath}.tmp`;
-    fs.writeFileSync(tmpPath, cluster.content, 'utf-8');
-    fs.renameSync(tmpPath, filePath);
+    try {
+      fs.writeFileSync(tmpPath, cluster.content, 'utf-8');
+      fs.renameSync(tmpPath, filePath);
+    } catch (err) {
+      // A failed rename must not leave the temp file behind: `.tmp` is not a
+      // scene document (the orphan sweep would never touch it) and the next
+      // attempt writes its own.
+      fs.rmSync(tmpPath, { force: true });
+      throw err;
+    }
   }
 
   /**
@@ -599,10 +577,6 @@ function safePathSegment(input: string): string {
 function firstScopeKeyAfter(sorted: string[], after: string): number {
   const index = sorted.findIndex((key) => key > after);
   return index === -1 ? sorted.length : index;
-}
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function safeJoin(root: string, ...segments: string[]): string {

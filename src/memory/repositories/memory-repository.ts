@@ -197,6 +197,21 @@ export class MemoryRepository {
     return stmt.all(scope, kind) as Memory[];
   }
 
+  /**
+   * All memories of one kind across every scope.
+   *
+   * Needed by stores whose artefacts are *not* partitioned by scope — scene
+   * documents all live in one `scenes/` directory, so deciding whether a file is
+   * still referenced cannot be done scope by scope.
+   */
+  findByKind(kind: string, options?: { includeInactive?: boolean }): Memory[] {
+    const statusFilter = options?.includeInactive ? '' : "AND status = 'active'";
+    const stmt = this.db.prepare(
+      `SELECT * FROM memories WHERE kind = ? ${statusFilter} ORDER BY created_at DESC`,
+    );
+    return stmt.all(kind) as Memory[];
+  }
+
   searchByContent(
     query: string,
     scope?: string,
