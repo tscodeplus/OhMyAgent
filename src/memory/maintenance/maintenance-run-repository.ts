@@ -10,6 +10,8 @@ export interface MaintenanceRunRecord {
   started_at: string;
   finished_at: string | null;
   error: string | null;
+  /** Backlog resume point (see migration-v39). ', '0' = wrapped, null = never ran. */
+  cursor?: string | null;
   duration_ms?: number;
 }
 
@@ -46,6 +48,36 @@ export class MaintenanceRunRepository {
       .prepare('SELECT * FROM maintenance_runs WHERE job_name = ? ORDER BY started_at DESC LIMIT 1')
       .get(jobName) as MaintenanceRunRecord | undefined;
     return row ?? undefined;
+  }
+
+  /**
+   * Record how far a backlog-shaped phase got, so a later (or restarted) run can
+   * continue instead of re-sampling from scratch.
+   *
+   * Written on every batch rather than only at the end: a phase that is killed
+   * or times out never reaches its own clean-up code, and the whole point of the
+   * cursor is that such a run is resumable. `error` is deliberately untouched —
+   * a resume point is not a status.
+   */
+  setCursor(runId: string, cursor: string | null): void {
+    this.db.prepare('UPDATE maintenance_runs SET cursor = ? WHERE id = ?').run(cursor, runId);
+  }
+
+  /**
+   * Resume point from the most recent run of `jobName` that recorded one,
+   * excluding `excludeRunId` (the run that is starting now — its cursor is still
+   * null, and a crashed predecessor may still be marked 'running', so status is
+   * not consulted: re-doing a batch is safe, skipping one is not).
+   */
+  getLastCursor(jobName: string, excludeRunId?: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT cursor FROM maintenance_runs
+          WHERE job_name = ? AND cursor IS NOT NULL AND id <> COALESCE(?, '')
+          ORDER BY CAST(started_at AS INTEGER) DESC, rowid DESC LIMIT 1`,
+      )
+      .get(jobName, excludeRunId ?? null) as { cursor: string | null } | undefined;
+    return row?.cursor ?? null;
   }
 
   /** Last run across all job names sharing a prefix (e.g. `dreamcycle_`). */

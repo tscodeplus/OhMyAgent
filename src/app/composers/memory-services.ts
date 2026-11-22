@@ -368,6 +368,7 @@ export async function createMemoryServices(
         {
           windowDays: config.memory.sceneClustering.windowDays,
           minMemories: config.memory.sceneClustering.minMemories,
+          maxFileBytes: config.memory.sceneClustering.maxFileBytes,
         },
         logger,
       )

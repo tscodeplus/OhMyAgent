@@ -6,11 +6,24 @@
  * day (default 2:00 AM in the system local timezone).
  *
  * Phases (sequential, failure in one does not block the next):
- *   1. synthesize     — batch-merge highly similar memory pairs via vector KNN + LLM
- *   2. sceneCluster   — scene clustering (delegates to SceneClusterer)
+ *   1. embed          — fill missing embeddings (health first: the vector lane
+ *                       underlies recall, so it must never be starved by a slow
+ *                       consolidation phase)
+ *   2. purge          — evict stale embedding cache entries
  *   3. hygiene        — expire old memories (delegates to MemoryHygiene)
- *   4. embed          — fill missing embeddings
- *   5. purge          — evict stale embedding cache entries
+ *   4. synthesize     — batch-merge highly similar memory pairs via vector KNN + LLM
+ *   5. sceneCluster   — scene clustering (delegates to SceneClusterer)
+ *
+ * Order rationale: maintenance phases are cheap and bounded, consolidation
+ * phases make LLM calls and are the ones that run long. Ordering health before
+ * consolidation means a night that only half-finishes still leaves retrieval in
+ * a good state (TDAM v2.0.4: a slow consolidation must not block extraction).
+ *
+ * ## Phase timeouts are enforced, not advisory
+ * `phaseTimeoutMs` races the phase promise, so a hung phase is abandoned and
+ * the run continues. An `AbortController` alone is not enough: phases only poll
+ * `signal.aborted` between items, and `SceneClusterer.cluster()` ignores the
+ * signal entirely.
  *
  * ## Grace window
  * If DreamCycle fires more than `windowGraceMinutes` past the scheduled
@@ -35,6 +48,7 @@ import type { MemoryRepository } from './repositories/memory-repository.js';
 import type { EmbeddingRepository } from './repositories/embedding-repository.js';
 import type { EmbeddingClient } from '../provider/embedding-client.js';
 import type { MemoryHygiene } from './memory-hygiene.js';
+import type { MemoryWriter } from './memory-writer.js';
 import type { SceneClusterer } from './scene-cluster.js';
 import type { MaintenanceRunRepository } from './maintenance/maintenance-run-repository.js';
 import { mergeMemory, appendMemoryDispute } from './memory-merge.js';
@@ -51,11 +65,14 @@ import { parseEpochMs } from '../shared/timestamp.js';
  * had a runner, so they showed "never ran" forever.
  */
 export const DREAMCYCLE_PHASE_NAMES = [
-  'synthesize',
-  'sceneCluster',
-  'hygiene',
+  // Cheap, bounded, and directly protective of recall — always run first so a
+  // slow consolidation phase cannot starve them (see the order rationale in the
+  // file header).
   'embed',
   'purge',
+  'hygiene',
+  'synthesize',
+  'sceneCluster',
 ] as const;
 
 export type DreamCyclePhaseName = (typeof DREAMCYCLE_PHASE_NAMES)[number];
@@ -92,6 +109,13 @@ interface PhaseResult {
   error?: string;
 }
 
+/** What a phase needs to persist its own progress (the cursor lives on its own
+ * `maintenance_runs` row, which `runAll` creates before the phase starts). */
+interface PhaseContext {
+  runId: string;
+  jobName: string;
+}
+
 // ── DreamCycle ───────────────────────────────────────────────────────────
 
 export class DreamCycle {
@@ -110,6 +134,13 @@ export class DreamCycle {
     private sceneClusterer: SceneClusterer | undefined,
     private mergeConfig: MergeConfig,
     private logger: Logger,
+    /**
+     * Optional: the shared writer, used to refresh derived data after a merge
+     * (vectors + terms). Appended after `logger` so the existing positional
+     * call sites stay valid; without it the merge path falls back to dropping
+     * the stale vector so the backfill queue re-embeds the row.
+     */
+    private memoryWriter?: MemoryWriter,
   ) {}
 
   // ── Lifecycle ────────────────────────────────────────────────────────
@@ -272,9 +303,9 @@ export class DreamCycle {
 
       const runners: Record<
         DreamCyclePhaseName,
-        { heavy: boolean; fn: (signal: AbortSignal) => Promise<number> }
+        { heavy: boolean; fn: (signal: AbortSignal, ctx: PhaseContext) => Promise<number> }
       > = {
-        synthesize: { heavy: true, fn: (s) => this.synthesize(s) },
+        synthesize: { heavy: true, fn: (s, ctx) => this.synthesize(s, ctx) },
         sceneCluster: { heavy: true, fn: (s) => this.sceneCluster(s) },
         hygiene: { heavy: false, fn: async (s) => this.hygiene(s) },
         embed: { heavy: true, fn: (s) => this.embed(s) },
@@ -309,16 +340,44 @@ export class DreamCycle {
 
         const start = Date.now();
         const controller = new AbortController();
-        const timeoutId = setTimeout(
-          () =>
-            controller.abort(
-              new Error(`Phase "${phase.name}" timed out after ${this.config.phaseTimeoutMs}ms`),
-            ),
-          this.config.phaseTimeoutMs,
-        );
+        let timedOut = false;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
+        // The abort is advisory: phases poll `signal.aborted` between items and
+        // `SceneClusterer.cluster()` ignores the signal, so on its own a hung
+        // phase leaves `runAll` pending forever. `scheduleNext()` is called from
+        // the finally of the run that armed the timer, so "pending forever"
+        // means the nightly cycle never re-arms — hence the reject + race.
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timer = setTimeout(() => {
+            timedOut = true;
+            const err = new Error(
+              `Phase "${phase.name}" timed out after ${this.config.phaseTimeoutMs}ms`,
+            );
+            controller.abort(err);
+            reject(err);
+          }, this.config.phaseTimeoutMs);
+          timer.unref();
+          timeoutId = timer;
+        });
+
+        // The abandoned run keeps going after the timeout wins the race. Its
+        // late settlement must not become an unhandled rejection (the gateway
+        // shuts down on those), so it is handled here and logged at debug.
+        const guardedRun = (signal: AbortSignal, ctx: PhaseContext) =>
+          phase.fn(signal, ctx).catch((err: unknown) => {
+            if (!timedOut) throw err;
+            this.logger.debug(
+              { phase: phase.name, err: err instanceof Error ? err.message : String(err) },
+              'DreamCycle phase rejected after its timeout — ignored',
+            );
+            return -1;
+          });
         try {
-          const affectedRows = await phase.fn(controller.signal);
+          const affectedRows = await Promise.race([
+            guardedRun(controller.signal, { runId, jobName }),
+            timeoutPromise,
+          ]);
           const durationMs = Date.now() - start;
           this.runRepo.finishRun(runId, affectedRows);
           results.push({ phase: phase.name, durationMs, affectedRows });
@@ -351,29 +410,48 @@ export class DreamCycle {
     }
   }
 
-  // ── Phase 1: Synthesize (merge highly similar memories) ──────────────
+  // ── Phase 4: Synthesize (merge highly similar memories) ──────────────
 
-  private async synthesize(signal: AbortSignal): Promise<number> {
+  private async synthesize(signal: AbortSignal, ctx: PhaseContext): Promise<number> {
     const batchSize = this.config.synthesizeBatchSize;
 
-    // Pick random active memories that have embeddings
-    const candidates = this.db
-      .prepare(
-        `SELECT m.id, m.content, m.kind, m.scope, m.scope_key, m.created_at
-         FROM memories m
-         WHERE m.status = 'active'
-           AND EXISTS (SELECT 1 FROM memory_embeddings me WHERE me.memory_id = m.id)
-         ORDER BY RANDOM()
-         LIMIT ?`,
-      )
-      .all(batchSize) as Array<{
-      id: string;
-      content: string;
-      kind: string;
-      scope: string;
-      scope_key: string;
-      created_at: string;
-    }>;
+    // Continue after the rowid the previous run stopped at instead of sampling
+    // the whole table at random: random batches never converge on a backlog
+    // (the tail can go unvisited indefinitely) and cannot resume after a
+    // timeout. `'0'` means the previous run reached the end and wrapped.
+    const previousCursor = Number(this.runRepo.getLastCursor(ctx.jobName, ctx.runId) ?? 0) || 0;
+
+    const selectBatch = (afterRowId: number, limit: number) =>
+      this.db
+        .prepare(
+          `SELECT m.rowid AS row_id, m.id, m.content, m.kind, m.scope, m.scope_key, m.created_at
+             FROM memories m
+            WHERE m.status = 'active'
+              AND m.rowid > ?
+              AND EXISTS (SELECT 1 FROM memory_embeddings me WHERE me.memory_id = m.id)
+            ORDER BY m.rowid ASC
+            LIMIT ?`,
+        )
+        .all(afterRowId, limit) as Array<{
+        row_id: number;
+        id: string;
+        content: string;
+        kind: string;
+        scope: string;
+        scope_key: string;
+        created_at: string;
+      }>;
+
+    let candidates = selectBatch(previousCursor, batchSize);
+    const wrapped = candidates.length === 0 && previousCursor > 0;
+    if (wrapped) {
+      // Past the tail — start the next sweep from the head.
+      candidates = selectBatch(0, batchSize);
+    }
+
+    // A short batch means this sweep reached the end of the table; the next run
+    // then wraps to the head instead of continuing from `previousCursor`.
+    const reachedTail = wrapped || candidates.length < batchSize;
 
     if (candidates.length === 0) {
       this.logger.debug('DreamCycle synthesize: no memories with embeddings to process');
@@ -383,9 +461,16 @@ export class DreamCycle {
     // Track which pairs we've already processed (avoid A↔B then B↔A)
     const processed = new Set<string>();
     let mergedCount = 0;
+    let examined = 0;
 
     for (const memory of candidates) {
       if (signal.aborted) break;
+
+      examined++;
+      // Advance the resume point as each row is examined, not at the end: an
+      // aborted phase never reaches its own tail, and a batch examined twice is
+      // wasted LLM work.
+      this.runRepo.setCursor(ctx.runId, String(memory.row_id));
 
       // Get the embedding for this memory
       const emb = this.embeddingRepo.findByMemoryId(memory.id);
@@ -450,6 +535,23 @@ export class DreamCycle {
             content: result.mergedContent,
           });
 
+          // Content changed → derived data has to follow, exactly as the
+          // writer's merge path does (`MemoryWriter.refreshDerivedData`). The
+          // FTS lane is kept current by `memoryRepository.update`, but vectors
+          // and terms are not, and nothing downstream re-derives them: the
+          // `embed` phase and `embedding_backfill` only fill rows with NO
+          // embedding (`me.id IS NULL`). A stale vector would therefore survive
+          // forever and every later dedup/merge would compare the row against
+          // its pre-merge text.
+          if (this.memoryWriter) {
+            await this.memoryWriter.refreshDerivedData(existing.id, result.mergedContent);
+          } else {
+            // Minimal wiring (tests, or a deployment without the writer): drop
+            // the wrong vector so the backfill queue re-embeds the row instead
+            // of keeping it.
+            this.embeddingRepo.deleteByMemoryId(existing.id);
+          }
+
           // Soft-delete the newer memory (superseded by the merged one)
           const superseded = isNewer ? anchorMem : neighborMem;
           this.memoryRepo.softDelete(superseded.id);
@@ -473,10 +575,16 @@ export class DreamCycle {
       }
     }
 
+    // A completed sweep that reached the tail restarts from the head next time;
+    // an aborted one keeps the row it got to so the next run resumes there.
+    if (reachedTail && examined === candidates.length) {
+      this.runRepo.setCursor(ctx.runId, '0');
+    }
+
     return mergedCount;
   }
 
-  // ── Phase 2: Scene Clustering ────────────────────────────────────────
+  // ── Phase 5: Scene Clustering ────────────────────────────────────────
 
   private async sceneCluster(signal: AbortSignal): Promise<number> {
     if (!this.sceneClusterer) {
@@ -505,7 +613,7 @@ export class DreamCycle {
     return report.cleanedCount;
   }
 
-  // ── Phase 4: Embed ───────────────────────────────────────────────────
+  // ── Phase 1: Embed (health first) ───────────────────────────────────────────────────
 
   private async embed(signal: AbortSignal): Promise<number> {
     const rows = this.db
@@ -540,7 +648,7 @@ export class DreamCycle {
     return count;
   }
 
-  // ── Phase 5: Purge ───────────────────────────────────────────────────
+  // ── Phase 2: Purge ───────────────────────────────────────────────────
 
   private purge(_signal: AbortSignal): number {
     const maxEntries = 10000;

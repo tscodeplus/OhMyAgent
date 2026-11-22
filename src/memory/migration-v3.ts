@@ -68,6 +68,10 @@ export function runV3Migrations(db: Database.Database): V3MigrationResult {
   `);
 
   // Maintenance runs table
+  // `cursor` is declared here as well as in schema.ts: this statement runs BEFORE
+  // applySchema on a fresh database, so `CREATE TABLE IF NOT EXISTS` in schema.ts
+  // is a no-op and whatever is missing here is missing forever (that is exactly
+  // how maintenance_runs.cursor ended up absent on fresh installs before v39).
   db.exec(`
     CREATE TABLE IF NOT EXISTS maintenance_runs (
       id TEXT PRIMARY KEY,
@@ -77,7 +81,8 @@ export function runV3Migrations(db: Database.Database): V3MigrationResult {
       affected_rows INTEGER NOT NULL DEFAULT 0,
       started_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
       finished_at TEXT,
-      error TEXT
+      error TEXT,
+      cursor TEXT
     )
   `);
   db.exec(

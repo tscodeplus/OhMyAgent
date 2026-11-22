@@ -619,6 +619,10 @@ const configSchema = z.object({
         enabled: z.boolean().default(false),
         windowDays: z.coerce.number().int().positive().default(7),
         minMemories: z.coerce.number().int().positive().default(5),
+        // Per-scene-document byte ceiling (TDAM v2.0.4 pattern). A scene file is
+        // the flattened text of every memory in its window, so it grows with the
+        // conversation; 0 = unlimited, matching the `recall.maxChars*` 0 semantics.
+        maxFileBytes: z.coerce.number().int().nonnegative().default(262_144),
       })
       .default({}),
     maintenance: z

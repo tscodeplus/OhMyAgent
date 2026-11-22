@@ -846,18 +846,18 @@ export class MemoryRetriever {
 
     // 1. Query expansion: remove stopwords, build FTS5 query
     const expanded = expandQuery(options.query);
-
-    // 2. FTS5 search (replaces LIKE)
     const textScope = options.textScope ?? options.scope;
-    let ftsResults: FtsSearchResult[] = [];
-    if (expanded.ftsQuery) {
-      ftsResults = ftsSearch(
-        this.db,
-        expanded.ftsQuery,
-        this.prefilterLimit(topK),
-        textScope,
-        options.scopeKey,
-      );
+    const limit = this.prefilterLimit(topK);
+
+    // 2. Same lane order as `ftsSearchWrapper`: jieba FTS → legacy FTS → LIKE.
+    //    The degraded path used to start at the legacy (unicode61) index, so a
+    //    breaker-open or embedding-less deployment lost jieba segmentation
+    //    exactly where it matters most — Chinese recall with no vector lane to
+    //    compensate. `ftsSearchJieba` already falls back to `ftsSearch` when
+    //    jieba is unavailable, so this only ever adds recall.
+    let ftsResults = ftsSearchJieba(this.db, options.query, limit, textScope, options.scopeKey);
+    if (ftsResults.length === 0 && expanded.ftsQuery) {
+      ftsResults = ftsSearch(this.db, expanded.ftsQuery, limit, textScope, options.scopeKey);
     }
 
     // 3. FTS5 no results → fallback to LIKE

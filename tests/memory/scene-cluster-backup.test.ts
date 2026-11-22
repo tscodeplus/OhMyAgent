@@ -67,6 +67,19 @@ describe('SceneClusterer fail-soft backup', () => {
     expect(fs.existsSync(path.join(baseDir, 'scenes.bak'))).toBe(false);
   });
 
+  it('drops the snapshot on a second successful run too', () => {
+    // The first run cannot create a snapshot (there is no scenes/ to copy yet),
+    // so a leak only becomes visible from the second run onwards — and a leaked
+    // snapshot is a full duplicate of scenes/ sitting on disk forever.
+    for (let i = 0; i < 6; i++) insertMemory('key-a', '2026-01-01 10:00:00');
+    clusterer.cluster('user', 7, 5);
+    for (let i = 0; i < 6; i++) insertMemory('key-b', '2026-01-02 10:00:00');
+    clusterer.cluster('user', 7, 5);
+
+    expect(fs.existsSync(path.join(baseDir, 'scenes'))).toBe(true);
+    expect(fs.existsSync(path.join(baseDir, 'scenes.bak'))).toBe(false);
+  });
+
   it('restores the previous scenes snapshot when persistence throws mid-run', () => {
     // First successful run establishes the on-disk baseline.
     for (let i = 0; i < 6; i++) {

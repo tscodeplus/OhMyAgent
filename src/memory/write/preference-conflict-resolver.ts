@@ -13,20 +13,7 @@
 
 import type { MemoryRepository } from '../repositories/memory-repository.js';
 import { matchesMemoryAccess } from '../memory-access-policy.js';
-
-/** Parse a DB timestamp string (epoch ms or ISO) into a numeric value for comparison. */
-function dbTimestampMs(value: string): number {
-  if (!value) return 0;
-  if (/^\d+$/.test(value)) {
-    const ms = Number(value);
-    return Number.isFinite(ms) ? ms : 0;
-  }
-  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)
-    ? `${value.replace(' ', 'T')}Z`
-    : value;
-  const ms = Date.parse(normalized);
-  return Number.isFinite(ms) ? ms : 0;
-}
+import { parseEpochMs } from '../../shared/timestamp.js';
 
 export interface ConflictResolution {
   winnerId: string;
@@ -111,7 +98,11 @@ export class PreferenceConflictResolver {
     if (!newMemory) return { winnerId: newId, supersededIds: [], topic };
 
     const candidates = [...sameTopic, newMemory].sort((a, b) => {
-      const byUpdatedAt = dbTimestampMs(b.updated_at) - dbTimestampMs(a.updated_at);
+      // `updated_at` is TEXT: epoch-ms digits for schema-written rows, ISO for
+      // application writes. `parseEpochMs` is the one parser that understands
+      // every shape the column has held, so a future format cannot silently
+      // compare as "unknown" (0) and collapse the ordering.
+      const byUpdatedAt = parseEpochMs(b.updated_at) - parseEpochMs(a.updated_at);
       if (byUpdatedAt !== 0) return byUpdatedAt;
       if (a.id === newId) return -1;
       if (b.id === newId) return 1;

@@ -33,13 +33,30 @@ const KIND_NAME_MAP: Record<string, string> = {
 
 const KIND_ORDER = ['preference', 'fact', 'task', 'device_state', 'summary'];
 
+/**
+ * Default ceiling for one scene document (256KB), mirroring TDAM v2.0.4's
+ * per-scene-file limit.
+ *
+ * A scene file is the flattened text of every memory in its window, so its size
+ * is `rows × average memory length` — unbounded in both directions. The 256KB
+ * default is a *file* budget, not a truncation of any single memory: entries are
+ * dropped from the tail (oldest last) and the drop count is written into the
+ * document, so a reader can tell a short scene from a clipped one.
+ */
+export const DEFAULT_MAX_FILE_BYTES = 256 * 1024;
+
 export class SceneClusterer {
+  /** Per-file byte budget. `0` = unlimited (matches the `recall.maxChars*` 0 semantics). */
+  private readonly maxFileBytes: number;
+
   constructor(
     private memoryRepo: MemoryRepository,
     private baseDir: string,
-    private defaults: { windowDays?: number; minMemories?: number } = {},
+    private defaults: { windowDays?: number; minMemories?: number; maxFileBytes?: number } = {},
     private logger?: Pick<Logger, 'debug' | 'info' | 'warn'>,
-  ) {}
+  ) {
+    this.maxFileBytes = defaults.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+  }
 
   /**
    * 对指定 scope 的记忆按 scopeKey + 时间窗口进行聚类。
@@ -87,6 +104,13 @@ export class SceneClusterer {
       );
       throw err instanceof Error ? err : new Error(String(err));
     }
+
+    // A successful run must drop the snapshot: on the second and every later run
+    // the backup exists (the first run has no scenes/ to copy), so leaving it
+    // behind parks a full duplicate of scenes/ on disk forever — the next run
+    // only replaces it. The existing backup test only exercised the first run,
+    // where the backup is a no-op, which is why the leak was invisible.
+    this.discardBackup(backupDir);
 
     if (results.length > 0) {
       this.logger?.info(
@@ -168,6 +192,11 @@ export class SceneClusterer {
     fs.cpSync(scenesDir, backupDir, { recursive: true });
   }
 
+  /** Drop the snapshot after a successful run — see the call site in `cluster()`. */
+  private discardBackup(backupDir: string): void {
+    fs.rmSync(backupDir, { recursive: true, force: true });
+  }
+
   /** Replace the scenes directory with the backup snapshot (idempotent). */
   private restoreScenesDir(backupDir: string): void {
     if (!fs.existsSync(backupDir)) return;
@@ -231,16 +260,50 @@ export class SceneClusterer {
     lines.push(`记忆数: ${sorted.length}`);
     lines.push('');
 
+    // Bytes are counted as the document is built (not after the fact) so the
+    // dropped-entry marker itself fits inside the budget.
+    const reserve = 128;
+    const fits = (extra: number) =>
+      this.maxFileBytes <= 0 || usedBytes + extra <= this.maxFileBytes - reserve;
+    let usedBytes = Buffer.byteLength(lines.join('\n'), 'utf-8');
+    let dropped = 0;
+
     for (const kind of KIND_ORDER) {
       const memoriesOfKind = grouped.get(kind);
       if (!memoriesOfKind || memoriesOfKind.length === 0) continue;
 
       const kindName = KIND_NAME_MAP[kind] ?? kind;
-      lines.push(`## ${kindName}`);
-      for (const mem of memoriesOfKind) {
-        lines.push(`- ${mem.content}`);
+      const heading = `## ${kindName}`;
+      const headingBytes = Buffer.byteLength(heading + '\n', 'utf-8');
+      if (!fits(headingBytes)) {
+        // No room even for the heading: every entry of this kind is dropped.
+        dropped += memoriesOfKind.length;
+        continue;
+      }
+      lines.push(heading);
+      usedBytes += headingBytes;
+
+      for (let i = 0; i < memoriesOfKind.length; i++) {
+        const line = `- ${memoriesOfKind[i].content}`;
+        const lineBytes = Buffer.byteLength(line + '\n', 'utf-8');
+        // Byte budget, not char budget: the thing being capped is the file.
+        if (!fits(lineBytes)) {
+          // This entry and every later one of this kind are dropped, and so is
+          // everything after it (the kinds that follow would only be larger).
+          dropped += memoriesOfKind.length - i;
+          for (const laterKind of KIND_ORDER.slice(KIND_ORDER.indexOf(kind) + 1)) {
+            dropped += grouped.get(laterKind)?.length ?? 0;
+          }
+          if (dropped > 0) {
+            lines.push(`（已截断 ${dropped} 条：超出单文件上限 ${this.maxFileBytes} 字节）`);
+          }
+          return lines.join('\n');
+        }
+        lines.push(line);
+        usedBytes += lineBytes;
       }
       lines.push('');
+      usedBytes += 1;
     }
 
     return lines.join('\n');
@@ -256,6 +319,11 @@ export class SceneClusterer {
       fs.mkdirSync(scenesDir, { recursive: true });
     }
     const filePath = safeJoin(this.baseDir, cluster.refPath);
+    // No separate "may only shrink" guard here: `generateMarkdown` already bounds
+    // the content by the same ceiling, so a file that is over the limit can only
+    // be rewritten smaller or equal — growing it past the ceiling is not
+    // reachable through this path. (TDAM v2.0.4 needs the extra rule because its
+    // scene blocks are written by more than one producer.)
     fs.writeFileSync(filePath, cluster.content, 'utf-8');
   }
 

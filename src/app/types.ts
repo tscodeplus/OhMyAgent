@@ -275,6 +275,8 @@ export interface AppConfig {
       enabled: boolean;
       windowDays: number;
       minMemories: number;
+      /** Per-scene-document byte ceiling; 0 = unlimited. */
+      maxFileBytes: number;
     };
     /**
      * Provenance backfill (`provenance_backfill`). Inner keys are snake_case on

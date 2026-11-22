@@ -212,6 +212,9 @@ export function createSchedulers(input: {
     memory.sceneClusterer,
     mergeConfig,
     logger,
+    // Lets the synthesize phase refresh vectors/terms after a merge instead of
+    // leaving the row scored against its pre-merge text.
+    memory.memoryWriter,
   );
 
   const cronStore = new CronStore(config.cron.dataDir);

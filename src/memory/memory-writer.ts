@@ -563,7 +563,13 @@ export class MemoryWriter {
    * both term and vector retrieval rank the row against stale data. Best-effort:
    * the row's content is already persisted; failure here only degrades recall.
    */
-  private async refreshDerivedData(memoryId: string, newContent: string): Promise<void> {
+  /**
+   * Re-derive everything that depends on a memory's text: `memory_terms` and
+   * the vector. Public because the nightly DreamCycle merge path owns the same
+   * invariant (a merged row must not be scored against its pre-merge text) and
+   * duplicating it there is how the two paths drifted apart before.
+   */
+  async refreshDerivedData(memoryId: string, newContent: string): Promise<void> {
     try {
       this.memoryTermRepo?.replaceForMemory(memoryId, extractMemoryTerms(newContent));
     } catch (err) {

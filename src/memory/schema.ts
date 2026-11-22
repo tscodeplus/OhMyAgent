@@ -225,7 +225,10 @@ CREATE TABLE IF NOT EXISTS maintenance_runs (
   affected_rows INTEGER NOT NULL DEFAULT 0,
   started_at TEXT NOT NULL DEFAULT (cast(strftime('%s','now') as integer) * 1000),
   finished_at TEXT,
-  error TEXT
+  error TEXT,
+  -- Where a backlog-shaped phase got to (memories.rowid it last examined);
+  -- '0' = wrapped back to the head, NULL = never ran. See migration-v39.
+  cursor TEXT
 )`;
 
 const DDL_MEMORY_OBSERVATION_EVENTS = `

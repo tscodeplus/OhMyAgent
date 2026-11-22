@@ -23,6 +23,7 @@ import { migrateV35 } from './migration-v35.js';
 import { migrateV36 } from './migration-v36.js';
 import { migrateV37 } from './migration-v37.js';
 import { migrateV38 } from './migration-v38.js';
+import { migrateV39 } from './migration-v39.js';
 import { attachMemoryObservabilityDb } from './observability.js';
 import { createLogger } from '../app/logger.js';
 import fs from 'fs';
@@ -284,6 +285,20 @@ export function openDatabase(dbPath: string): Database.Database {
   // many messages its budget dropped. `session` mode is the first window that can
   // lose material, and a loss the review card cannot see is a loss nobody audits.
   migrateV34(db);
+
+  // v39: maintenance_runs.cursor, the resume point for backlog-shaped phases
+  // (DreamCycle.synthesize). Runs AFTER applySchema and after V3 because those
+  // create the table: on a fresh database V3 owns the CREATE TABLE, so an
+  // additive ALTER is the only shape that works for both fresh and existing
+  // installs (see the module docstring).
+  try {
+    const v39Result = migrateV39(db);
+    if (v39Result.added.length > 0) {
+      logger.info(`[V39] Maintenance runs migration: added columns: ${v39Result.added.join(', ')}`);
+    }
+  } catch (err) {
+    logger.warn({ err }, '[V39] maintenance_runs.cursor migration failed — continuing');
+  }
 
   // v35: the summary a cold session resumes from. Compression summaries used to
   // live only in memory, so a restarted (or evicted) session fell back to raw
