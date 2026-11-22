@@ -19,7 +19,7 @@ import type Database from 'better-sqlite3';
 import { DEGRADATION_EVENT_SQL } from '../observability.js';
 
 export interface PipelineMetrics {
-  /** Layer record counts (same L0–L3 mapping as MemoryPipeline). */
+  /** Layer record counts (the L0–L3 mapping documented in `webui/memory-routes.ts`). */
   layers: {
     /** Raw sessions. */
     sessions: number;

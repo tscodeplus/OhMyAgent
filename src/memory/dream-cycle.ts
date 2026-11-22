@@ -21,9 +21,17 @@
  *
  * ## Phase timeouts are enforced, not advisory
  * `phaseTimeoutMs` races the phase promise, so a hung phase is abandoned and
- * the run continues. An `AbortController` alone is not enough: phases only poll
- * `signal.aborted` between items, and `SceneClusterer.cluster()` ignores the
- * signal entirely.
+ * the run continues. An `AbortController` alone is not enough on its own: a
+ * phase is only cancellable where it polls `signal.aborted`, which is why both
+ * the synthesize loop and `SceneClusterer.clusterBatch()` take the signal and
+ * check it between items.
+ *
+ * ## Resumable consolidation
+ * The two consolidation phases persist a resume cursor on their own
+ * `maintenance_runs` row, so each night advances a bounded slice of the backlog
+ * (`synthesizeBatchSize` memories, `sceneClusterBatchSize` scopeKeys) and
+ * continues where the previous night stopped — instead of redoing the head of
+ * the backlog every night and never reaching the tail.
  *
  * ## Grace window
  * If DreamCycle fires more than `windowGraceMinutes` past the scheduled
@@ -94,6 +102,8 @@ export interface DreamCycleConfig {
   phaseTimeoutMs: number;
   /** Max memory pairs to merge per synthesize phase. */
   synthesizeBatchSize: number;
+  /** Max scopeKeys to cluster per sceneCluster phase (0 = all). */
+  sceneClusterBatchSize: number;
   /** On startup, run a catch-up cycle if the last run is older than 24h
    * (covers dev machines / Termux devices that are off at the nightly fire
    * time; without catch-up the cycle can be missed forever). Default true. */
@@ -306,7 +316,7 @@ export class DreamCycle {
         { heavy: boolean; fn: (signal: AbortSignal, ctx: PhaseContext) => Promise<number> }
       > = {
         synthesize: { heavy: true, fn: (s, ctx) => this.synthesize(s, ctx) },
-        sceneCluster: { heavy: true, fn: (s) => this.sceneCluster(s) },
+        sceneCluster: { heavy: true, fn: (s, ctx) => this.sceneCluster(s, ctx) },
         hygiene: { heavy: false, fn: async (s) => this.hygiene(s) },
         embed: { heavy: true, fn: (s) => this.embed(s) },
         purge: { heavy: false, fn: async (s) => this.purge(s) },
@@ -343,11 +353,11 @@ export class DreamCycle {
         let timedOut = false;
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-        // The abort is advisory: phases poll `signal.aborted` between items and
-        // `SceneClusterer.cluster()` ignores the signal, so on its own a hung
-        // phase leaves `runAll` pending forever. `scheduleNext()` is called from
-        // the finally of the run that armed the timer, so "pending forever"
-        // means the nightly cycle never re-arms — hence the reject + race.
+        // The abort is advisory in the sense that each phase decides where it
+        // polls `signal.aborted`; the race below is what guarantees the run
+        // itself cannot hang. `scheduleNext()` is called from the finally of the
+        // run that armed the timer, so "pending forever" would mean the nightly
+        // cycle never re-arms.
         const timeoutPromise = new Promise<never>((_, reject) => {
           const timer = setTimeout(() => {
             timedOut = true;
@@ -586,21 +596,54 @@ export class DreamCycle {
 
   // ── Phase 5: Scene Clustering ────────────────────────────────────────
 
-  private async sceneCluster(signal: AbortSignal): Promise<number> {
+  /**
+   * Cluster the user's memories into scene documents — one bounded slice of
+   * scopeKeys per night, resumable via this phase's own cursor.
+   *
+   * The batch cap is what makes the phase fit inside `phaseTimeoutMs` on a large
+   * backlog, and the cursor is what makes a capped run progress instead of
+   * re-clustering the same head every night. A slice that reaches the tail of
+   * the scopeKey list resets the cursor, so the next night starts from the head
+   * again (the scenes are a rolling view, not an append-only log).
+   */
+  private async sceneCluster(signal: AbortSignal, ctx: PhaseContext): Promise<number> {
     if (!this.sceneClusterer) {
       this.logger.debug('DreamCycle: SceneClusterer not available, skipping');
       return 0;
     }
 
-    try {
-      const clusters = await this.sceneClusterer.cluster();
-      if (signal.aborted) return 0;
-      return clusters.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.logger.info({ err: msg }, 'DreamCycle sceneCluster failed');
-      throw err;
+    const cursor = this.runRepo.getLastCursor(ctx.jobName, ctx.runId) ?? '';
+    const summary = this.sceneClusterer.clusterBatch({
+      signal,
+      afterScopeKey: cursor || undefined,
+      maxScopeKeys: this.config.sceneClusterBatchSize,
+      // Persisted per committed scopeKey, not once at the end: an aborted or
+      // timed-out phase never reaches its own tail, and re-clustering committed
+      // scopeKeys is wasted work (the phase timeout abandons the promise but the
+      // run keeps going long enough to write the rows).
+      onScopeKeyDone: (scopeKey) => this.runRepo.setCursor(ctx.runId, scopeKey),
+    });
+
+    for (const { scopeKey, message } of summary.errors) {
+      this.logger.info({ scopeKey, err: message }, 'DreamCycle sceneCluster scopeKey failed');
     }
+
+    if (signal.aborted) {
+      // Keep the cursor where the last committed scopeKey left it.
+      return summary.clusters.length;
+    }
+
+    if (summary.reachedEnd) {
+      this.runRepo.setCursor(ctx.runId, '');
+    }
+
+    if (summary.clusters.length === 0 && summary.errors.length > 0) {
+      // Nothing committed and something broke: surface it so the phase row is
+      // marked failed instead of reporting a quiet zero-row success.
+      throw new Error(summary.errors[0].message);
+    }
+
+    return summary.clusters.length;
   }
 
   // ── Phase 3: Hygiene ─────────────────────────────────────────────────

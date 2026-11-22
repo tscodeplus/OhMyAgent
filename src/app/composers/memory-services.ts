@@ -18,8 +18,6 @@ import type { RecallConfig } from '../../memory/memory-retriever.js';
 import { MemoryWriter } from '../../memory/memory-writer.js';
 import { MemoryHygiene } from '../../memory/memory-hygiene.js';
 import { MemorySummarizer } from '../../memory/memory-summarizer.js';
-import { MemoryPipeline } from '../../memory/memory-pipeline.js';
-import type { MemoryPipeline as MemoryPipelineType } from '../../memory/memory-pipeline.js';
 import { MemoryDoctor } from '../../memory/maintenance/memory-doctor.js';
 import { SessionRepository } from '../../memory/repositories/session-repository.js';
 import { MessageRepository } from '../../memory/repositories/message-repository.js';
@@ -56,7 +54,6 @@ export interface MemoryServices {
   memoryWriter: MemoryWriter;
   memoryHygiene: MemoryHygiene;
   memorySummarizer: MemorySummarizer;
-  memoryPipeline: MemoryPipelineType;
   memoryDoctor: MemoryDoctor;
   sessionRepository: SessionRepository;
   messageRepository: MessageRepository;
@@ -535,18 +532,6 @@ export async function createMemoryServices(
 
   const memoryDoctor = new MemoryDoctor(db, memoryRepository, personaStore, personaDistiller);
 
-  // Explicit L0→L3 pipeline entry point (TDAM 4-tier model). DreamCycle remains
-  // the nightly scheduler; MemoryPipeline is the on-demand run/status surface.
-  const memoryPipeline = new MemoryPipeline({
-    memoryRepository,
-    memoryWriter,
-    memorySummarizer,
-    sceneClusterer,
-    personaDistiller,
-    memoryHygiene,
-    logger,
-  });
-
   return {
     database: db,
     embeddingClient,
@@ -558,7 +543,6 @@ export async function createMemoryServices(
     memoryWriter,
     memoryHygiene,
     memorySummarizer,
-    memoryPipeline,
     memoryDoctor,
     sessionRepository,
     messageRepository,

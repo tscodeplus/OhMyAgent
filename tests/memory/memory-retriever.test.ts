@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MemoryRetriever, DEFAULT_RECALL_CONFIG } from '../../src/memory/memory-retriever.js';
-import { textFallbackRetrieve } from '../../src/memory/fallback-retriever.js';
 import type { Memory } from '../../src/memory/repositories/memory-repository.js';
 import type { RetrievedMemory } from '../../src/memory/memory-retriever.js';
 
@@ -788,76 +787,6 @@ describe('MemoryRetriever', () => {
 
       expect(factResults.map((r) => r.id)).toEqual(['mem-fact']);
       expect(preferenceResults.map((r) => r.id)).toEqual(['mem-pref']);
-    });
-  });
-});
-
-// ─── textFallbackRetrieve Tests ───
-
-describe('textFallbackRetrieve', () => {
-  it('returns memories with default score', async () => {
-    const memory = createMockMemory();
-    const memoryRepo = {
-      searchByContent: vi.fn(() => [memory]),
-    };
-
-    const results = await textFallbackRetrieve(memoryRepo as any, 'test', 3);
-    expect(results).toHaveLength(1);
-    expect(results[0].score).toBe(0.5);
-    expect(results[0].content).toBe('User prefers dark mode');
-  });
-
-  it('limits results to topK', async () => {
-    const memories = Array.from({ length: 5 }, (_, i) =>
-      createMockMemory({ id: `mem-${i}`, content: `Content ${i}` }),
-    );
-    const memoryRepo = {
-      searchByContent: vi.fn(() => memories),
-    };
-
-    const results = await textFallbackRetrieve(memoryRepo as any, 'test', 2);
-    expect(results).toHaveLength(2);
-  });
-
-  it('passes scope and scopeKey to repository', async () => {
-    const memoryRepo = {
-      searchByContent: vi.fn(() => []),
-    };
-
-    await textFallbackRetrieve(memoryRepo as any, 'test', 3, 'user', 'u1');
-    expect(memoryRepo.searchByContent).toHaveBeenCalledWith('test', 'user', 'u1');
-  });
-
-  it('returns empty array when no matches', async () => {
-    const memoryRepo = {
-      searchByContent: vi.fn(() => []),
-    };
-
-    const results = await textFallbackRetrieve(memoryRepo as any, 'nonexistent', 3);
-    expect(results).toHaveLength(0);
-  });
-
-  it('maps memory fields correctly', async () => {
-    const memory = createMockMemory({
-      id: 'mem-map-test',
-      scope: 'chat',
-      scope_key: 'chat-1',
-      kind: 'preference',
-      content: 'User likes blue',
-    });
-    const memoryRepo = {
-      searchByContent: vi.fn(() => [memory]),
-    };
-
-    const results = await textFallbackRetrieve(memoryRepo as any, 'blue', 3);
-    expect(results[0]).toEqual({
-      id: 'mem-map-test',
-      content: 'User likes blue',
-      scope: 'chat',
-      scopeKey: 'chat-1',
-      kind: 'preference',
-      score: 0.5,
-      createdAt: expect.any(Number),
     });
   });
 });

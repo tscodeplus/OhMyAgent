@@ -13,7 +13,6 @@ import type { ExtensionManager } from '../extensions/extension-manager.js';
 import type { MemoryRetriever } from '../memory/memory-retriever.js';
 import type { MemoryWriter } from '../memory/memory-writer.js';
 import type { MemorySummarizer } from '../memory/memory-summarizer.js';
-import type { MemoryPipeline } from '../memory/memory-pipeline.js';
 import type { DreamCycle } from '../memory/dream-cycle.js';
 import type { SessionRepository } from '../memory/repositories/session-repository.js';
 import type { MessageRepository } from '../memory/repositories/message-repository.js';
@@ -315,6 +314,8 @@ export interface AppConfig {
       windowGraceMinutes: number;
       phaseTimeoutMs: number;
       synthesizeBatchSize: number;
+      /** ScopeKeys clustered per sceneCluster phase; 0 = no cap. */
+      sceneClusterBatchSize: number;
       /** Catch-up run on startup when the last run is >24h old. */
       catchUpOnStart: boolean;
     };
@@ -994,8 +995,6 @@ export interface AppServices {
   memoryRetriever: MemoryRetriever;
   memoryWriter: MemoryWriter;
   memorySummarizer: MemorySummarizer;
-  /** On-demand L0→L3 pipeline run/status surface (DreamCycle stays the nightly scheduler). */
-  memoryPipeline?: MemoryPipeline;
   /** Nightly maintenance orchestrator — exposed for manual trigger/status. */
   dreamCycle?: DreamCycle;
   sessionRepository: SessionRepository;

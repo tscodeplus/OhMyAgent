@@ -58,6 +58,18 @@ export interface ResolveContext {
   scopeKey: string;
   agentId?: string | null;
   visibility?: string;
+  /**
+   * When the preference actually happened (epoch ms), passed through from
+   * `WriteOptions.createdAt` by import/backfill callers.
+   *
+   * Arbitration runs on `updated_at` — write time — which is right for a live
+   * conversation and wrong for an import: a preference from six months ago that
+   * is written now would outrank every newer conclusion simply by being
+   * inserted later. When the caller states the event time, the new row is
+   * ranked by *that* instead, so it lands at its historical position. Absent →
+   * write time, i.e. the live behaviour is unchanged.
+   */
+  eventAt?: number | null;
 }
 
 export class PreferenceConflictResolver {
@@ -93,16 +105,26 @@ export class PreferenceConflictResolver {
       });
     });
 
-    // Sort by updated_at descending — newest wins
+    // Sort newest-first — an existing row's `updated_at` against the new row's
+    // event time when one was supplied (see `ResolveContext.eventAt`).
     const newMemory = this.memoryRepo.findById(newId);
     if (!newMemory) return { winnerId: newId, supersededIds: [], topic };
 
+    const eventAt =
+      typeof context.eventAt === 'number' && Number.isFinite(context.eventAt)
+        ? context.eventAt
+        : null;
+    const rankKey = (memory: { id: string; updated_at: string }): number =>
+      memory.id === newId && eventAt !== null
+        ? eventAt
+        : // `updated_at` is TEXT: epoch-ms digits for schema-written rows, ISO for
+          // application writes. `parseEpochMs` is the one parser that understands
+          // every shape the column has held, so a future format cannot silently
+          // compare as "unknown" (0) and collapse the ordering.
+          parseEpochMs(memory.updated_at);
+
     const candidates = [...sameTopic, newMemory].sort((a, b) => {
-      // `updated_at` is TEXT: epoch-ms digits for schema-written rows, ISO for
-      // application writes. `parseEpochMs` is the one parser that understands
-      // every shape the column has held, so a future format cannot silently
-      // compare as "unknown" (0) and collapse the ordering.
-      const byUpdatedAt = parseEpochMs(b.updated_at) - parseEpochMs(a.updated_at);
+      const byUpdatedAt = rankKey(b) - rankKey(a);
       if (byUpdatedAt !== 0) return byUpdatedAt;
       if (a.id === newId) return -1;
       if (b.id === newId) return 1;

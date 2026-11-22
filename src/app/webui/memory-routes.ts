@@ -279,8 +279,12 @@ function sinceLastRunObservabilityEvents(db: Database.Database): {
 }
 
 /**
- * Per-layer record counts for the pipeline status route, using the same L0–L3
- * mapping as MemoryPipeline (memory-pipeline.ts):
+ * Per-layer record counts for the pipeline status route.
+ *
+ * The L0–L3 mapping is defined *here*, as SQL over the tables themselves (it
+ * used to also exist as a `MemoryPipeline` class that nothing called, and the two
+ * disagreed: the class counted every `user`-scope row as L1, this query excludes
+ * scene/persona rows):
  *   L0 = raw sessions/messages, L1 = atomic memories (non-scene/persona),
  *   L2 = scene clusters, L3 = persona rows.
  */

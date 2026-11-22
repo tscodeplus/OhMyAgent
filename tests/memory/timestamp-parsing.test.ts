@@ -7,7 +7,7 @@ import { parseEpochMs } from '../../src/shared/timestamp';
 import { applySchema } from '../../src/memory/schema';
 import { MemoryRepository } from '../../src/memory/repositories/memory-repository';
 import { SceneClusterer } from '../../src/memory/scene-cluster';
-import { textFallbackRetrieve } from '../../src/memory/fallback-retriever';
+import { MemoryRetriever } from '../../src/memory/memory-retriever';
 import { applyTemporalDecay } from '../../src/memory/temporal-decay';
 import type { MergedResult } from '../../src/memory/rrf-merge';
 
@@ -161,7 +161,7 @@ describe('retrieval createdAt with repository-written timestamps', () => {
     db.close();
   });
 
-  it('fallback retriever yields a finite createdAt', async () => {
+  it('the text-only retrieval lane yields a finite createdAt', async () => {
     // repo.create() omits created_at, so SQLite's DEFAULT stores "1767...".
     memoryRepo.create({
       id: 'mem-alpha',
@@ -171,7 +171,28 @@ describe('retrieval createdAt with repository-written timestamps', () => {
       content: 'alpha beta gamma',
     });
 
-    const results = await textFallbackRetrieve(memoryRepo, 'alpha', 5, 'user', 'session-1');
+    // `textOnly` is the degraded lane a deployment without an embedding
+    // provider actually runs; its row→RetrievedMemory mapping is where a
+    // digit-string `created_at` has to survive parseEpochMs.
+    const retriever = new MemoryRetriever({
+      memoryRepository: memoryRepo,
+      embeddingRepository: {} as never,
+      embeddingClient: {
+        model: 'test-model',
+        isConfigured: () => false,
+        embedOne: async () => null,
+      } as never,
+      embeddingCacheRepo: {} as never,
+      db,
+    });
+
+    const results = await retriever.retrieve({
+      query: 'alpha',
+      scope: 'user',
+      scopeKey: 'session-1',
+      textOnly: true,
+      topK: 5,
+    });
 
     expect(results).toHaveLength(1);
     expect(Number.isFinite(results[0].createdAt)).toBe(true);

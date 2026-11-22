@@ -11,6 +11,26 @@ export interface FtsSearchResult {
 }
 
 /**
+ * Normalize BM25 ranks to [0, 1] within one result set (lower rank = better).
+ *
+ * Both FTS lanes have to share this scale. `MemoryRetriever.textFallback`
+ * compares `normalizedScore` against an absolute `minScore` threshold, and the
+ * two lanes used to normalize differently — min-max here, an absolute-ish
+ * `relevance / (1 + relevance)` in the jieba lane. In a small corpus BM25's
+ * absolute magnitude collapses toward 0, so the same query scored 0.8 through
+ * the unicode61 index and ~1e-6 through the jieba one: below `minScore`, which
+ * made the degraded lane return nothing at all once it started preferring jieba.
+ */
+function bm25Normalizer(ranks: number[]): (rank: number) => number {
+  const minRank = Math.min(...ranks);
+  const maxRank = Math.max(...ranks);
+  return (rank: number) =>
+    maxRank === minRank
+      ? 0.8 // all results equally relevant → reasonable default
+      : 1 - (rank - minRank) / (maxRank - minRank); // linear normalization
+}
+
+/**
  * Execute FTS5 BM25 search on memories (original external-content table).
  *
  * @param db       SQLite database instance
@@ -60,20 +80,14 @@ export function ftsSearch(
 
   if (rows.length === 0) return [];
 
-  // Normalize BM25 scores to [0, 1]
   // BM25 raw values are negative; smaller = better match
-  const ranks = rows.map((r) => r.rank);
-  const minRank = Math.min(...ranks);
-  const maxRank = Math.max(...ranks);
+  const normalize = bm25Normalizer(rows.map((r) => r.rank));
 
   return rows.map((r) => ({
     memoryId: r.id,
     content: r.content,
     bm25Score: r.rank,
-    normalizedScore:
-      maxRank === minRank
-        ? 0.8 // all results equally relevant → reasonable default
-        : 1 - (r.rank - minRank) / (maxRank - minRank), // linear normalization
+    normalizedScore: normalize(r.rank),
   }));
 }
 
@@ -140,16 +154,14 @@ export function ftsSearchJieba(
 
   if (rows.length === 0) return [];
 
-  return rows.map((r) => {
-    // BM25 rank: more negative = more relevant
-    const relevance = -r.rank;
-    return {
-      memoryId: r.memory_id,
-      content: r.content,
-      bm25Score: r.rank,
-      normalizedScore: relevance / (1 + relevance),
-    };
-  });
+  const normalize = bm25Normalizer(rows.map((r) => r.rank));
+
+  return rows.map((r) => ({
+    memoryId: r.memory_id,
+    content: r.content,
+    bm25Score: r.rank,
+    normalizedScore: normalize(r.rank),
+  }));
 }
 
 /**

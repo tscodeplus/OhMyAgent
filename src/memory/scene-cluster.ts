@@ -33,6 +33,9 @@ const KIND_NAME_MAP: Record<string, string> = {
 
 const KIND_ORDER = ['preference', 'fact', 'task', 'device_state', 'summary'];
 
+/** `<scopeKey>_<YYYY-MM-DD>_<YYYY-MM-DD>.md` — the only file shape this class writes. */
+const SCENE_FILE_PATTERN = /_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.md$/;
+
 /**
  * Default ceiling for one scene document (256KB), mirroring TDAM v2.0.4's
  * per-scene-file limit.
@@ -44,6 +47,52 @@ const KIND_ORDER = ['preference', 'fact', 'task', 'device_state', 'summary'];
  * document, so a reader can tell a short scene from a clipped one.
  */
 export const DEFAULT_MAX_FILE_BYTES = 256 * 1024;
+
+/** Options for one clustering pass — see {@link SceneClusterer.clusterBatch}. */
+export interface SceneClusterOptions {
+  /** Memory scope, default `'user'`. */
+  scope?: string;
+  /** Window length in days, default 7 (constructor default). */
+  windowDays?: number;
+  /** Windows below this memory count produce no scene, default 5. */
+  minMemories?: number;
+  /**
+   * Cooperative cancellation, polled between scopeKeys and between the windows
+   * of one scopeKey. A run stopped this way keeps everything it committed.
+   */
+  signal?: AbortSignal;
+  /**
+   * Resume point: scopeKeys at or before this one (string order) are skipped.
+   * The caller owns the cursor's durability (DreamCycle stores it on its own
+   * `maintenance_runs` row); an empty or missing value starts from the head.
+   */
+  afterScopeKey?: string;
+  /** Max scopeKeys to process in this run; 0 or absent = all of them. */
+  maxScopeKeys?: number;
+  /**
+   * Fired once a scopeKey is fully committed (files written, rows upserted,
+   * stale artefacts pruned) — the natural place to persist the resume cursor.
+   * A scopeKey that failed or was interrupted mid-way never fires it, so the
+   * next run redoes it.
+   */
+  onScopeKeyDone?: (scopeKey: string) => void;
+}
+
+/** What one clustering pass did — errors included, because it does not throw. */
+export interface SceneClusterRunSummary {
+  /** Clusters committed by this run, in processing order. */
+  clusters: SceneCluster[];
+  /** scopeKeys fully processed by this run, in processing order. */
+  processedScopeKeys: string[];
+  /** True when this run consumed the last scopeKey — the next run starts at the head. */
+  reachedEnd: boolean;
+  /** Per-scopeKey failures the run continued past. */
+  errors: Array<{ scopeKey: string; message: string }>;
+  /** Stale scene files removed by reconciliation. */
+  prunedFiles: number;
+  /** Stale `scene-*` memory rows removed by reconciliation. */
+  prunedMemories: number;
+}
 
 export class SceneClusterer {
   /** Per-file byte budget. `0` = unlimited (matches the `recall.maxChars*` 0 semantics). */
@@ -59,18 +108,67 @@ export class SceneClusterer {
   }
 
   /**
-   * 对指定 scope 的记忆按 scopeKey + 时间窗口进行聚类。
+   * 对指定 scope 的记忆按 scopeKey + 时间窗口进行聚类，一次跑完全部 scopeKey。
+   *
+   * Thin wrapper over {@link clusterBatch} for callers that treat clustering as
+   * one unit of work (maintenance job, hygiene re-cluster). It
+   * rethrows when the run produced nothing *and* at least one scopeKey failed,
+   * so a totally broken run still surfaces as an error while a partial run
+   * returns what it committed.
    *
    * @param scope - 记忆范围，默认 'user'
    * @param windowDays - 时间窗口（天），默认 7。同一窗口内的记忆聚合为一个场景
    * @param minMemories - 最小记忆数，默认 5。低于此数量的 scopeKey 不生成场景
-   * @returns 生成的场景列表
    */
-  cluster(
-    scope = 'user',
-    windowDays = this.defaults.windowDays ?? 7,
-    minMemories = this.defaults.minMemories ?? 5,
-  ): SceneCluster[] {
+  cluster(scope = 'user', windowDays?: number, minMemories?: number): SceneCluster[] {
+    const summary = this.clusterBatch({ scope, windowDays, minMemories });
+    if (summary.clusters.length === 0 && summary.errors.length > 0) {
+      throw new Error(summary.errors[0].message);
+    }
+    return summary.clusters;
+  }
+
+  /**
+   * Batched, partially-successful clustering pass.
+   *
+   * Three differences from the previous all-or-nothing behaviour:
+   *
+   * - ScopeKeys are processed in a stable (sorted) order and the run may stop
+   *   after `maxScopeKeys` of them, so a backlog advances one bounded slice per
+   *   night instead of needing the whole table to fit in a single phase timeout.
+   *   The order has to be stable for `afterScopeKey` to mean anything: a Map's
+   *   insertion order follows the rows, and rows are written between runs.
+   * - Each scopeKey commits as it completes (files written atomically, rows
+   *   upserted). A failure — or an abort — stops there and *keeps* the committed
+   *   work. The whole-directory rollback this class used to perform was exactly
+   *   wrong once runs are expected to be partial: it discarded the scopeKeys
+   *   that had succeeded.
+   * - Stale artefacts of a *committed* scopeKey are reconciled — scene files and
+   *   `scene-*` rows the run no longer produces are deleted, so shrinking a
+   *   window or merging memories no longer leaves dead links behind. ScopeKeys
+   *   the run did not touch are never pruned, which is what keeps a partial run
+   *   from deleting a window it simply did not reach.
+   */
+  clusterBatch(options: SceneClusterOptions = {}): SceneClusterRunSummary {
+    const scope = options.scope ?? 'user';
+    const windowDays = options.windowDays ?? this.defaults.windowDays ?? 7;
+    const minMemories = options.minMemories ?? this.defaults.minMemories ?? 5;
+    const maxScopeKeys = options.maxScopeKeys ?? 0;
+
+    const summary: SceneClusterRunSummary = {
+      clusters: [],
+      processedScopeKeys: [],
+      reachedEnd: true,
+      errors: [],
+      prunedFiles: 0,
+      prunedMemories: 0,
+    };
+
+    // Snapshots written by the previous all-or-nothing implementation are dead
+    // weight now (nothing restores from them, nothing deletes them): drop one if
+    // a deployment still has it, then never create one again.
+    fs.rmSync(path.join(this.baseDir, 'scenes.bak'), { recursive: true, force: true });
+
     // 1. 获取指定 scope 的所有记忆（排除已生成的 scene 记忆）
     const allMemories = this.memoryRepo
       .findAllByScope(scope)
@@ -87,122 +185,240 @@ export class SceneClusterer {
       }
     }
 
-    const results: SceneCluster[] = [];
+    // 3. Queue = scopeKeys that still have memories + scopeKeys that now exist
+    //    only as scene artefacts. The second half is what lets a scopeKey whose
+    //    memories were all deleted or merged away be reconciled instead of
+    //    leaving its file and `scene-*` row behind forever: it produces no
+    //    windows, so everything it owns is stale.
+    const sceneScopeKeys = this.memoryRepo
+      .findByScopeKind(scope, 'scene')
+      .map((row) => row.scope_key);
+    const queue = [...new Set([...grouped.keys(), ...sceneScopeKeys])].sort();
+    const startIndex = options.afterScopeKey ? firstScopeKeyAfter(queue, options.afterScopeKey) : 0;
+    const slice =
+      maxScopeKeys > 0
+        ? queue.slice(startIndex, startIndex + maxScopeKeys)
+        : queue.slice(startIndex);
+    summary.reachedEnd = startIndex + slice.length >= queue.length;
 
-    // Fail-soft (TDAM v0.3.6 `scene_blocks` pattern): snapshot existing scene
-    // files before writing; a mid-run failure restores the snapshot instead of
-    // leaving a half-written, partially-stale scenes directory.
-    const backupDir = path.join(this.baseDir, 'scenes.bak');
-    this.backupScenesDir(backupDir);
-    try {
-      this.buildClusters(grouped, scope, windowDays, minMemories, results);
-    } catch (err) {
-      this.restoreScenesDir(backupDir);
-      this.logger?.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'Scene clustering failed; scene files restored from backup snapshot',
-      );
-      throw err instanceof Error ? err : new Error(String(err));
+    for (const scopeKey of slice) {
+      if (options.signal?.aborted) break;
+
+      // 记忆已按 created_at ASC 排序（findAllByScope 保证）
+      const written = new Set<string>();
+      let committed: SceneCluster[] = [];
+      try {
+        committed = this.commitScopeKey(
+          scopeKey,
+          grouped.get(scopeKey) ?? [],
+          scope,
+          windowDays,
+          minMemories,
+          written,
+          options.signal,
+        );
+      } catch (err) {
+        // Deliberately not reconciled: this scopeKey may have written some of
+        // its windows before failing, and pruning "files I did not write" would
+        // delete the windows that did succeed here.
+        const message = err instanceof Error ? err.message : String(err);
+        summary.errors.push({ scopeKey, message });
+        this.logger?.warn(
+          { scopeKey, err: message },
+          'Scene clustering failed for scopeKey; continuing with the next one',
+        );
+        continue;
+      }
+      // An abort between windows leaves the scopeKey half-written in exactly the
+      // same way as a failure, so it is not reconciled either.
+      if (options.signal?.aborted) break;
+
+      const pruned = this.pruneStaleArtefacts(scope, scopeKey, written);
+      summary.prunedFiles += pruned.files;
+      summary.prunedMemories += pruned.memories;
+      summary.clusters.push(...committed);
+      summary.processedScopeKeys.push(scopeKey);
+      options.onScopeKeyDone?.(scopeKey);
     }
 
-    // A successful run must drop the snapshot: on the second and every later run
-    // the backup exists (the first run has no scenes/ to copy), so leaving it
-    // behind parks a full duplicate of scenes/ on disk forever — the next run
-    // only replaces it. The existing backup test only exercised the first run,
-    // where the backup is a no-op, which is why the leak was invisible.
-    this.discardBackup(backupDir);
+    if (summary.processedScopeKeys.length > 0 || summary.errors.length > 0) {
+      if (!options.signal?.aborted) {
+        // Files no active scene row references: the residue of a scopeKey whose
+        // *name* is not recoverable (`safePathSegment` is lossy, so an orphan
+        // cannot always be mapped back to its key) or of a write whose row
+        // registration failed. Only files shaped like a scene document are
+        // considered — never anything else under data/.
+        summary.prunedFiles += this.pruneOrphanFiles(scope);
+      }
 
-    if (results.length > 0) {
       this.logger?.info(
         {
           scope,
-          clusterCount: results.length,
+          clusterCount: summary.clusters.length,
+          processedScopeKeys: summary.processedScopeKeys.length,
           windowDays,
           minMemories,
+          prunedFiles: summary.prunedFiles,
+          prunedMemories: summary.prunedMemories,
+          errorCount: summary.errors.length,
+          aborted: options.signal?.aborted === true,
         },
         'Scene clustering completed',
       );
+    }
+
+    return summary;
+  }
+
+  /**
+   * Cluster and commit one scopeKey. Throws on the first write/persist failure
+   * (the caller decides what a partially written scopeKey means); records the
+   * refPaths it wrote into `written` so the caller can reconcile stale files.
+   */
+  private commitScopeKey(
+    scopeKey: string,
+    memories: Memory[],
+    scope: string,
+    windowDays: number,
+    minMemories: number,
+    written: Set<string>,
+    signal?: AbortSignal,
+  ): SceneCluster[] {
+    const results: SceneCluster[] = [];
+    const safeScopeKey = safePathSegment(scopeKey);
+
+    for (const windowMemories of this.splitIntoWindows(memories, windowDays)) {
+      if (signal?.aborted) break;
+      if (windowMemories.length < minMemories) continue;
+
+      const startDate = dateLabel(windowMemories[0].created_at);
+      const endDate = dateLabel(windowMemories[windowMemories.length - 1].created_at);
+      const refPath = `scenes/${safeScopeKey}_${startDate}_${endDate}.md`;
+
+      const cluster: SceneCluster = {
+        scopeKey,
+        scope,
+        startDate,
+        endDate,
+        memoryCount: windowMemories.length,
+        content: this.generateMarkdown(scopeKey, windowMemories),
+        refPath,
+      };
+
+      // 写入场景 Markdown 文件
+      this.writeSceneFile(cluster);
+      written.add(refPath);
+
+      // 持久化为 scene kind 的记忆
+      const sceneMemory = this.persistScene(cluster);
+      this.logger?.debug(
+        {
+          sceneId: sceneMemory.id,
+          scope,
+          scopeKey,
+          refPath,
+          memoryCount: cluster.memoryCount,
+          updatedAt: sceneMemory.updated_at,
+        },
+        'Scene cluster persisted',
+      );
+
+      results.push(cluster);
     }
 
     return results;
   }
 
   /**
-   * Window/group loop extracted from cluster() so the fail-soft backup can wrap
-   * file writes + memory persistence in one try/catch.
+   * Remove the scene files and `scene-*` memory rows of one *committed* scopeKey
+   * that this run no longer produces.
+   *
+   * Reconciliation is per scopeKey rather than per directory on purpose: a
+   * partial run only knows the truth about the scopeKeys it processed, so a
+   * directory-wide sweep would delete the windows of the scopeKeys it skipped.
    */
-  private buildClusters(
-    grouped: Map<string, Memory[]>,
+  private pruneStaleArtefacts(
     scope: string,
-    windowDays: number,
-    minMemories: number,
-    results: SceneCluster[],
-  ): void {
-    for (const [scopeKey, memories] of grouped) {
-      // 记忆已按 created_at ASC 排序（findAllByScope 保证）
-      // 按时间窗口切割
-      const windows = this.splitIntoWindows(memories, windowDays);
+    scopeKey: string,
+    written: Set<string>,
+  ): { files: number; memories: number } {
+    const scenesDir = path.join(this.baseDir, 'scenes');
+    const prefix = safePathSegment(scopeKey);
+    let files = 0;
 
-      for (const windowMemories of windows) {
-        if (windowMemories.length < minMemories) continue;
-
-        const startDate = dateLabel(windowMemories[0].created_at);
-        const endDate = dateLabel(windowMemories[windowMemories.length - 1].created_at);
-        const content = this.generateMarkdown(scopeKey, windowMemories);
-        const safeScopeKey = safePathSegment(scopeKey);
-        const refPath = `scenes/${safeScopeKey}_${startDate}_${endDate}.md`;
-
-        const cluster: SceneCluster = {
-          scopeKey,
-          scope,
-          startDate,
-          endDate,
-          memoryCount: windowMemories.length,
-          content,
-          refPath,
-        };
-
-        // 写入场景 Markdown 文件
-        this.writeSceneFile(cluster);
-
-        // 持久化为 scene kind 的记忆
-        const sceneMemory = this.persistScene(cluster);
-        this.logger?.debug(
-          {
-            sceneId: sceneMemory.id,
-            scope,
-            scopeKey,
-            refPath,
-            memoryCount: cluster.memoryCount,
-            updatedAt: sceneMemory.updated_at,
-          },
-          'Scene cluster persisted',
-        );
-
-        results.push(cluster);
+    if (fs.existsSync(scenesDir)) {
+      // Match the exact name shape this class produces. A bare
+      // `startsWith(prefix + '_')` would also match a *different* scopeKey that
+      // happens to extend this one (`chat_A` vs `chat_A_2`) and delete its files.
+      const pattern = new RegExp(
+        `^${escapeRegExp(prefix)}_\\d{4}-\\d{2}-\\d{2}_\\d{4}-\\d{2}-\\d{2}\\.md$`,
+      );
+      for (const entry of fs.readdirSync(scenesDir)) {
+        if (!pattern.test(entry)) continue;
+        const refPath = `scenes/${entry}`;
+        if (written.has(refPath)) continue;
+        try {
+          fs.unlinkSync(path.join(scenesDir, entry));
+          files++;
+        } catch (err) {
+          this.logger?.warn(
+            { file: entry, err: err instanceof Error ? err.message : String(err) },
+            'Failed to remove stale scene file',
+          );
+        }
       }
     }
+
+    let memories = 0;
+    for (const row of this.memoryRepo.findByScopeAndKind(scope, scopeKey, 'scene')) {
+      if (written.has(row.content)) continue;
+      // Physical delete: `delete()` also drops the FTS entry, terms and vector,
+      // which a soft delete would leave pointing at the removed file.
+      if (this.memoryRepo.delete(row.id)) memories++;
+    }
+
+    if (files > 0 || memories > 0) {
+      this.logger?.debug(
+        { scopeKey, files, memories },
+        'Scene clustering pruned stale scene artefacts',
+      );
+    }
+
+    return { files, memories };
   }
 
-  /** Snapshot `<baseDir>/scenes` to `backupDir`. No-op when there are no scenes yet. */
-  private backupScenesDir(backupDir: string): void {
+  /**
+   * Delete scene files no active `scene-*` row points at any more.
+   *
+   * Runs after the slice rather than instead of the per-scopeKey prune: a partial
+   * run leaves the rows — and therefore the files — of the scopeKeys it skipped
+   * untouched, so this can only remove genuinely unreferenced files.
+   */
+  private pruneOrphanFiles(scope: string): number {
     const scenesDir = path.join(this.baseDir, 'scenes');
-    if (!fs.existsSync(scenesDir)) return;
-    fs.rmSync(backupDir, { recursive: true, force: true });
-    fs.cpSync(scenesDir, backupDir, { recursive: true });
-  }
+    if (!fs.existsSync(scenesDir)) return 0;
 
-  /** Drop the snapshot after a successful run — see the call site in `cluster()`. */
-  private discardBackup(backupDir: string): void {
-    fs.rmSync(backupDir, { recursive: true, force: true });
-  }
-
-  /** Replace the scenes directory with the backup snapshot (idempotent). */
-  private restoreScenesDir(backupDir: string): void {
-    if (!fs.existsSync(backupDir)) return;
-    const scenesDir = path.join(this.baseDir, 'scenes');
-    fs.rmSync(scenesDir, { recursive: true, force: true });
-    fs.renameSync(backupDir, scenesDir);
+    const referenced = new Set(
+      this.memoryRepo.findByScopeKind(scope, 'scene').map((row) => row.content),
+    );
+    let removed = 0;
+    for (const entry of fs.readdirSync(scenesDir)) {
+      if (!SCENE_FILE_PATTERN.test(entry)) continue;
+      if (referenced.has(`scenes/${entry}`)) continue;
+      try {
+        fs.unlinkSync(path.join(scenesDir, entry));
+        removed++;
+      } catch (err) {
+        this.logger?.warn(
+          { file: entry, err: err instanceof Error ? err.message : String(err) },
+          'Failed to remove orphaned scene file',
+        );
+      }
+    }
+    if (removed > 0) {
+      this.logger?.debug({ scope, removed }, 'Scene clustering pruned orphaned scene files');
+    }
+    return removed;
   }
 
   /**
@@ -310,7 +526,7 @@ export class SceneClusterer {
   }
 
   /**
-   * 将场景 Markdown 写入文件系统。
+   * 将场景 Markdown 写入文件系统（原子写）。
    * 自动创建 scenes 子目录。
    */
   private writeSceneFile(cluster: SceneCluster): void {
@@ -324,7 +540,14 @@ export class SceneClusterer {
     // be rewritten smaller or equal — growing it past the ceiling is not
     // reachable through this path. (TDAM v2.0.4 needs the extra rule because its
     // scene blocks are written by more than one producer.)
-    fs.writeFileSync(filePath, cluster.content, 'utf-8');
+    //
+    // tmp + rename instead of a direct write: a throw between `writeFileSync`
+    // opening the file and finishing it left a truncated scene file that nothing
+    // would repair until the window was rewritten. rename() inside one directory
+    // is atomic, so a reader sees the old file or the new one, never half.
+    const tmpPath = `${filePath}.tmp`;
+    fs.writeFileSync(tmpPath, cluster.content, 'utf-8');
+    fs.renameSync(tmpPath, filePath);
   }
 
   /**
@@ -364,6 +587,22 @@ function safePathSegment(input: string): string {
   const cleaned = input.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_');
   const trimmed = cleaned.replace(/^_+|_+$/g, '');
   return trimmed || 'item';
+}
+
+/**
+ * Index of the first scopeKey strictly greater than `after` in a sorted queue.
+ *
+ * String comparison (`>`), matching `Array.prototype.sort`'s default ordering —
+ * the resume cursor is a scopeKey, so the comparison used to skip past it has to
+ * agree with the ordering that produced it.
+ */
+function firstScopeKeyAfter(sorted: string[], after: string): number {
+  const index = sorted.findIndex((key) => key > after);
+  return index === -1 ? sorted.length : index;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function safeJoin(root: string, ...segments: string[]): string {

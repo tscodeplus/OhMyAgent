@@ -19,6 +19,7 @@ describe('DreamCycle catch-up on start', () => {
         windowGraceMinutes: 120,
         phaseTimeoutMs: 60_000,
         synthesizeBatchSize: 50,
+        sceneClusterBatchSize: 8,
         catchUpOnStart: true,
         ...config,
       },

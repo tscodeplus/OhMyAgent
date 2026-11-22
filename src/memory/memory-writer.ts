@@ -406,6 +406,9 @@ export class MemoryWriter {
           scopeKey,
           agentId,
           visibility,
+          // Import/backfill callers state the source event time; live writes do
+          // not, and then arbitration stays on write time.
+          eventAt: options.createdAt,
         });
         if (resolution.supersededIds.length > 0) {
           for (const supersededId of resolution.supersededIds) {

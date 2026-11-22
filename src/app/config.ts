@@ -656,6 +656,12 @@ const configSchema = z.object({
         windowGraceMinutes: z.coerce.number().int().positive().default(120),
         phaseTimeoutMs: z.coerce.number().int().positive().default(1_800_000),
         synthesizeBatchSize: z.coerce.number().int().positive().default(50),
+        // ScopeKeys clustered per night. The sceneCluster phase walks scopeKeys in
+        // a stable order behind a cursor, so this bounds one night's work instead
+        // of requiring the whole backlog to fit in a single phase timeout
+        // (TDAM v2.0.4 "batch backlog, resume from the last position").
+        // 0 = no cap (one night re-clusters everything).
+        sceneClusterBatchSize: z.coerce.number().int().nonnegative().default(8),
         // Run a catch-up cycle on startup when the last nightly run is >24h old
         // (covers machines that are off at the scheduled fire time).
         catchUpOnStart: z.boolean().default(true),

@@ -79,6 +79,7 @@ describe('DreamCycle synthesize cursor', () => {
       windowGraceMinutes: 120,
       phaseTimeoutMs: 60_000,
       synthesizeBatchSize: batchSize,
+      sceneClusterBatchSize: 8,
       catchUpOnStart: false,
     };
     return new DreamCycle(

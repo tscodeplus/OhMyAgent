@@ -191,6 +191,7 @@ export function createSchedulers(input: {
     windowGraceMinutes: 120,
     phaseTimeoutMs: 1_800_000,
     synthesizeBatchSize: 50,
+    sceneClusterBatchSize: 8,
     catchUpOnStart: true,
   };
 

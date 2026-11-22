@@ -18,7 +18,6 @@ export type { WriteOptions, WriteResult, SimilarMemoryMatch } from './memory-wri
 
 export { MemoryRetriever } from './memory-retriever.js';
 export type { RetrievalOptions, RetrievedMemory } from './memory-retriever.js';
-export { textFallbackRetrieve } from './fallback-retriever.js';
 
 export { MemorySummarizer } from './memory-summarizer.js';
 export type { SummarizeOptions } from './memory-summarizer.js';
