@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   JudgeResolver,
   judgeIdOf,
+  judgeIdsForChain,
   parseJudgeRef,
   withOpencodeSystemOneEndpoint,
   type AnyClassifierModel,
@@ -75,6 +76,29 @@ describe('parseJudgeRef — ref syntax', () => {
     expect(capture(() => parseJudgeRef('/junk'))).toBeInstanceOf(JudgeError);
     expect(capture(() => parseJudgeRef('opencode/'))).toBeInstanceOf(JudgeError);
     expect(capture(() => parseJudgeRef('  '))).toBeInstanceOf(JudgeError);
+  });
+
+  it('judgeIdsForChain names every judge the current config can produce', () => {
+    // Custom judges answer as their NAME, plain refs as provider/model; bare
+    // provider ids (model-less WebUI groups) resolve to nothing.
+    expect(
+      judgeIdsForChain({
+        chain: ['judges.CommandCode-Jev', 'opencode/jev-1.13-free', 'opencode'],
+        fallbackTiers: ['openrouter/~typesafe/jev-latest'],
+      } as unknown as JudgeSectionConfig),
+    ).toEqual(
+      new Set(['CommandCode-Jev', 'opencode/jev-1.13-free', 'openrouter/~typesafe/jev-latest']),
+    );
+    // Legacy derivation: provider + modelRef, no chain.
+    expect(
+      judgeIdsForChain({
+        provider: 'opencode',
+        modelRef: 'jev-1.13-free',
+      } as unknown as JudgeSectionConfig),
+    ).toEqual(new Set(['opencode/jev-1.13-free']));
+    // Nothing resolvable → undefined (callers read it as "no filter").
+    expect(judgeIdsForChain({ chain: [] } as unknown as JudgeSectionConfig)).toBeUndefined();
+    expect(judgeIdsForChain(undefined)).toBeUndefined();
   });
 });
 

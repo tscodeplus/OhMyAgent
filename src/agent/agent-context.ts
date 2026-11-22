@@ -40,16 +40,58 @@ export let defaultAgentId: string | undefined;
 const turnTaskHints = new Map<string, string>();
 const MAX_TURN_TASK_HINTS = 500;
 
+/**
+ * Last few user turns per session (newest last), written alongside the single
+ * task hint above. Read by the tool.risk judge state: "did the user explicitly
+ * ask for this operation" cannot be answered from the current turn's first 200
+ * characters alone, which is why that point hedged into the gray band on most
+ * calls.
+ */
+const recentUserTurns = new Map<string, string[]>();
+/** Turns kept per session (the judge state caps this again on its side). */
+export const MAX_RECENT_USER_TURNS = 4;
+const RECENT_TURN_CHARS = 200;
+
 export function setTurnTaskHint(sessionId: string, taskHint: string): void {
   if (turnTaskHints.size >= MAX_TURN_TASK_HINTS && !turnTaskHints.has(sessionId)) {
     const first = turnTaskHints.keys().next().value;
     if (first !== undefined) turnTaskHints.delete(first);
   }
   turnTaskHints.set(sessionId, taskHint);
+  // Same event, one call site: keep the bounded history in step with the hint.
+  const history = recentUserTurns.get(sessionId) ?? [];
+  history.push(taskHint.slice(0, RECENT_TURN_CHARS));
+  if (history.length > MAX_RECENT_USER_TURNS)
+    history.splice(0, history.length - MAX_RECENT_USER_TURNS);
+  recentUserTurns.delete(sessionId);
+  recentUserTurns.set(sessionId, history);
+  while (recentUserTurns.size > MAX_TURN_TASK_HINTS) {
+    const oldest = recentUserTurns.keys().next().value;
+    if (oldest === undefined) break;
+    recentUserTurns.delete(oldest);
+  }
 }
 
 export function getTurnTaskHint(sessionId: string): string | undefined {
   return turnTaskHints.get(sessionId);
+}
+
+/**
+ * Recent user turns, oldest first. A COPY — callers (the judge state builder)
+ * must not be able to mutate the store.
+ */
+export function getRecentUserTurns(sessionId: string): string[] {
+  return [...(recentUserTurns.get(sessionId) ?? [])];
+}
+
+/**
+ * Drop the per-turn context of a session (task hint + recent turns). Called
+ * when the conversation itself is cleared: turns from a history that no longer
+ * exists must not become evidence for the next judge call.
+ */
+export function clearTurnContext(sessionId: string): void {
+  turnTaskHints.delete(sessionId);
+  recentUserTurns.delete(sessionId);
 }
 
 export function setDefaultAgentId(id: string | undefined): void {

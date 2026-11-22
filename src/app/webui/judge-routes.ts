@@ -25,7 +25,7 @@ import { judgeSectionSchema, loadConfig } from '../config.js';
 import type { AppConfig, AppServices } from '../types.js';
 import { DECISION_POINT_IDS } from '../../judge/decisions/registry.js';
 import { goldenSampleSpec, GOLDEN_SAMPLE_STATE } from '../../judge/golden-sample.js';
-import { auditOnce } from '../judge-autopilot.js';
+import { auditOnce, recordAuditFailure } from '../judge-autopilot.js';
 import { JUDGE_PROVIDER_ENV_KEYS } from '../../judge/judge-resolver.js';
 import { mutateConfigYaml, readConfigObject, applyConfigObject } from './yaml-mutation.js';
 
@@ -221,16 +221,20 @@ export function registerJudgeRoutes(app: FastifyInstance, cfg: JudgeRouteConfig)
   // Manual autopilot audit trigger — same statistical gates the interval uses.
   // Idempotent and non-destructive: points failing the gate simply hold.
   app.post('/api/judge/autopilot', async (_request, reply) => {
+    const deps = {
+      ledgerDir: './data/judge-ledger',
+      judge: cfg.getConfig().judge,
+      getConfig: cfg.getConfig,
+      onConfigSaved: (newConfig: AppConfig) => cfg.onConfigSaved?.(newConfig),
+      logger: app.log,
+    };
     try {
-      const report = await auditOnce({
-        ledgerDir: './data/judge-ledger',
-        judge: cfg.getConfig().judge,
-        getConfig: cfg.getConfig,
-        onConfigSaved: (newConfig) => cfg.onConfigSaved?.(newConfig),
-        logger: app.log,
-      });
+      const report = await auditOnce(deps);
       return reply.send({ ok: true, ...report });
     } catch (err) {
+      // Mirror the interval: a manual trigger that cannot write config.yaml
+      // must leave a trace the panel can show, not just a 500 response.
+      recordAuditFailure(deps, err);
       const message = err instanceof Error ? err.message : String(err);
       return reply.status(500).send({ ok: false, error: 'Internal Server Error', message });
     }

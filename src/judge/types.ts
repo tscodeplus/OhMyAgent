@@ -122,6 +122,14 @@ export interface Verdict {
   decisionId: string;
   /** Validated judge answers; `{}` when the call fell back. */
   answers: JudgeAnswerMap;
+  /**
+   * Fallback only (`fallbackReason === 'gray-zone'`): the answers that landed
+   * in the calibrated gray zone. They are otherwise discarded, which left the
+   * autopilot's gray rate unexplainable from the ledger alone.
+   */
+  grayAnswers?: JudgeAnswerMap;
+  /** Fallback only: the answer keys that were gray (e.g. `['k3']` in a batch). */
+  grayKeys?: string[];
   /** Winning judge (e.g. "opencode/jev-1.13") or "" when unanswered. */
   judgeId: string;
   source: JudgmentSource;

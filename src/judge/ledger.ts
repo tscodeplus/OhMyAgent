@@ -32,6 +32,13 @@ export interface LedgerRecord {
   source: JudgmentSource;
   fallbackReason?: FallbackReason;
   answers: JudgeAnswerMap;
+  /**
+   * Gray-zone fallbacks only: the answers that tripped the gray band plus the
+   * keys that were gray. Without these the ledger could say "the judge was
+   * unsure 168 times" but never why.
+   */
+  grayAnswers?: JudgeAnswerMap;
+  grayKeys?: string[];
   /** Judged entries only: what active mode would decide (`spec.policy`). */
   outcome?: DecisionOutcome;
   /** Judged entries only: the pre-judge rule floor (`spec.fallback`). */

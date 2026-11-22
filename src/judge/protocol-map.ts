@@ -258,18 +258,22 @@ export function isGrayAnswer(question: JudgeQuestion, answer: JudgeAnswer): bool
   }
 }
 
-/** Validate a whole result against a question map. Returns the valid answers and whether any is gray. */
+/**
+ * Validate a whole result against a question map. Returns the valid answers,
+ * whether any of them is gray, and WHICH keys are (the ledger keeps the latter
+ * so a batch point can show which candidate hedged).
+ */
 export function validateAnswers(
   questions: Record<string, JudgeQuestion>,
   answers: Record<string, ClassifierAnswer | undefined>,
-): { valid: Record<string, JudgeAnswer>; anyGray: boolean } {
+): { valid: Record<string, JudgeAnswer>; anyGray: boolean; grayKeys: string[] } {
   const valid: Record<string, JudgeAnswer> = {};
-  let anyGray = false;
+  const grayKeys: string[] = [];
   for (const [id, question] of Object.entries(questions)) {
     const answer = toJudgeAnswer(question, answers[id]);
     if (answer === undefined) continue;
     valid[id] = answer;
-    if (isGrayAnswer(question, answer)) anyGray = true;
+    if (isGrayAnswer(question, answer)) grayKeys.push(id);
   }
-  return { valid, anyGray };
+  return { valid, anyGray: grayKeys.length > 0, grayKeys };
 }

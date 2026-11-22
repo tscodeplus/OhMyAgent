@@ -34,17 +34,39 @@ const ASKED_QUESTION = noul('did the user explicitly ask for this operation in t
   false: 'the agent decided on this operation on its own; the user never requested it',
 });
 
+/** How many recent user turns the judged state carries (oldest first). */
+export const TOOL_RISK_RECENT_TURNS = 4;
+/** Chars per carried turn. */
+export const TOOL_RISK_TURN_MAX = 200;
+/** Chars of the current turn's hint. */
+export const TOOL_RISK_TASK_HINT_MAX = 200;
+
+export interface ToolRiskState {
+  taskHint: string;
+  /** Earlier user turns of this session — the evidence for "did the user ask". */
+  recentUserTurns: string[];
+  command: string;
+}
+
 export const toolRiskSpec: DecisionSpec = defineDecision({
   id: TOOL_RISK_POINT_ID,
-  version: 1,
+  version: 2,
   questions: { 'risk.asked': ASKED_QUESTION },
-  buildState: (raw: unknown): { taskHint: string; command: string } => {
+  buildState: (raw: unknown): ToolRiskState => {
     // engine.decide passes the whole DecisionInput — unwrap `state`.
     const call = raw as { state?: unknown } | undefined;
     const input = ((call && typeof call === 'object' && 'state' in call ? call.state : raw) ??
-      {}) as Partial<{ taskHint: string; command: string }>;
+      {}) as Partial<ToolRiskState> & { recentUserTurns?: unknown };
+    const turns = Array.isArray(input.recentUserTurns)
+      ? input.recentUserTurns
+          .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+          .slice(-TOOL_RISK_RECENT_TURNS)
+          .map((t) => t.slice(0, TOOL_RISK_TURN_MAX))
+      : [];
     return {
-      taskHint: typeof input.taskHint === 'string' ? input.taskHint.slice(0, 200) : '',
+      taskHint:
+        typeof input.taskHint === 'string' ? input.taskHint.slice(0, TOOL_RISK_TASK_HINT_MAX) : '',
+      recentUserTurns: turns,
       command:
         typeof input.command === 'string' ? input.command.slice(0, TOOL_RISK_COMMAND_MAX) : '',
     };
@@ -84,6 +106,8 @@ export async function judgeToolRisk(input: {
   sessionId?: string;
   command: string;
   taskHint?: string;
+  /** Earlier user turns (oldest first) — usually `getRecentUserTurns(sessionId)`. */
+  recentUserTurns?: string[];
 }): Promise<JudgeToolRiskResult> {
   const engine = input.engine ?? currentJudgeEngine();
   if (!engine) return { asked: false };
@@ -92,6 +116,7 @@ export async function judgeToolRisk(input: {
   const verdict = await engine.decideMany(toolRiskSpec, {
     state: {
       taskHint: input.taskHint ?? '',
+      recentUserTurns: input.recentUserTurns ?? [],
       command: input.command.slice(0, TOOL_RISK_COMMAND_MAX),
     },
     sessionId: input.sessionId,

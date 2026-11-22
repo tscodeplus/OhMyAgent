@@ -38,6 +38,13 @@ export interface ForgetCandidate {
   firstLine: string;
   /** Result text (state keeps at most CONTEXT_FORGET_TEXT_MAX chars). */
   text: string;
+  /**
+   * What the user actually moved on to after this result (later user-turn
+   * snippets, oldest first). The question is "does the current task still need
+   * this?" — `ageTurns` alone only says HOW OLD it is, not what replaced it,
+   * which is why most calls hedged into the gray band.
+   */
+  afterHint?: string;
 }
 
 export interface ContextForgetState {
@@ -54,6 +61,8 @@ export const MAX_CANDIDATES_PER_CALL = 8;
 export const DROP_PROBABILITY = 0.9;
 /** Per-candidate text carried into the state. */
 export const CONTEXT_FORGET_TEXT_MAX = 1200;
+/** Chars of later-user-turn context carried per candidate. */
+export const CONTEXT_FORGET_AFTER_MAX = 240;
 const FIRST_LINE_MAX = 120;
 const TASK_HINT_MAX = 200;
 
@@ -102,7 +111,7 @@ export function createContextForgetSpec(candidates: ForgetCandidate[]): Decision
   for (const candidate of candidates) questions[candidate.key] = forgetNoul();
   return defineDecision({
     id: CONTEXT_FORGET_POINT_ID,
-    version: 1,
+    version: 2,
     questions,
     buildState: (raw: unknown): ContextForgetState => {
       // engine.decide passes the whole DecisionInput — unwrap `state`.
@@ -118,6 +127,11 @@ export function createContextForgetSpec(candidates: ForgetCandidate[]): Decision
           ageTurns: Number((c as ForgetCandidate)?.ageTurns ?? 0),
           firstLine: String((c as ForgetCandidate)?.firstLine ?? '').slice(0, FIRST_LINE_MAX),
           text: String((c as ForgetCandidate)?.text ?? '').slice(0, CONTEXT_FORGET_TEXT_MAX),
+          ...(typeof (c as ForgetCandidate)?.afterHint === 'string'
+            ? {
+                afterHint: (c as ForgetCandidate).afterHint!.slice(0, CONTEXT_FORGET_AFTER_MAX),
+              }
+            : {}),
         })),
       };
     },

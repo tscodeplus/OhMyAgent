@@ -163,6 +163,12 @@ export class JudgeEngine {
       const verdict = this.finish(spec, call, started, mode, {
         source: 'fallback',
         fallbackReason: reason,
+        // Gray escalation discards the answers it rejected; keep the ones that
+        // triggered it on the ledger line so the autopilot's gray rate is
+        // explainable without digging through the process log.
+        ...(reason === 'gray-zone' && run.grayAnswers
+          ? { grayAnswers: run.grayAnswers, grayKeys: run.grayKeys }
+          : {}),
       });
       if (run.tierFailures.length > 0) verdict.tierErrors = run.tierFailures;
       return verdict;
@@ -211,6 +217,9 @@ export class JudgeEngine {
     serviceFailure: boolean;
     parseRejected: boolean;
     gray: boolean;
+    /** Last tier's answers that tripped the gray zone (for the ledger). */
+    grayAnswers?: JudgeAnswerMap;
+    grayKeys?: string[];
     suspensionSkipped: boolean;
     aborted: boolean;
     tierFailures: VerdictTierFailure[];
@@ -240,6 +249,9 @@ export class JudgeEngine {
     let parseRejected = false;
     let gray = false;
     let suspensionSkipped = false;
+    /** Answers rejected only for landing in the gray zone (last tier tried). */
+    let grayAnswers: JudgeAnswerMap | undefined;
+    let grayKeys: string[] | undefined;
     /** Per-tier failure details, surfaced on the verdict for the caller (WebUI test). */
     const tierFailures: VerdictTierFailure[] = [];
 
@@ -266,6 +278,7 @@ export class JudgeEngine {
           serviceFailure,
           parseRejected,
           gray,
+          ...(grayAnswers ? { grayAnswers, grayKeys } : {}),
           suspensionSkipped,
           aborted: true,
           tierFailures,
@@ -316,6 +329,8 @@ export class JudgeEngine {
           'Judge answers in calibrated gray zone — escalating to the next tier',
         );
         gray = true;
+        grayAnswers = validate.valid;
+        grayKeys = validate.grayKeys;
         continue;
       }
 
@@ -336,12 +351,21 @@ export class JudgeEngine {
         serviceFailure,
         parseRejected,
         gray,
+        ...(grayAnswers ? { grayAnswers, grayKeys } : {}),
         suspensionSkipped,
         aborted: false,
         tierFailures,
       };
     }
-    return { serviceFailure, parseRejected, gray, suspensionSkipped, aborted: false, tierFailures };
+    return {
+      serviceFailure,
+      parseRejected,
+      gray,
+      ...(grayAnswers ? { grayAnswers, grayKeys } : {}),
+      suspensionSkipped,
+      aborted: false,
+      tierFailures,
+    };
   }
 
   /** classify() never rejects, but the injected tier / transport can — belt and braces. */
@@ -378,6 +402,10 @@ export class JudgeEngine {
       judgeId?: string;
       fallbackReason?: FallbackReason;
       answers?: JudgeAnswerMap;
+      /** Fallback only: the answers that landed in the gray zone. */
+      grayAnswers?: JudgeAnswerMap;
+      /** Fallback only: which of those answer keys were gray. */
+      grayKeys?: string[];
       usage?: { input: number; output: number };
     },
   ): Verdict {
@@ -416,6 +444,8 @@ export class JudgeEngine {
       usage: judgment.usage,
       mode,
       outcome,
+      ...(judgment.grayAnswers ? { grayAnswers: judgment.grayAnswers } : {}),
+      ...(judgment.grayKeys && judgment.grayKeys.length > 0 ? { grayKeys: judgment.grayKeys } : {}),
     };
 
     if (this.ledger && mode !== 'off') {
@@ -434,6 +464,8 @@ export class JudgeEngine {
         source: verdict.source,
         fallbackReason: verdict.fallbackReason,
         answers: verdict.answers,
+        ...(verdict.grayAnswers ? { grayAnswers: verdict.grayAnswers } : {}),
+        ...(verdict.grayKeys && verdict.grayKeys.length > 0 ? { grayKeys: verdict.grayKeys } : {}),
         ...(agree !== undefined ? { agree, outcome: judgedOutcome, floor: spec.fallback } : {}),
         latencyMs: verdict.latencyMs,
         usage: verdict.usage,

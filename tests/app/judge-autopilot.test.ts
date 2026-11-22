@@ -90,9 +90,17 @@ function judgedEntry(
   };
 }
 
+/**
+ * 45 healthy shadow entries: one divergence (required evidence) and 44
+ * agreements, which still clears the 90% Wilson lower bound.
+ */
+function healthyHistory(pointId: string, n = 45): Array<Record<string, unknown>> {
+  return Array.from({ length: n }, (_, i) => judgedEntry(pointId, i === 0 ? { agree: false } : {}));
+}
+
 describe('auditOnce', () => {
   it('promotes a gate-passing shadow point: config.yaml modes + managed state + hot reload', async () => {
-    seedLedger(Array.from({ length: 30 }, () => judgedEntry('memory.capture')));
+    seedLedger(healthyHistory('memory.capture'));
     const report = await auditOnce({
       ledgerDir,
       judge: appConfig().judge,
@@ -112,8 +120,8 @@ describe('auditOnce', () => {
   });
 
   it('demotes a managed active point whose window degraded, back to shadow', async () => {
-    // Promote first (30 healthy entries).
-    seedLedger(Array.from({ length: 30 }, () => judgedEntry('memory.capture')));
+    // Promote first (healthy shadow history).
+    seedLedger(healthyHistory('memory.capture'));
     await auditOnce({
       ledgerDir,
       judge: appConfig().judge,
@@ -184,5 +192,105 @@ describe('auditOnce', () => {
     expect(report.promote).toEqual([]);
     expect(report.report.length).toBeGreaterThan(0); // report shell still built
     void emptyStats;
+  });
+
+  it('records the last audit even when every point holds', async () => {
+    seedLedger(Array.from({ length: 2 }, () => judgedEntry('memory.capture')));
+    const report = await auditOnce({
+      ledgerDir,
+      judge: appConfig().judge,
+      getConfig: appConfig,
+      onConfigSaved: onConfigSaved as never,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    });
+    expect(report.promote).toEqual([]);
+    expect(report.lastRun?.ranAt).toBeTruthy();
+    // Persisted, so a later dry-run (the WebUI panel) can report it.
+    const state = JSON.parse(readFileSync(join(ledgerDir, 'autopilot.json'), 'utf8')) as {
+      managed: Record<string, unknown>;
+      lastRun?: { ranAt: string; promote: string[] };
+    };
+    expect(state.lastRun?.ranAt).toBe(report.lastRun?.ranAt);
+    expect(state.lastRun?.promote).toEqual([]);
+    expect(state.managed).toEqual({});
+  });
+
+  it('ignores history from a judge the current chain no longer uses', async () => {
+    // The chain is what the WebUI writes (and what the resolver names judges
+    // after): entries from any other judge must not vouch for it.
+    writeFileSync(
+      configPath,
+      [
+        'judge:',
+        '  enabled: true',
+        '  chain:',
+        '    - mock/mock-1',
+        '  modes:',
+        '    default: shadow',
+        '    memory.capture: shadow',
+        '  features:',
+        '    test_log_fold: "off"',
+        '',
+      ].join('\n'),
+    );
+    // 30 perfect samples, but all from a retired judge → they cannot vouch for
+    // the configured mock/mock-1 chain, so the point must hold at 0 samples.
+    seedLedger(
+      healthyHistory('memory.capture').map((e) => ({
+        ...e,
+        judgeId: 'retired/m0',
+        ts: new Date().toISOString(),
+      })),
+    );
+    const report = await auditOnce({
+      ledgerDir,
+      judge: appConfig().judge,
+      getConfig: appConfig,
+      onConfigSaved: onConfigSaved as never,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    });
+    expect(report.promote).toEqual([]);
+    const point = report.report.find((r) => r.pointId === 'memory.capture')!;
+    expect(point.stats.total).toBe(0);
+    expect(point.reasons.map((r) => r.code)).toContain('samples');
+    expect(point.reasons.map((r) => r.message).join(' | ')).toContain('samples 0 < 30');
+  });
+
+  it('persists the managed map and lastRun BEFORE the hot reload fires', async () => {
+    seedLedger(healthyHistory('memory.capture'));
+    // Once config.yaml says "active", the managed map that earns a future
+    // demotion must already be on disk — so the hook below asserts it exists at
+    // the moment the reload is announced.
+    let stateAtReload: { managed?: Record<string, unknown>; lastRun?: { promote?: string[] } } = {};
+    const onConfigSavedAtReload = vi.fn(() => {
+      stateAtReload = JSON.parse(readFileSync(join(ledgerDir, 'autopilot.json'), 'utf8'));
+    });
+    const report = await auditOnce({
+      ledgerDir,
+      judge: appConfig().judge,
+      getConfig: appConfig,
+      onConfigSaved: onConfigSavedAtReload as never,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    });
+    expect(report.promote).toContain('memory.capture');
+    expect(stateAtReload.managed?.['memory.capture']).toBeTruthy();
+    expect(stateAtReload.lastRun?.promote).toEqual(['memory.capture']);
+  });
+
+  it('records a failed audit instead of failing silently', async () => {
+    seedLedger(healthyHistory('memory.capture'));
+    const deps = {
+      ledgerDir,
+      judge: appConfig().judge,
+      getConfig: appConfig,
+      onConfigSaved: onConfigSaved as never,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    };
+    const { recordAuditFailure } = await import('../../src/app/judge-autopilot.js');
+    recordAuditFailure(deps, new Error('config.yaml is read-only'));
+    const state = JSON.parse(readFileSync(join(ledgerDir, 'autopilot.json'), 'utf8')) as {
+      lastRun?: { error?: string };
+    };
+    expect(state.lastRun?.error).toContain('read-only');
   });
 });

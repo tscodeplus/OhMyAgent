@@ -14,17 +14,31 @@ import type { AppConfig } from './types.js';
 import type { JudgeSectionConfig, JudgeMode } from '../judge/types.js';
 import {
   collectLedger,
+  PROMOTION_WINDOW_DAYS,
   runAudit,
   type AuditDecision,
   type LedgerLike,
   type PointStats,
 } from '../judge/autopilot.js';
+import { judgeIdsForChain } from '../judge/judge-resolver.js';
 import { loadConfig } from './config.js';
 import { mutateConfigYaml, readConfigObject, applyConfigObject } from './webui/yaml-mutation.js';
 
 /** Durable record of what the autopilot manages (survives restarts). */
 interface AutopilotState {
   managed: Record<string, { promotedAt: string; demotedAt?: string }>;
+  /**
+   * Last completed audit — written on EVERY applied pass, including an
+   * all-hold one. Without it, "why is this point still shadow" was only
+   * answerable from the process log.
+   */
+  lastRun?: {
+    ranAt: string;
+    promote?: string[];
+    demote?: string[];
+    /** Set when the audit itself failed (e.g. config.yaml not writable). */
+    error?: string;
+  };
 }
 
 /** Structural logger subset — accepts pino Logger or FastifyBaseLogger. */
@@ -59,7 +73,10 @@ function readState(dir: string): AutopilotState {
   try {
     const raw = JSON.parse(readFileSync(join(dir, STATE_FILE), 'utf8')) as AutopilotState;
     if (raw && typeof raw.managed === 'object' && raw.managed !== null)
-      return { managed: raw.managed };
+      return {
+        managed: raw.managed,
+        ...(raw.lastRun && typeof raw.lastRun.ranAt === 'string' ? { lastRun: raw.lastRun } : {}),
+      };
   } catch {
     /* first run / corrupt file → start empty */
   }
@@ -90,6 +107,8 @@ export interface AutopilotReport {
   demote: string[];
   managed: Record<string, { promotedAt: string; demotedAt?: string }>;
   report: Awaited<ReturnType<typeof runAudit>>['report'];
+  /** Last APPLIED audit (dry runs report it, never update it). */
+  lastRun?: AutopilotState['lastRun'];
 }
 
 /** One audit pass — used by the interval timer, the manual trigger route and
@@ -100,20 +119,23 @@ export async function auditOnce(
 ): Promise<AutopilotReport> {
   const apply = opts?.apply ?? true;
   const now = deps.now ?? (() => Date.now());
-  const judgeNow = deps.getConfig().judge;
-  if (!judgeNow?.enabled) {
+  // One snapshot per pass: modes, chain identity and the ledger filter must all
+  // come from the same config, or a hot reload mid-audit mixes two policies.
+  const appConfig = deps.getConfig();
+  if (!appConfig.judge?.enabled) {
     // Kernel disabled (hot-reload race or user off-switch): complete no-op —
     // never touch modes behind a globally disabled kernel.
+    const state = readState(deps.ledgerDir);
     return {
       ranAt: new Date(now()).toISOString(),
       promote: [],
       demote: [],
-      managed: readState(deps.ledgerDir).managed,
+      managed: state.managed,
       report: [],
+      ...(state.lastRun ? { lastRun: state.lastRun } : {}),
     };
   }
-  const { stats, entries } = collectLedger(deps.ledgerDir);
-  const appConfig = deps.getConfig();
+  const { stats, entries } = collectLedger(deps.ledgerDir, promotionFilter(appConfig, now()));
   const current = effectiveModes(appConfig.judge);
   const state = readState(deps.ledgerDir);
   const decision: AuditDecision = runAudit({
@@ -131,6 +153,7 @@ export async function auditOnce(
       demote: decision.demote,
       managed: state.managed,
       report: decision.report,
+      ...(state.lastRun ? { lastRun: state.lastRun } : {}),
     };
   }
 
@@ -166,10 +189,18 @@ export async function auditOnce(
     });
   }
 
+  // Written on every applied pass, changed or not: the WebUI's "last audit"
+  // line and the per-point reasons are the whole point of this file. Written
+  // BEFORE the hot reload on purpose — once config.yaml says "active", the
+  // managed map that earns a future demotion must already be on disk.
+  const lastRun = {
+    ranAt: new Date(now()).toISOString(),
+    promote: decision.promote,
+    demote: decision.demote,
+  };
+  writeState(deps.ledgerDir, { managed: nextManaged, lastRun }, deps.logger);
+
   if (configChanged) {
-    writeState(deps.ledgerDir, { managed: nextManaged }, deps.logger);
-    // Same hot-reload path the WebUI judge routes use — rebuilds the engine
-    // with the new modes without a process restart.
     deps.onConfigSaved(loadConfig());
   }
 
@@ -181,7 +212,9 @@ export async function auditOnce(
           decision: point.decision,
           samples: point.stats.total,
           comparable: point.stats.comparable,
-          reasons: point.reasons,
+          // One line per point: the English text is the log's own rendering of
+          // the structured reasons the WebUI localizes.
+          reasons: point.reasons.map((r) => r.message),
         },
         `Judge autopilot ${point.decision}d decision point`,
       );
@@ -194,7 +227,45 @@ export async function auditOnce(
     demote: decision.demote,
     managed: nextManaged,
     report: decision.report,
+    lastRun,
   };
+}
+
+/**
+ * Which ledger entries the promotion audit may count: only the last
+ * {@link PROMOTION_WINDOW_DAYS} days and only judges the CURRENT chain can
+ * produce. A provider/model swap therefore retires the old history instead of
+ * letting it vouch for the new model; fallback lines (no judgeId) always stay.
+ */
+function promotionFilter(
+  appConfig: AppConfig,
+  now: number,
+): { sinceMs: number; judgeIds?: Set<string> } {
+  const judgeIds = judgeIdsForChain(appConfig.judge);
+  return {
+    sinceMs: now - PROMOTION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    ...(judgeIds ? { judgeIds } : {}),
+  };
+}
+
+/** Record a failed audit so the WebUI can show it instead of silence. */
+export function recordAuditFailure(
+  deps: AutopilotDeps,
+  err: unknown,
+  at = deps.now?.() ?? Date.now(),
+): void {
+  const state = readState(deps.ledgerDir);
+  writeState(
+    deps.ledgerDir,
+    {
+      managed: state.managed,
+      lastRun: {
+        ranAt: new Date(at).toISOString(),
+        error: err instanceof Error ? err.message : String(err),
+      },
+    },
+    deps.logger,
+  );
 }
 
 /**
@@ -207,22 +278,15 @@ export function startJudgeAutopilot(deps: AutopilotDeps): () => void {
     return () => {};
   }
   const intervalMs = deps.intervalMs ?? 6 * 60 * 60 * 1000;
+  const runAuditPass = () =>
+    void auditOnce(deps).catch((err: unknown) => {
+      recordAuditFailure(deps, err);
+      deps.logger.warn({ err }, 'Judge autopilot audit failed');
+    });
   // First pass shortly after boot: existing shadow history may already satisfy
   // the gates (e.g. after an offline evaluation period).
-  const initial = setTimeout(
-    () =>
-      void auditOnce(deps).catch((err: unknown) =>
-        deps.logger.warn({ err }, 'Judge autopilot audit failed'),
-      ),
-    30_000,
-  );
-  const timer = setInterval(
-    () =>
-      void auditOnce(deps).catch((err: unknown) =>
-        deps.logger.warn({ err }, 'Judge autopilot audit failed'),
-      ),
-    intervalMs,
-  );
+  const initial = setTimeout(runAuditPass, 30_000);
+  const timer = setInterval(runAuditPass, intervalMs);
   timer.unref?.();
   initial.unref?.();
   deps.logger.info(

@@ -150,6 +150,20 @@ describe('validateAnswers', () => {
     });
     expect(Object.keys(result.valid)).toEqual(['keep']);
     expect(result.anyGray).toBe(true);
+    // The ledger keeps WHICH key hedged, not just that something did.
+    expect(result.grayKeys).toEqual(['keep']);
+  });
+
+  it('names every gray key in a batch', () => {
+    const result = validateAnswers(
+      { k1: noul('k1?'), k2: noul('k2?'), k3: noul('k3?') },
+      {
+        k1: { type: 'bool', probability: 0.1 },
+        k2: { type: 'bool', probability: 0.42 },
+        k3: { type: 'bool', probability: 0.9 },
+      },
+    );
+    expect(result.grayKeys).toEqual(['k2']);
   });
 
   it('all valid and clear → anyGray false', () => {
@@ -159,5 +173,6 @@ describe('validateAnswers', () => {
     );
     expect(result.valid).toEqual({ keep: { type: 'noul', probability: 0.99 } });
     expect(result.anyGray).toBe(false);
+    expect(result.grayKeys).toEqual([]);
   });
 });

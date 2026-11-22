@@ -230,6 +230,22 @@ describe('JudgeEngine — gray-zone cascade', () => {
     expect(verdict.fallbackReason).toBe('gray-zone');
     expect(verdict.source).toBe('fallback');
     expect(breaker.state('tool.admission').consecutiveFailures).toBe(0);
+    // The rejected answers are kept so the autopilot's gray rate is
+    // explainable: which key hedged, and at what probability.
+    expect(verdict.grayKeys).toEqual(['q_keep']);
+    expect(verdict.grayAnswers?.q_keep).toEqual({ type: 'noul', probability: 0.5 });
+    const rec = engine.ledger.recent(1)[0]!;
+    expect(rec.grayKeys).toEqual(['q_keep']);
+    expect(rec.grayAnswers?.q_keep).toEqual({ type: 'noul', probability: 0.5 });
+    expect(rec.answers).toEqual({});
+  });
+
+  it('a judged call carries no gray payload', async () => {
+    const resolver = createMockResolver({ judgeId: 'mock/j1', answers: CLEAR(0.95, 0.95) });
+    const engine = new JudgeEngine({ config: mockJudgeConfig(), resolver, ledger: makeLedger() });
+    const verdict = await engine.decide(makeSpec());
+    expect(verdict.grayKeys).toBeUndefined();
+    expect(engine.ledger.recent(1)[0]!.grayKeys).toBeUndefined();
   });
 
   it('gray on tier 1 escalates to tier 2', async () => {

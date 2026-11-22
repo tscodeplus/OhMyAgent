@@ -26,6 +26,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { estimateMessageTokensCached } from '../../agent/compress.js';
 import {
+  CONTEXT_FORGET_AFTER_MAX,
   CONTEXT_FORGET_POINT_ID,
   forgetTombstoneLine,
   MAX_CANDIDATES_PER_CALL,
@@ -71,6 +72,30 @@ function ageTurnsAt(messages: AgentMessage[], index: number): number {
     if (messages[i]?.role === 'user') turns += 1;
   }
   return turns;
+}
+
+/** How many later user turns the candidate's `afterHint` summarizes. */
+const AFTER_HINT_TURNS = 2;
+const AFTER_HINT_SNIPPET = 120;
+
+/**
+ * What the user moved on to after this result: the first snippet of the next
+ * couple of user messages. This is the missing half of the judged state —
+ * `ageTurns` says how old a result is, this says whether the work continued
+ * elsewhere (so the full text is dead weight) or came back to it.
+ */
+function afterHintAt(messages: AgentMessage[], index: number): string | undefined {
+  const snippets: string[] = [];
+  for (let i = index + 1; i < messages.length && snippets.length < AFTER_HINT_TURNS; i++) {
+    const message = messages[i];
+    if (!message || message.role !== 'user') continue;
+    const text = messageText(message).replace(/\s+/gu, ' ').trim();
+    if (text) snippets.push(text.slice(0, AFTER_HINT_SNIPPET));
+  }
+  if (snippets.length === 0) return undefined;
+  // Same cap the spec's buildState applies, so the hint is never silently
+  // truncated mid-sentence downstream.
+  return snippets.join(' → ').slice(0, CONTEXT_FORGET_AFTER_MAX);
 }
 
 export interface JudgedForgetEntry {
@@ -120,6 +145,7 @@ export async function judgeContextForget(input: {
     const sizeTokens = estimateMessageTokensCached(message);
     if (sizeTokens < MIN_CANDIDATE_TOKENS) continue;
     const firstLine = text.split('\n')[0] ?? '';
+    const afterHint = afterHintAt(input.messages, i);
     const candidate: ForgetCandidate = {
       key: `k${candidates.length + 1}`,
       tool: message.toolName ?? 'tool',
@@ -127,6 +153,7 @@ export async function judgeContextForget(input: {
       ageTurns: ageTurnsAt(input.messages, i),
       firstLine,
       text,
+      ...(afterHint ? { afterHint } : {}),
     };
     candidates.push({ key: candidate.key, index: i, info: candidate });
   }

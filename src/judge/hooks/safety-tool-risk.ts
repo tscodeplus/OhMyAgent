@@ -20,7 +20,7 @@
 
 import { assessCommandRisk } from '../../tools/shell-command-policy.js';
 import { TOOL_RISK_POINT_ID, judgeToolRisk } from '../decisions/tool-risk.js';
-import { getTurnTaskHint } from '../../agent/agent-context.js';
+import { getRecentUserTurns, getTurnTaskHint } from '../../agent/agent-context.js';
 import type { JudgeEngine } from '../engine.js';
 
 export interface TightenToolRiskInput {
@@ -64,6 +64,10 @@ export async function maybeTightenShellApproval(input: TightenToolRiskInput): Pr
       sessionId: input.sessionId,
       command,
       taskHint: input.sessionId ? getTurnTaskHint(input.sessionId) : undefined,
+      // The point's question is about the SESSION, not this turn: without the
+      // earlier user messages the state cannot answer it, and the judge hedges
+      // into the gray band on almost every call.
+      recentUserTurns: input.sessionId ? getRecentUserTurns(input.sessionId) : [],
     });
     if (judgedRisk.tighten) {
       input.logger?.info(

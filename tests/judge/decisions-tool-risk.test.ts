@@ -84,8 +84,26 @@ describe('tool.risk buildState caps', () => {
     });
     expect(built).toEqual({
       taskHint: 't'.repeat(200),
+      recentUserTurns: [],
       command: 'c'.repeat(TOOL_RISK_COMMAND_MAX),
     });
+  });
+
+  it('carries the last user turns (the evidence for "did the user ask")', () => {
+    const built = toolRiskSpec.buildState?.({
+      state: {
+        taskHint: 'current turn',
+        recentUserTurns: ['one', 'two', 'three', 'four', 'five', 'six'],
+        command: 'rm -rf build',
+      },
+    }) as { recentUserTurns: string[] };
+    // Oldest dropped, newest kept — the point is about the SESSION.
+    expect(built.recentUserTurns).toEqual(['three', 'four', 'five', 'six']);
+    // Junk entries never reach the wire.
+    const filtered = toolRiskSpec.buildState?.({
+      state: { recentUserTurns: ['', '  ', 'kept'] },
+    }) as { recentUserTurns: string[] };
+    expect(filtered.recentUserTurns).toEqual(['kept']);
   });
 });
 
@@ -140,6 +158,21 @@ describe('judgeToolRisk hook (real engine + mock judge)', () => {
     });
     const result = await judgeToolRisk({ engine, command: RISKY });
     expect(result.tighten).toBeUndefined();
+  });
+
+  it('passes recentUserTurns into the judged state', async () => {
+    const { engine, calls } = makeEngine('shadow', {
+      answers: { 'risk.asked': { type: 'noul', probability: 0.9 } },
+    });
+    await judgeToolRisk({
+      engine,
+      command: RISKY,
+      taskHint: 'clean the build cache',
+      recentUserTurns: ['earlier: please wipe the build dir', 'now: go ahead'],
+    });
+    expect(calls[0]!.context.state).toMatchObject({
+      recentUserTurns: ['earlier: please wipe the build dir', 'now: go ahead'],
+    });
   });
 
   it('state carries the task hint and capped command text', async () => {

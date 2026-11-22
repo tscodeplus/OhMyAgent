@@ -11,7 +11,12 @@ import type { AgentTurnContext } from './agent-factory.js';
 import { i18n } from '../i18n/i18n-service.js';
 import type { Agent } from '../pi-mono/agent/agent.js';
 import type { AgentEvent, AgentMessage } from '../pi-mono/agent/types.js';
-import { setSessionAgent, clearSessionAgent, setTurnTaskHint } from './agent-context.js';
+import {
+  setSessionAgent,
+  clearSessionAgent,
+  setTurnTaskHint,
+  clearTurnContext,
+} from './agent-context.js';
 import { MAX_CONTEXT_MESSAGES } from './context-transform.js';
 import { resetTurnDrift } from '../judge/decisions/turn-drift.js';
 import {
@@ -1558,6 +1563,8 @@ export class AgentService {
     runtime.persistedMessageCount = 0;
     this.sessionAgentMap.delete(sessionId);
     clearSessionAgent(sessionId);
+    // The cleared transcript must not keep feeding the judge's turn state.
+    clearTurnContext(sessionId);
     this.clearedSessions.add(sessionId);
     // A cleared conversation has no compressed past either: keeping the stored
     // summary would hand the next cold reload everything the clear just dropped.

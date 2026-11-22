@@ -225,9 +225,16 @@ describe('judgeContextForget hook', () => {
     expect(result.entries![1].tombstone).toContain('r3');
     // one batched decideMany over all three nominees, state billed once
     expect(calls).toHaveLength(1);
-    const state = calls[0]!.context.state as { taskHint: string; candidates: unknown[] };
+    const state = calls[0]!.context.state as {
+      taskHint: string;
+      candidates: Array<{ key: string; afterHint?: string }>;
+    };
     expect(state.taskHint).toBe('continue the refactor');
     expect(state.candidates).toHaveLength(3);
+    // Each candidate carries what the user moved on to afterwards — the
+    // question is "is this still needed", not "how old is it".
+    expect(state.candidates[0]!.afterHint).toBeTruthy();
+    expect(state.candidates[0]!.afterHint).not.toContain(bigResultText('r1'));
   });
 
   it('nomination rules: errors, small results and the current turn are never nominated', async () => {

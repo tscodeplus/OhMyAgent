@@ -105,6 +105,48 @@ export function judgeIdOf(ref: ParsedJudgeRef): string {
   return `${ref.provider}/${ref.modelId}`;
 }
 
+/**
+ * The `judgeId` values the CURRENT config can produce, for ledger filtering.
+ * Mirrors JudgeModelResolver naming: `judges.<name>` refs answer as `<name>`,
+ * plain refs as `<provider>/<model>`. Bare provider ids (model-less WebUI
+ * groups), empty entries and unparseable refs contribute nothing — the
+ * resolver drops those from the chain, so they never produced a ledger line.
+ *
+ * Returns `undefined` when nothing resolvable is configured, which callers read
+ * as "no filter" (never attribute every historical entry to nobody).
+ */
+export function judgeIdsForChain(
+  judge: import('./types.js').JudgeSectionConfig | undefined,
+): Set<string> | undefined {
+  if (!judge) return undefined;
+  const raw: string[] = [
+    ...(judge.chain && judge.chain.length > 0
+      ? judge.chain
+      : [
+          judge.provider && judge.modelRef ? `${judge.provider}/${judge.modelRef}` : '',
+          ...(judge.fallbackTiers ?? []),
+        ]),
+    ...(judge.fallbackTiers ?? []),
+    ...Object.values(judge.routes ?? {}).flat(),
+  ];
+  const ids = new Set<string>();
+  for (const entry of raw) {
+    const ref = typeof entry === 'string' ? entry.trim() : '';
+    if (!ref) continue;
+    if (ref.startsWith('judges.')) {
+      const name = ref.slice('judges.'.length);
+      if (name) ids.add(name);
+      continue;
+    }
+    try {
+      ids.add(judgeIdOf(parseJudgeRef(ref)));
+    } catch {
+      /* invalid ref → dropped from the chain by the resolver as well */
+    }
+  }
+  return ids.size > 0 ? ids : undefined;
+}
+
 /** Providers/refs that need no provider key (free tier, local classifier server). */
 function isKeylessRef(provider: string, modelId: string): boolean {
   if (provider === 'opencode' && modelId === FREE_JEV_MODEL_ID) return true;

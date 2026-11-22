@@ -166,9 +166,50 @@ function normalizeJudgeConfigPayload(data: JudgeConfigPayload): JudgeConfigPaylo
 interface AutopilotPointReport {
   pointId: string;
   mode: 'active' | 'shadow' | 'off';
-  stats: { total: number; judged: number; gray: number; comparable: number; agreed: number };
+  stats: {
+    total: number;
+    judged: number;
+    gray: number;
+    comparable: number;
+    agreed: number;
+    /** Per answer key (newer servers only): answered vs gray sightings. */
+    keyStats?: Record<string, { answered: number; gray: number }>;
+    /** Gray calls where at least one sibling key was confident. */
+    partialGray?: number;
+  };
   decision: 'promote' | 'demote' | 'hold';
-  reasons: string[];
+  /** Structured gate verdicts — localized client-side by `code` + `params`. */
+  reasons: AutopilotGateReason[];
+}
+
+/** One failed gate condition (mirrors GateReason in src/judge/autopilot.ts). */
+interface AutopilotGateReason {
+  code: string;
+  /** English one-liner, used as the i18n defaultValue. */
+  message: string;
+  params?: Record<string, number | string>;
+}
+
+/** Localized gate verdict text; unknown codes fall back to the server message. */
+function gateReasonText(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  reason: AutopilotGateReason,
+): string {
+  return t(`settings.judge.gateReason.${reason.code}`, {
+    ...(reason.params ?? {}),
+    defaultValue: reason.message,
+  });
+}
+
+/** `k2 12/12 · k1 3/12` — the keys that actually tripped the gray band. */
+function grayKeyDetail(stats: AutopilotPointReport['stats']): string | undefined {
+  const entries = Object.entries(stats.keyStats ?? {}).filter(([, v]) => v.gray > 0);
+  if (entries.length === 0) return undefined;
+  return entries
+    .sort((a, b) => b[1].gray - a[1].gray)
+    .slice(0, 3)
+    .map(([key, v]) => `${key} ${v.gray}/${v.answered}`)
+    .join(' · ');
 }
 
 /** GET /api/judge/autopilot — read-only telemetry behind the judges tab's
@@ -179,6 +220,8 @@ interface AutopilotTelemetry {
   demote: string[];
   managed: Record<string, { promotedAt: string; demotedAt?: string }>;
   report: AutopilotPointReport[];
+  /** Last APPLIED audit (this response is a dry run, so `ranAt` above is not it). */
+  lastRun?: { ranAt: string; promote?: string[]; demote?: string[]; error?: string };
 }
 
 /** Actions handle handed back to ModelSettings for the shared save/cancel bar. */
@@ -1942,6 +1985,26 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                 <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                   {t('settings.judge.autopilotHint')}
                 </p>
+                {/* Last applied audit: without it an all-hold pass is silent
+                    and "why is it still shadow" needs the process log. */}
+                {autopilotReport?.lastRun && (
+                  <p
+                    className={`text-[11px] ${
+                      autopilotReport.lastRun.error
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-neutral-500 dark:text-neutral-400'
+                    }`}
+                  >
+                    {autopilotReport.lastRun.error
+                      ? t('settings.judge.autopilotLastError', {
+                          time: new Date(autopilotReport.lastRun.ranAt).toLocaleString(),
+                          error: autopilotReport.lastRun.error,
+                        })
+                      : t('settings.judge.autopilotLastRun', {
+                          time: new Date(autopilotReport.lastRun.ranAt).toLocaleString(),
+                        })}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1965,6 +2028,7 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                     {JUDGE_POINT_IDS.map((id) => {
                       const point = autopilotReport.report.find((r) => r.pointId === id);
                       const stats = point?.stats;
+                      const grayDetail = stats ? grayKeyDetail(stats) : undefined;
                       return (
                         <div
                           key={id}
@@ -1977,6 +2041,30 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                             <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                               {t(`settings.judge.points.${id.replace('.', '-')}.desc`)}
                             </p>
+                            {/* Why the gate still holds the point — localized
+                                by reason code, so "100% agreement but still
+                                shadow" is self-explaining. */}
+                            {point && point.reasons.length > 0 && (
+                              <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-400">
+                                {t('settings.judge.autopilotBlockers', {
+                                  reasons: point.reasons
+                                    .map((r) => gateReasonText(t, r))
+                                    .join(' · '),
+                                })}
+                              </p>
+                            )}
+                            {grayDetail && (
+                              <p className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+                                {stats?.partialGray
+                                  ? t('settings.judge.autopilotGrayDetailPartial', {
+                                      detail: grayDetail,
+                                      partial: stats.partialGray,
+                                    })
+                                  : t('settings.judge.autopilotGrayDetail', {
+                                      detail: grayDetail,
+                                    })}
+                              </p>
+                            )}
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
                             {stats && (
@@ -1986,10 +2074,14 @@ export default function JudgeSettings({ registerActions, onDirtyChange }: JudgeS
                                       agreement: Math.round(
                                         (stats.agreed / stats.comparable) * 100,
                                       ),
+                                      comparable: stats.comparable,
                                       samples: stats.total,
                                     })
                                   : t('settings.judge.autopilotSamples', {
                                       samples: stats.total,
+                                      grayRate: stats.total
+                                        ? Math.round((stats.gray / stats.total) * 100)
+                                        : 0,
                                     })}
                               </span>
                             )}
