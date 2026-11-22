@@ -11,7 +11,7 @@ export {
 	validateMcpServerConfig,
 } from "./config.js";
 export { normalizeMcpInputSchema } from "./input-schema.js";
-export { createMcpToolName, mcpNamespace } from "./naming.js";
+export { createMcpToolName, mcpNamespace, mcpServerSummary } from "./naming.js";
 export {
 	type LimitedMcpContent,
 	limitMcpContent,
