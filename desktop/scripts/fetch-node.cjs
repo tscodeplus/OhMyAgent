@@ -51,15 +51,24 @@ const PKG = {
 };
 
 function unzip(zip, dest) {
-  // Node ≥ 20.18 can extract zip via zlib? No — use system unzip or PowerShell on Windows.
+  // No PowerShell: a child spawned from a pwsh parent inherits pwsh's
+  // PSModulePath, so Windows PowerShell 5.1 loads PowerShell 7's Archive module,
+  // whose ExtractToDirectory(src, dest, overwrite) overload does not exist in
+  // .NET Framework — "Cannot find an overload ... argument count: 3", and the
+  // Windows leg dies after the download has already succeeded.
+  // Windows ships bsdtar as %SystemRoot%\System32\tar.exe and it reads zip, so
+  // name it explicitly: a bare `tar` may resolve to a GNU tar earlier in PATH
+  // (Git for Windows, MSYS2), which cannot open a zip at all.
   if (process.platform === 'win32') {
-    const ps = `Expand-Archive -Path '${zip}' -DestinationPath '${dest}' -Force`;
-    const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', ps], { stdio: 'inherit' });
-    if (r.status !== 0) throw new Error('powershell Expand-Archive failed');
-  } else {
-    const r = spawnSync('unzip', ['-o', zip, '-d', dest], { stdio: 'inherit' });
-    if (r.status !== 0) throw new Error('unzip failed');
+    const systemTar = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+    const bin = fs.existsSync(systemTar) ? systemTar : 'tar';
+    const r = spawnSync(bin, ['-xf', zip, '-C', dest], { stdio: 'inherit' });
+    if (r.error) throw new Error(`tar failed: ${r.error.message}`);
+    if (r.status !== 0) throw new Error(`tar failed to extract ${path.basename(zip)}`);
+    return;
   }
+  const r = spawnSync('unzip', ['-o', zip, '-d', dest], { stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('unzip failed');
 }
 
 function untar(tgz, dest) {
